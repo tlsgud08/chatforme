@@ -3,14 +3,27 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import type { Work } from '@/types/db';
 
-async function fetchWorks(): Promise<Work[]> {
-  const { data, error } = await supabase
+async function fetchWorks(): Promise<(Work & { creator_name: string })[]> {
+  const { data: works, error } = await supabase
     .from('works')
     .select('*')
     .eq('is_published', true)
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return data as Work[];
+  if (!works || works.length === 0) return [];
+
+  const creatorIds = [...new Set((works as Work[]).map((w) => w.creator_id))];
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, display_name')
+    .in('id', creatorIds);
+
+  const nameMap: Record<string, string> = {};
+  for (const p of profiles ?? []) {
+    nameMap[p.id] = p.display_name || '알 수 없음';
+  }
+
+  return (works as Work[]).map((w) => ({ ...w, creator_name: nameMap[w.creator_id] ?? '알 수 없음' }));
 }
 
 export default function WorksPage() {
@@ -33,7 +46,7 @@ export default function WorksPage() {
             </div>
             <div className="min-w-0">
               <p className="truncate font-semibold text-white">{w.title || '(제목 없음)'}</p>
-              <p className="line-clamp-2 text-sm text-slate-400">{w.description}</p>
+              <p className="text-sm text-slate-400">by {w.creator_name}</p>
             </div>
           </Link>
         </li>

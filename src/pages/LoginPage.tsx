@@ -29,7 +29,7 @@ export default function LoginPage() {
   return (
     <div className="mx-auto flex h-full max-w-app flex-col justify-center gap-6 p-6">
       <div className="text-center">
-        <h1 className="text-2xl font-bold text-white">ChatForMe</h1>
+        <h1 className="text-2xl font-bold text-white">Nekochat</h1>
         <p className="mt-1 text-sm text-slate-400">AI 롤플레잉 채팅</p>
       </div>
 
