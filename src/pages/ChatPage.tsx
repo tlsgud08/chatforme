@@ -7,32 +7,21 @@ import { generate } from '@/lib/llm';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
 import { assemblePrompt } from '@/lib/prompt/assemble';
 import {
-  guestGetSession,
-  guestAddMessage,
-  guestUpdateSession,
-  guestUpdateMessage,
-  type GuestSession,
-  type GuestMessage,
+  guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage,
+  type GuestSession, type GuestMessage,
 } from '@/lib/guest';
-import type { Message, Persona, Profile, Session, Work } from '@/types/db';
+import type { Message, Persona, Profile, Session, StartConfig, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
 
 const GUEST_SETTINGS_KEY = 'nekochat.guest.settings';
-interface GuestSettings {
-  provider: 'claude' | 'gemini' | 'openai';
-  model: string;
-  outputTokens: number | null;
-}
+interface GuestSettings { provider: 'claude' | 'gemini' | 'openai'; model: string; outputTokens: number | null; }
 function loadGuestSettings(): GuestSettings {
-  try {
-    return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings;
-  } catch {
-    return { provider: 'claude', model: '', outputTokens: 1024 };
-  }
+  try { return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings; }
+  catch { return { provider: 'claude', model: '', outputTokens: 1024 }; }
 }
 
 function toMsg(m: GuestMessage): Message {
-  return { ...m, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0 };
+  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0 };
 }
 
 export default function ChatPage() {
@@ -45,20 +34,19 @@ export default function ChatPage() {
   const [work, setWork] = useState<Work | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [persona, setPersona] = useState<Persona | null>(null);
+  const [startConfig, setStartConfig] = useState<StartConfig | null>(null);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
   const [error, setError] = useState('');
-
-  // 메시지 편집
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 초기 로드
   useEffect(() => {
     if (isGuest) {
       const gs = guestGetSession(sessionId!);
@@ -93,13 +81,26 @@ export default function ChatPage() {
         const { data: pn } = await supabase.from('personas').select('*').eq('id', sess.persona_id).single();
         if (pn) setPersona(pn as Persona);
       }
+      if (sess.start_config_id) {
+        const { data: sc } = await supabase.from('start_configs').select('*').eq('id', sess.start_config_id).single();
+        if (sc) setStartConfig(sc as StartConfig);
+      }
     })();
   }, [sessionId, user, isGuest]);
 
-  // 자동 스크롤
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, sending]);
+
+  // 히스토리에서 keep_turns 초과한 숨김 메시지 제거
+  function buildHistory(allMsgs: Message[]) {
+    const userCount = allMsgs.filter((m) => m.role === 'user' && !m.is_hidden).length;
+    return allMsgs.filter((m) => {
+      if (m.is_hidden && startConfig) return userCount < startConfig.keep_turns;
+      if (m.is_hidden && !startConfig) return false;
+      return true;
+    });
+  }
 
   async function send() {
     if (!input.trim() || !work || sending) return;
@@ -107,37 +108,32 @@ export default function ChatPage() {
 
     const guestSettings = loadGuestSettings();
     const provider = isGuest ? (guestSettings.provider ?? 'claude') : (profile?.default_provider ?? 'claude');
-    const model = isGuest
-      ? (guestSettings.model || DEFAULT_MODELS[provider][0])
-      : (profile?.default_model || DEFAULT_MODELS[provider][0]);
+    const model = isGuest ? (guestSettings.model || DEFAULT_MODELS[provider][0]) : (profile?.default_model || DEFAULT_MODELS[provider][0]);
     const apiKey = getApiKey(provider);
-    if (!apiKey) {
-      setError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`);
-      return;
-    }
+    if (!apiKey) { setError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
 
     const text = input.trim();
     setInput('');
     setSending(true);
-
     const now = new Date().toISOString();
-    const turnIndex = messages.length;
+    const turnIndex = messages.filter((m) => !m.is_hidden).length;
 
     if (isGuest && guestSession) {
       const userMsg: GuestMessage = {
         id: crypto.randomUUID(), session_id: guestSession.id, role: 'user',
-        content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, created_at: now,
+        content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0,
+        is_hidden: false, created_at: now,
       };
       guestAddMessage(guestSession.id, userMsg);
-      const historyMsgs = [...messages];
+      const historyMsgs = buildHistory([...messages]);
       setMessages((m) => [...m, toMsg(userMsg)]);
 
       const assembled = assemblePrompt({
         systemPrompt, mainPrompt: work.main_prompt, userNote: guestSession.user_note,
-        summary: '', history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
+        summary: '',
+        history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
         latestUserMessage: text,
       });
-
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
       try {
         const result = await generate(provider, { apiKey, model, system: assembled.system, messages: assembled.messages, maxOutputTokens });
@@ -145,7 +141,7 @@ export default function ChatPage() {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
           content: result.text, turn_index: turnIndex,
           input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens,
-          created_at: new Date().toISOString(),
+          is_hidden: false, created_at: new Date().toISOString(),
         };
         guestAddMessage(guestSession.id, aiMsg);
         setMessages((m) => [...m, toMsg(aiMsg)]);
@@ -155,9 +151,7 @@ export default function ChatPage() {
         setGuestSession((gs) => gs ? { ...gs, total_input_tokens: newIn, total_output_tokens: newOut } : gs);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
-      } finally {
-        setSending(false);
-      }
+      } finally { setSending(false); }
       return;
     }
 
@@ -167,7 +161,7 @@ export default function ChatPage() {
       .from('messages')
       .insert({ session_id: session.id, role: 'user', content: text, turn_index: turnIndex })
       .select('*').single();
-    const historyMsgs = [...messages];
+    const historyMsgs = buildHistory([...messages]);
     if (userMsg) setMessages((m) => [...m, userMsg as Message]);
 
     const assembled = assemblePrompt({
@@ -176,7 +170,6 @@ export default function ChatPage() {
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: text,
     });
-
     const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
     try {
       const result = await generate(provider, { apiKey, model, system: assembled.system, messages: assembled.messages, maxOutputTokens });
@@ -197,9 +190,7 @@ export default function ChatPage() {
       setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
-    } finally {
-      setSending(false);
-    }
+    } finally { setSending(false); }
   }
 
   async function saveEdit(msgId: string) {
@@ -215,9 +206,8 @@ export default function ChatPage() {
   }
 
   const currentSession = isGuest ? guestSession : session;
-  const totalTokens = currentSession
-    ? currentSession.total_input_tokens + currentSession.total_output_tokens
-    : 0;
+  const totalTokens = currentSession ? currentSession.total_input_tokens + currentSession.total_output_tokens : 0;
+  const visibleMessages = messages.filter((m) => !m.is_hidden || debugMode);
 
   if (!currentSession || !work) {
     return <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>;
@@ -225,7 +215,6 @@ export default function ChatPage() {
 
   return (
     <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
-      {/* 상단바 */}
       <header className="flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
         <button onClick={() => navigate('/sessions')} className="text-slate-400">←</button>
         <button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 flex-1 text-left">
@@ -237,17 +226,19 @@ export default function ChatPage() {
         )}
       </header>
 
-      {/* 메시지 목록 */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4">
-        {messages.length === 0 && (
+        {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
         )}
         <div className="flex flex-col gap-3">
-          {messages.map((m) => (
+          {visibleMessages.map((m) => (
             <div
               key={m.id}
               className={`flex max-w-[85%] flex-col gap-1 ${m.role === 'user' ? 'self-end items-end' : 'self-start items-start'}`}
             >
+              {m.is_hidden && debugMode && (
+                <p className="text-[10px] text-amber-400">🔍 숨김 메시지</p>
+              )}
               {editingId === m.id ? (
                 <div className="flex w-full flex-col gap-1.5">
                   <textarea
@@ -258,59 +249,46 @@ export default function ChatPage() {
                     className="w-full resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-100 outline-none"
                   />
                   <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => setEditingId(null)}
-                      className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300"
-                    >
-                      취소
-                    </button>
-                    <button
-                      onClick={() => saveEdit(m.id)}
-                      className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white"
-                    >
-                      저장
-                    </button>
+                    <button onClick={() => setEditingId(null)} className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300">취소</button>
+                    <button onClick={() => saveEdit(m.id)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white">저장</button>
                   </div>
                 </div>
               ) : (
-                <div className="group relative">
-                  <div
-                    className={`whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                      m.role === 'user' ? 'bg-brand text-white' : 'bg-surface text-slate-100'
-                    }`}
-                  >
+                <>
+                  <div className={`whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                    m.is_hidden
+                      ? 'border border-amber-500/40 bg-surface text-amber-200'
+                      : m.role === 'user'
+                        ? 'bg-brand text-white'
+                        : 'bg-surface text-slate-100'
+                  }`}>
                     {m.content}
                   </div>
-                  {m.role === 'user' && (
+                  {m.role === 'user' && !m.is_hidden && (
                     <button
                       onClick={() => { setEditingId(m.id); setEditingContent(m.content); }}
-                      className="mt-1 self-end text-xs text-slate-500"
+                      className="text-xs text-slate-500"
                     >
                       편집
                     </button>
                   )}
-                </div>
+                </>
               )}
             </div>
           ))}
           {sending && (
-            <div className="self-start rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-400">
-              생각 중…
-            </div>
+            <div className="self-start rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-400">생각 중…</div>
           )}
         </div>
       </div>
 
       {error && <p className="px-3 py-1 text-xs text-amber-400">{error}</p>}
 
-      {/* 입력 */}
       <div className="flex items-end gap-2 border-t border-surface2 p-2">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-          }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           rows={1}
           placeholder="메시지 입력…"
           className="max-h-32 flex-1 resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm outline-none"
@@ -331,6 +309,8 @@ export default function ChatPage() {
           onClose={() => setMenuOpen(false)}
           onUpdate={(patch) => setSession((s) => (s ? { ...s, ...patch } : s))}
           onPersonaChange={(p) => setPersona(p)}
+          debugMode={debugMode}
+          onDebugToggle={setDebugMode}
         />
       )}
     </div>

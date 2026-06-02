@@ -3,11 +3,11 @@ import type { Message, Session, Work } from '@/types/db';
 
 const SESSIONS_KEY = 'nekochat.guest.sessions';
 
-export interface GuestMessage extends Pick<Message, 'id' | 'role' | 'content' | 'turn_index' | 'input_tokens' | 'output_tokens' | 'created_at'> {
+export interface GuestMessage extends Pick<Message, 'id' | 'role' | 'content' | 'turn_index' | 'input_tokens' | 'output_tokens' | 'is_hidden' | 'created_at'> {
   session_id: string;
 }
 
-export interface GuestSession extends Pick<Session, 'id' | 'work_id' | 'title' | 'user_note' | 'output_tokens_override' | 'total_input_tokens' | 'total_output_tokens' | 'created_at' | 'updated_at'> {
+export interface GuestSession extends Pick<Session, 'id' | 'work_id' | 'title' | 'user_note' | 'output_tokens_override' | 'start_config_id' | 'total_input_tokens' | 'total_output_tokens' | 'created_at' | 'updated_at'> {
   messages: GuestMessage[];
 }
 
@@ -39,6 +39,7 @@ export function guestCreateSession(work: Pick<Work, 'id' | 'title'>): GuestSessi
     title: work.title,
     user_note: '',
     output_tokens_override: null,
+    start_config_id: null,
     total_input_tokens: 0,
     total_output_tokens: 0,
     created_at: now,

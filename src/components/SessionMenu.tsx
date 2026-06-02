@@ -11,9 +11,11 @@ interface Props {
   onClose: () => void;
   onUpdate: (patch: Partial<Session>) => void;
   onPersonaChange: (persona: Persona | null) => void;
+  debugMode: boolean;
+  onDebugToggle: (v: boolean) => void;
 }
 
-export default function SessionMenu({ session, profile, onClose, onUpdate, onPersonaChange }: Props) {
+export default function SessionMenu({ session, profile, onClose, onUpdate, onPersonaChange, debugMode, onDebugToggle }: Props) {
   const { user } = useAuth();
   const [note, setNote] = useState(session.user_note);
   const [override, setOverride] = useState<number | null>(session.output_tokens_override);
@@ -145,6 +147,22 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
           >
             유저 노트 저장
           </button>
+        </section>
+
+        {/* 디버그 모드 */}
+        <section>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-300">디버그 모드</p>
+              <p className="text-xs text-slate-500">숨겨진 메시지를 채팅창에 표시</p>
+            </div>
+            <button
+              onClick={() => onDebugToggle(!debugMode)}
+              className={`relative h-6 w-11 rounded-full transition-colors ${debugMode ? 'bg-amber-500' : 'bg-surface2'}`}
+            >
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${debugMode ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
         </section>
 
         {savedMsg && <p className="text-center text-xs text-brand">{savedMsg}</p>}

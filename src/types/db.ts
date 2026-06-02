@@ -31,6 +31,17 @@ export interface Work {
   updated_at: string;
 }
 
+export interface StartConfig {
+  id: string;
+  work_id: string;
+  name: string;
+  initial_message: string;
+  initial_context: string;
+  keep_turns: number;
+  sort_order: number;
+  created_at: string;
+}
+
 export interface KeywordBook {
   id: string;
   work_id: string;
@@ -56,6 +67,7 @@ export interface Session {
   work_id: string;
   title: string;
   persona_id: string | null;
+  start_config_id: string | null;
   user_note: string;
   output_tokens_override: number | null;
   summary: string;
@@ -73,6 +85,7 @@ export interface Message {
   turn_index: number;
   input_tokens: number;
   output_tokens: number;
+  is_hidden: boolean;
   is_summarized: boolean;
   created_at: string;
 }
