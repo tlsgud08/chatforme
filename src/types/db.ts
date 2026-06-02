@@ -6,7 +6,7 @@ export type Role = 'user' | 'assistant';
 export interface Profile {
   id: string;
   display_name: string;
-  default_output_tokens: number;
+  default_output_tokens: number | null;
   default_provider: Provider;
   default_model: string;
   created_at: string;
@@ -26,6 +26,7 @@ export interface Work {
   thumbnail_url: string | null;
   main_prompt: string;
   is_published: boolean;
+  visibility: 'public' | 'unlisted' | 'private';
   created_at: string;
   updated_at: string;
 }

@@ -10,7 +10,7 @@ export interface GenerateOptions {
   model: string;
   system: string;
   messages: ChatMessage[];
-  maxOutputTokens: number;
+  maxOutputTokens: number | null;
 }
 
 export interface Usage {

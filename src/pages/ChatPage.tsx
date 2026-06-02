@@ -6,15 +6,50 @@ import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
 import { assemblePrompt } from '@/lib/prompt/assemble';
+import {
+  guestGetSession,
+  guestAddMessage,
+  guestUpdateSession,
+  type GuestSession,
+  type GuestMessage,
+} from '@/lib/guest';
 import type { Message, Profile, Session, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
+
+// localStorage에 저장된 provider/model/tokens 키
+const GUEST_SETTINGS_KEY = 'nekochat.guest.settings';
+
+interface GuestSettings {
+  provider: 'claude' | 'gemini' | 'openai';
+  model: string;
+  outputTokens: number | null;
+}
+
+function loadGuestSettings(): GuestSettings {
+  try {
+    return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings;
+  } catch {
+    return { provider: 'claude', model: '', outputTokens: 1024 };
+  }
+}
+
+// GuestMessage → Message 형태로 변환 (UI 공유)
+function toMsg(m: GuestMessage): Message {
+  return {
+    ...m,
+    is_summarized: false,
+    input_tokens: m.input_tokens ?? 0,
+    output_tokens: m.output_tokens ?? 0,
+  };
+}
 
 export default function ChatPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isGuest } = useAuth();
 
   const [session, setSession] = useState<Session | null>(null);
+  const [guestSession, setGuestSession] = useState<GuestSession | null>(null);
   const [work, setWork] = useState<Work | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -27,6 +62,29 @@ export default function ChatPage() {
 
   // 초기 로드
   useEffect(() => {
+    if (isGuest) {
+      const gs = guestGetSession(sessionId!);
+      if (!gs) return;
+      setGuestSession(gs);
+      setMessages(gs.messages.map(toMsg));
+
+      // work 정보는 supabase에서 (공개 작품)
+      supabase
+        .from('works')
+        .select('*')
+        .eq('id', gs.work_id)
+        .single()
+        .then(({ data }) => setWork(data as Work));
+
+      supabase
+        .from('platform_config')
+        .select('system_prompt')
+        .eq('id', 1)
+        .single()
+        .then(({ data }) => setSystemPrompt((data as { system_prompt: string } | null)?.system_prompt ?? ''));
+      return;
+    }
+
     (async () => {
       const { data: s } = await supabase.from('sessions').select('*').eq('id', sessionId).single();
       if (!s) return;
@@ -47,7 +105,7 @@ export default function ChatPage() {
       setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
       setMessages((msgs as Message[]) ?? []);
     })();
-  }, [sessionId, user]);
+  }, [sessionId, user, isGuest]);
 
   // 자동 스크롤
   useEffect(() => {
@@ -55,11 +113,14 @@ export default function ChatPage() {
   }, [messages, sending]);
 
   async function send() {
-    if (!input.trim() || !session || !work || !profile || sending) return;
+    if (!input.trim() || !work || sending) return;
     setError('');
 
-    const provider = profile.default_provider;
-    const model = profile.default_model || DEFAULT_MODELS[provider][0];
+    const guestSettings = loadGuestSettings();
+    const provider = isGuest ? (guestSettings.provider ?? 'claude') : (profile?.default_provider ?? 'claude');
+    const model = isGuest
+      ? (guestSettings.model || DEFAULT_MODELS[provider][0])
+      : (profile?.default_model || DEFAULT_MODELS[provider][0]);
     const apiKey = getApiKey(provider);
     if (!apiKey) {
       setError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`);
@@ -70,23 +131,86 @@ export default function ChatPage() {
     setInput('');
     setSending(true);
 
+    const now = new Date().toISOString();
     const turnIndex = messages.length;
-    // 사용자 메시지 저장 + 화면 반영
+
+    if (isGuest && guestSession) {
+      const userMsg: GuestMessage = {
+        id: crypto.randomUUID(),
+        session_id: guestSession.id,
+        role: 'user',
+        content: text,
+        turn_index: turnIndex,
+        input_tokens: 0,
+        output_tokens: 0,
+        created_at: now,
+      };
+      guestAddMessage(guestSession.id, userMsg);
+      const historyMsgs = [...messages];
+      setMessages((m) => [...m, toMsg(userMsg)]);
+
+      const assembled = assemblePrompt({
+        systemPrompt,
+        mainPrompt: work.main_prompt,
+        userNote: guestSession.user_note,
+        summary: '',
+        history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
+        latestUserMessage: text,
+      });
+
+      const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
+
+      try {
+        const result = await generate(provider, {
+          apiKey,
+          model,
+          system: assembled.system,
+          messages: assembled.messages,
+          maxOutputTokens,
+        });
+
+        const aiMsg: GuestMessage = {
+          id: crypto.randomUUID(),
+          session_id: guestSession.id,
+          role: 'assistant',
+          content: result.text,
+          turn_index: turnIndex,
+          input_tokens: result.usage.inputTokens,
+          output_tokens: result.usage.outputTokens,
+          created_at: new Date().toISOString(),
+        };
+        guestAddMessage(guestSession.id, aiMsg);
+        setMessages((m) => [...m, toMsg(aiMsg)]);
+
+        const newIn = guestSession.total_input_tokens + result.usage.inputTokens;
+        const newOut = guestSession.total_output_tokens + result.usage.outputTokens;
+        guestUpdateSession(guestSession.id, { total_input_tokens: newIn, total_output_tokens: newOut });
+        setGuestSession((gs) => gs ? { ...gs, total_input_tokens: newIn, total_output_tokens: newOut } : gs);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    // 로그인 사용자
+    if (!session || !profile) { setSending(false); return; }
+
     const { data: userMsg } = await supabase
       .from('messages')
       .insert({ session_id: session.id, role: 'user', content: text, turn_index: turnIndex })
       .select('*')
       .single();
-    const history = [...messages];
+    const historyMsgs = [...messages];
     if (userMsg) setMessages((m) => [...m, userMsg as Message]);
 
-    // 프롬프트 조립
     const assembled = assemblePrompt({
       systemPrompt,
       mainPrompt: work.main_prompt,
       userNote: session.user_note,
       summary: session.summary,
-      history: history.map((m) => ({ role: m.role, content: m.content })),
+      history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: text,
     });
 
@@ -115,7 +239,6 @@ export default function ChatPage() {
         .single();
       if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
 
-      // 세션 누적 토큰 갱신
       const newIn = session.total_input_tokens + result.usage.inputTokens;
       const newOut = session.total_output_tokens + result.usage.outputTokens;
       await supabase
@@ -130,15 +253,18 @@ export default function ChatPage() {
     }
   }
 
-  if (!session || !work) {
+  const currentSession = isGuest ? guestSession : session;
+  const totalTokens = currentSession
+    ? currentSession.total_input_tokens + currentSession.total_output_tokens
+    : 0;
+
+  if (!currentSession || !work) {
     return <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>;
   }
 
-  const totalTokens = session.total_input_tokens + session.total_output_tokens;
-
   return (
     <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
-      {/* 상단바: 작품명 + 세션 누적 토큰 */}
+      {/* 상단바 */}
       <header className="flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
         <button onClick={() => navigate('/sessions')} className="text-slate-400">
           ←
@@ -147,9 +273,11 @@ export default function ChatPage() {
           <p className="truncate text-sm font-semibold text-white">{work.title}</p>
           <p className="text-[11px] text-slate-500">누적 토큰 {totalTokens.toLocaleString()}</p>
         </div>
-        <button onClick={() => setMenuOpen(true)} className="px-2 text-xl text-slate-300">
-          ☰
-        </button>
+        {!isGuest && (
+          <button onClick={() => setMenuOpen(true)} className="px-2 text-xl text-slate-300">
+            ☰
+          </button>
+        )}
       </header>
 
       {/* 메시지 */}
@@ -204,7 +332,7 @@ export default function ChatPage() {
         </button>
       </div>
 
-      {menuOpen && (
+      {menuOpen && !isGuest && session && (
         <SessionMenu
           session={session}
           profile={profile}

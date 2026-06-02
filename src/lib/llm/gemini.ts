@@ -19,7 +19,7 @@ export const geminiAdapter: LLMAdapter = {
       body: JSON.stringify({
         systemInstruction: opts.system ? { parts: [{ text: opts.system }] } : undefined,
         contents,
-        generationConfig: { maxOutputTokens: opts.maxOutputTokens },
+        generationConfig: opts.maxOutputTokens !== null ? { maxOutputTokens: opts.maxOutputTokens } : {},
       }),
     });
 

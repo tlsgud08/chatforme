@@ -40,7 +40,8 @@ export default function WorkEditorPage() {
         description: work.description,
         main_prompt: work.main_prompt,
         thumbnail_url: work.thumbnail_url,
-        is_published: work.is_published,
+        visibility: work.visibility,
+        is_published: work.visibility === 'public',
         updated_at: new Date().toISOString(),
       })
       .eq('id', work.id);
@@ -154,14 +155,31 @@ export default function WorkEditorPage() {
               />
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-slate-300">
-              <input
-                type="checkbox"
-                checked={work.is_published}
-                onChange={(e) => patch({ is_published: e.target.checked })}
-              />
-              작품 탭에 공개
-            </label>
+            <div>
+              <label className="mb-2 block text-xs text-slate-400">공개 범위</label>
+              <div className="flex flex-col gap-2">
+                {([
+                  ['public', '전체 공개', '작품 목록에 노출, 누구나 플레이'],
+                  ['unlisted', '링크 공개', '목록에 미노출, 링크 아는 사람만 플레이'],
+                  ['private', '비공개', '본인만 플레이 가능'],
+                ] as ['public' | 'unlisted' | 'private', string, string][]).map(([val, label, desc]) => (
+                  <label key={val} className="flex cursor-pointer items-start gap-3 rounded-lg bg-surface p-3">
+                    <input
+                      type="radio"
+                      name="visibility"
+                      value={val}
+                      checked={(work.visibility ?? 'public') === val}
+                      onChange={() => patch({ visibility: val })}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <p className="text-sm text-white">{label}</p>
+                      <p className="text-xs text-slate-400">{desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
 
             <button onClick={remove} className="mt-4 text-sm text-red-400">
               작품 삭제

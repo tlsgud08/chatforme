@@ -13,7 +13,7 @@ import SettingsPage from './pages/SettingsPage';
 import SetupNotice from './components/SetupNotice';
 
 export default function App() {
-  const { user, loading } = useAuth();
+  const { user, isGuest, loading } = useAuth();
 
   if (!isSupabaseConfigured) return <SetupNotice />;
 
@@ -23,10 +23,13 @@ export default function App() {
     );
   }
 
-  if (!user) return <LoginPage />;
+  if (!user && !isGuest) return <LoginPage />;
 
   return (
     <Routes>
+      {/* 로그인 화면 (CreatePage에서 로그인 유도 시 이동) */}
+      <Route path="/login" element={<LoginPage />} />
+
       {/* 채팅방 화면은 전체화면 (탭바 없음) */}
       <Route path="/chat/:sessionId" element={<ChatPage />} />
 

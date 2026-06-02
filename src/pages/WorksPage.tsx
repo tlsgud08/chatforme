@@ -7,7 +7,7 @@ async function fetchWorks(): Promise<(Work & { creator_name: string })[]> {
   const { data: works, error } = await supabase
     .from('works')
     .select('*')
-    .eq('is_published', true)
+    .eq('visibility', 'public')
     .order('created_at', { ascending: false });
   if (error) throw error;
   if (!works || works.length === 0) return [];

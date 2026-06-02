@@ -3,12 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { guestCreateSession } from '@/lib/guest';
 import type { Work } from '@/types/db';
 
 export default function WorkDetailPage() {
   const { workId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isGuest } = useAuth();
   const [starting, setStarting] = useState(false);
 
   const { data: work, isLoading } = useQuery({
@@ -21,8 +22,14 @@ export default function WorkDetailPage() {
   });
 
   async function startChat() {
-    if (!work || !user) return;
+    if (!work) return;
     setStarting(true);
+    if (isGuest) {
+      const session = guestCreateSession({ id: work.id, title: work.title });
+      navigate(`/chat/${session.id}`);
+      return;
+    }
+    if (!user) return;
     const { data, error } = await supabase
       .from('sessions')
       .insert({ user_id: user.id, work_id: work.id, title: work.title })
@@ -38,6 +45,17 @@ export default function WorkDetailPage() {
 
   if (isLoading) return <p className="p-6 text-slate-400">불러오는 중…</p>;
   if (!work) return <p className="p-6 text-amber-400">작품을 찾을 수 없습니다.</p>;
+
+  const isCreator = user?.id === work.creator_id;
+  if (work.visibility === 'private' && !isCreator) {
+    return (
+      <div className="p-6 text-center">
+        <p className="text-lg font-semibold text-white">비공개 작품입니다</p>
+        <p className="mt-2 text-sm text-slate-400">제작자만 접근할 수 있습니다.</p>
+        <button onClick={() => navigate(-1)} className="mt-4 text-sm text-slate-400 underline">뒤로</button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4">

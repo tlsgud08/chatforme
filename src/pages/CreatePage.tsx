@@ -5,8 +5,23 @@ import { useAuth } from '@/hooks/useAuth';
 import type { Work } from '@/types/db';
 
 export default function CreatePage() {
-  const { user } = useAuth();
+  const { user, isGuest } = useAuth();
   const navigate = useNavigate();
+
+  if (isGuest) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+        <p className="text-lg font-semibold text-white">작품 제작은 로그인이 필요합니다</p>
+        <p className="text-sm text-slate-400">로그인하면 작품을 만들고 공유할 수 있습니다.</p>
+        <button
+          onClick={() => navigate('/login')}
+          className="rounded-lg bg-brand px-6 py-3 font-semibold text-white"
+        >
+          로그인하기
+        </button>
+      </div>
+    );
+  }
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['my-works', user?.id],
@@ -61,7 +76,7 @@ export default function CreatePage() {
                 <div className="min-w-0">
                   <p className="truncate font-semibold text-white">{w.title || '(제목 없음)'}</p>
                   <p className="truncate text-xs text-slate-500">
-                    {w.is_published ? '게시됨' : '비공개'}
+                    {w.visibility === 'public' ? '전체 공개' : w.visibility === 'unlisted' ? '링크 공개' : '비공개'}
                   </p>
                 </div>
               </Link>

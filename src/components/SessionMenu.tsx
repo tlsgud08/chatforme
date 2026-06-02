@@ -54,7 +54,8 @@ export default function SessionMenu({ session, profile, onClose, onUpdate }: Pro
         {/* 출력량 */}
         <section>
           <label className="mb-1 block text-xs text-slate-400">
-            이 세션 출력량 (최대 출력 토큰): {effectiveOutput}
+            이 세션 출력량 (최대 출력 토큰):{' '}
+            {effectiveOutput === null ? '무제한' : effectiveOutput}
             {override === null && ' (기본값)'}
           </label>
           <input
@@ -62,7 +63,7 @@ export default function SessionMenu({ session, profile, onClose, onUpdate }: Pro
             min={256}
             max={4096}
             step={128}
-            value={effectiveOutput}
+            value={typeof effectiveOutput === 'number' ? effectiveOutput : 4096}
             onChange={(e) => saveOverride(Number(e.target.value))}
             className="w-full"
           />

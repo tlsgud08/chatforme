@@ -6,21 +6,35 @@ import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
 import type { Profile, Provider } from '@/types/db';
 
 const PROVIDERS: Provider[] = ['claude', 'gemini', 'openai'];
+const SLIDER_MAX = 4224; // 4224 이상이면 무제한
+
+function tokenLabel(v: number | null) {
+  return v === null || v >= SLIDER_MAX ? '무제한' : String(v);
+}
+
+function sliderToTokens(v: number): number | null {
+  return v >= SLIDER_MAX ? null : v;
+}
+
+function tokensToSlider(v: number | null): number {
+  return v === null ? SLIDER_MAX : v;
+}
 
 export default function SettingsPage() {
-  const { user, signOut } = useAuth();
+  const { user, isGuest, signOut } = useAuth();
   const [keys, setKeys] = useState<ApiKeys>(loadApiKeys());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
 
   useEffect(() => {
+    if (isGuest || !user) return;
     supabase
       .from('profiles')
       .select('*')
-      .eq('id', user!.id)
+      .eq('id', user.id)
       .single()
       .then(({ data }) => setProfile(data as Profile));
-  }, [user]);
+  }, [user, isGuest]);
 
   function saveKeys() {
     saveApiKeys(keys);
@@ -74,7 +88,7 @@ export default function SettingsPage() {
       </section>
 
       {/* 기본 출력량 & 모델 */}
-      {profile && (
+      {!isGuest && profile && (
         <section>
           <h2 className="mb-3 font-semibold text-white">기본 출력 설정</h2>
           <div className="flex flex-col gap-3">
@@ -110,16 +124,16 @@ export default function SettingsPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-400">
-                기본 출력량 (최대 출력 토큰): {profile.default_output_tokens}
+                기본 출력량 (최대 출력 토큰): {tokenLabel(profile.default_output_tokens)}
               </label>
               <input
                 type="range"
                 min={256}
-                max={4096}
+                max={SLIDER_MAX}
                 step={128}
-                value={profile.default_output_tokens}
+                value={tokensToSlider(profile.default_output_tokens)}
                 onChange={(e) =>
-                  setProfile({ ...profile, default_output_tokens: Number(e.target.value) })
+                  setProfile({ ...profile, default_output_tokens: sliderToTokens(Number(e.target.value)) })
                 }
                 className="w-full"
               />
@@ -135,7 +149,7 @@ export default function SettingsPage() {
       )}
 
       {/* 프로필 / 계정 */}
-      {profile && (
+      {!isGuest && profile && (
         <section>
           <h2 className="mb-3 font-semibold text-white">프로필</h2>
           <label className="mb-1 block text-xs text-slate-400">표시 이름</label>
@@ -159,7 +173,7 @@ export default function SettingsPage() {
       )}
 
       <button onClick={() => signOut()} className="mt-2 text-sm text-red-400">
-        로그아웃
+        {isGuest ? '비회원 모드 종료' : '로그아웃'}
       </button>
     </div>
   );
