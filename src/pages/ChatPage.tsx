@@ -262,15 +262,15 @@ export default function ChatPage() {
         )}
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4">
+      <div ref={scrollRef} className="w-full flex-1 overflow-y-auto overflow-x-hidden px-3 py-4">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
         )}
-        <div className="flex flex-col gap-3">
+        <div className="flex w-full flex-col gap-3">
           {visibleMessages.map((m) => (
             <div
               key={m.id}
-              className={`flex max-w-[85%] flex-col gap-1 ${m.role === 'user' ? 'self-end items-end' : 'self-start items-start'}`}
+              className={`flex min-w-0 max-w-[85%] flex-col gap-1 ${m.role === 'user' ? 'self-end items-end' : 'self-start items-start'}`}
             >
               {m.is_hidden && debugMode && (
                 <p className="text-[10px] text-amber-400">🔍 숨김 메시지</p>
@@ -323,7 +323,7 @@ export default function ChatPage() {
                             <img
                               src={src}
                               alt={alt ?? ''}
-                              className="my-2 block w-full"
+                              className="my-2 block h-auto w-full max-w-full"
                               loading="lazy"
                             />
                           ),
