@@ -17,7 +17,7 @@ export default function WorkEditorPage() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [startConfigs, setStartConfigs] = useState<StartConfig[]>([]);
-  const [savingConfig, setSavingConfig] = useState<string | null>(null);
+  const [saveAttempted, setSaveAttempted] = useState(false);
 
   useEffect(() => {
     supabase.from('works').select('*').eq('id', workId).single()
@@ -36,10 +36,24 @@ export default function WorkEditorPage() {
 
   const titleOver = work ? work.title.length > 30 : false;
   const descOver = work ? work.description.length > 1000 : false;
+
+  const configErrors = startConfigs.map((cfg) => ({
+    id: cfg.id,
+    nameError: !cfg.name.trim(),
+    messageError: !cfg.initial_message.trim(),
+  }));
+  const hasConfigErrors = configErrors.some((e) => e.nameError || e.messageError);
+  const noConfigs = startConfigs.length === 0;
+
   const canSave = !titleOver && !descOver;
 
   async function save() {
-    if (!work || !canSave) return;
+    if (!work) return;
+    setSaveAttempted(true);
+    if (!canSave || noConfigs || hasConfigErrors) {
+      if (noConfigs || hasConfigErrors) setTab('start');
+      return;
+    }
     setSaving(true);
     const { error } = await supabase
       .from('works')
@@ -53,9 +67,20 @@ export default function WorkEditorPage() {
         updated_at: new Date().toISOString(),
       })
       .eq('id', work.id);
+    if (error) { setSaving(false); alert('저장 실패: ' + error.message); return; }
+
+    await Promise.all(
+      startConfigs.map((cfg) =>
+        supabase.from('start_configs').update({
+          name: cfg.name,
+          initial_message: cfg.initial_message,
+          initial_context: cfg.initial_context,
+          keep_turns: cfg.keep_turns,
+        }).eq('id', cfg.id)
+      )
+    );
     setSaving(false);
-    if (error) alert('저장 실패: ' + error.message);
-    else alert('저장되었습니다.');
+    alert('저장되었습니다.');
   }
 
   async function uploadThumb(file: File) {
@@ -91,17 +116,6 @@ export default function WorkEditorPage() {
     setStartConfigs((cs) => [...cs, data as StartConfig]);
   }
 
-  async function saveStartConfig(cfg: StartConfig) {
-    setSavingConfig(cfg.id);
-    await supabase.from('start_configs').update({
-      name: cfg.name,
-      initial_message: cfg.initial_message,
-      initial_context: cfg.initial_context,
-      keep_turns: cfg.keep_turns,
-    }).eq('id', cfg.id);
-    setSavingConfig(null);
-  }
-
   async function deleteStartConfig(id: string) {
     if (!confirm('이 시작 설정을 삭제할까요?')) return;
     await supabase.from('start_configs').delete().eq('id', id);
@@ -116,7 +130,7 @@ export default function WorkEditorPage() {
         <button onClick={() => navigate('/create')} className="text-sm text-slate-400">← 목록</button>
         <button
           onClick={save}
-          disabled={saving || !canSave}
+          disabled={saving}
           className="ml-auto rounded-lg bg-brand px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
         >
           {saving ? '저장 중…' : '저장'}
@@ -245,84 +259,83 @@ export default function WorkEditorPage() {
             </div>
 
             {startConfigs.length === 0 && (
-              <div className="rounded-lg border border-dashed border-surface2 p-6 text-center text-sm text-slate-500">
-                시작 설정이 없습니다.<br />추가하면 채팅 시작 시 선택할 수 있습니다.
+              <div className={`rounded-lg border p-6 text-center text-sm ${saveAttempted ? 'border-red-500 text-red-400' : 'border-dashed border-surface2 text-slate-500'}`}>
+                {saveAttempted ? '시작 설정을 1개 이상 추가해야 저장할 수 있습니다.' : '시작 설정이 없습니다.\n추가하면 채팅 시작 시 선택할 수 있습니다.'}
               </div>
             )}
 
-            {startConfigs.map((cfg, idx) => (
-              <div key={cfg.id} className="flex flex-col gap-3 rounded-xl bg-surface p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-white">설정 {idx + 1}</span>
-                  <button onClick={() => deleteStartConfig(cfg.id)} className="text-xs text-red-400">삭제</button>
-                </div>
-
-                <div>
-                  <div className="mb-1 flex justify-between">
-                    <label className="text-xs text-slate-400">이름</label>
-                    <span className={`text-[11px] ${cfg.name.length > 30 ? 'text-red-400' : 'text-slate-500'}`}>{cfg.name.length}/30</span>
+            {startConfigs.map((cfg, idx) => {
+              const errs = configErrors.find((e) => e.id === cfg.id);
+              const nameInvalid = saveAttempted && errs?.nameError;
+              const msgInvalid = saveAttempted && errs?.messageError;
+              return (
+                <div key={cfg.id} className="flex flex-col gap-3 rounded-xl bg-surface p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-white">설정 {idx + 1}</span>
+                    <button onClick={() => deleteStartConfig(cfg.id)} className="text-xs text-red-400">삭제</button>
                   </div>
-                  <input
-                    value={cfg.name}
-                    onChange={(e) => patchConfig(cfg.id, { name: e.target.value })}
-                    placeholder="예: 학교 복도에서 만남"
-                    className={`w-full rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${cfg.name.length > 30 ? 'ring-red-500' : 'ring-transparent'}`}
-                  />
-                </div>
 
-                <div>
-                  <div className="mb-1 flex justify-between">
-                    <label className="text-xs text-slate-400">시작 메시지 (AI 첫 출력, 유저에게 보임)</label>
-                    <span className={`text-[11px] ${cfg.initial_message.length > 1000 ? 'text-red-400' : 'text-slate-500'}`}>{cfg.initial_message.length}/1000</span>
+                  <div>
+                    <div className="mb-1 flex justify-between">
+                      <label className="text-xs text-slate-400">이름 <span className="text-red-400">*</span></label>
+                      <span className={`text-[11px] ${cfg.name.length > 30 ? 'text-red-400' : 'text-slate-500'}`}>{cfg.name.length}/30</span>
+                    </div>
+                    <input
+                      value={cfg.name}
+                      onChange={(e) => patchConfig(cfg.id, { name: e.target.value })}
+                      placeholder="예: 학교 복도에서 만남"
+                      className={`w-full rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${nameInvalid || cfg.name.length > 30 ? 'ring-red-500' : 'ring-transparent'}`}
+                    />
+                    {nameInvalid && <p className="mt-0.5 text-[11px] text-red-400">이름을 입력하세요.</p>}
                   </div>
-                  <textarea
-                    value={cfg.initial_message}
-                    onChange={(e) => patchConfig(cfg.id, { initial_message: e.target.value })}
-                    rows={4}
-                    placeholder="채팅이 시작될 때 AI가 먼저 건네는 첫 마디를 입력하세요."
-                    className={`w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${cfg.initial_message.length > 1000 ? 'ring-red-500' : 'ring-transparent'}`}
-                  />
-                </div>
 
-                <div>
-                  <div className="mb-1 flex justify-between">
-                    <label className="text-xs text-slate-400">시작 기본 정보 (AI에게만 전달, 유저에게 숨김)</label>
-                    <span className={`text-[11px] ${cfg.initial_context.length > 1000 ? 'text-red-400' : 'text-slate-500'}`}>{cfg.initial_context.length}/1000</span>
+                  <div>
+                    <div className="mb-1 flex justify-between">
+                      <label className="text-xs text-slate-400">시작 메시지 (AI 첫 출력, 유저에게 보임) <span className="text-red-400">*</span></label>
+                      <span className={`text-[11px] ${cfg.initial_message.length > 1000 ? 'text-red-400' : 'text-slate-500'}`}>{cfg.initial_message.length}/1000</span>
+                    </div>
+                    <textarea
+                      value={cfg.initial_message}
+                      onChange={(e) => patchConfig(cfg.id, { initial_message: e.target.value })}
+                      rows={4}
+                      placeholder="채팅이 시작될 때 AI가 먼저 건네는 첫 마디를 입력하세요."
+                      className={`w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${msgInvalid || cfg.initial_message.length > 1000 ? 'ring-red-500' : 'ring-transparent'}`}
+                    />
+                    {msgInvalid && <p className="mt-0.5 text-[11px] text-red-400">시작 메시지를 입력하세요.</p>}
                   </div>
-                  <textarea
-                    value={cfg.initial_context}
-                    onChange={(e) => patchConfig(cfg.id, { initial_context: e.target.value })}
-                    rows={4}
-                    placeholder="현재 상황, 분위기, 등장인물의 내면 상태 등 AI만 알아야 할 초기 정보를 입력하세요."
-                    className={`w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${cfg.initial_context.length > 1000 ? 'ring-red-500' : 'ring-transparent'}`}
-                  />
-                </div>
 
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">
-                    기본 정보 유지 턴 수: {cfg.keep_turns}턴
-                    <span className="ml-1 text-slate-500">(이후 휘발)</span>
-                  </label>
-                  <input
-                    type="range" min={1} max={5} step={1}
-                    value={cfg.keep_turns}
-                    onChange={(e) => patchConfig(cfg.id, { keep_turns: Number(e.target.value) })}
-                    className="w-full"
-                  />
-                  <div className="flex justify-between text-[11px] text-slate-600">
-                    <span>1턴</span><span>3턴</span><span>5턴</span>
+                  <div>
+                    <div className="mb-1 flex justify-between">
+                      <label className="text-xs text-slate-400">시작 기본 정보 (AI에게만 전달, 유저에게 숨김)</label>
+                      <span className={`text-[11px] ${cfg.initial_context.length > 1000 ? 'text-red-400' : 'text-slate-500'}`}>{cfg.initial_context.length}/1000</span>
+                    </div>
+                    <textarea
+                      value={cfg.initial_context}
+                      onChange={(e) => patchConfig(cfg.id, { initial_context: e.target.value })}
+                      rows={4}
+                      placeholder="현재 상황, 분위기, 등장인물의 내면 상태 등 AI만 알아야 할 초기 정보를 입력하세요."
+                      className={`w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${cfg.initial_context.length > 1000 ? 'ring-red-500' : 'ring-transparent'}`}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-400">
+                      기본 정보 유지 턴 수: {cfg.keep_turns}턴
+                      <span className="ml-1 text-slate-500">(이후 휘발)</span>
+                    </label>
+                    <input
+                      type="range" min={1} max={5} step={1}
+                      value={cfg.keep_turns}
+                      onChange={(e) => patchConfig(cfg.id, { keep_turns: Number(e.target.value) })}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-[11px] text-slate-600">
+                      <span>1턴</span><span>3턴</span><span>5턴</span>
+                    </div>
                   </div>
                 </div>
-
-                <button
-                  onClick={() => saveStartConfig(cfg)}
-                  disabled={savingConfig === cfg.id || cfg.name.length > 30 || cfg.initial_message.length > 1000 || cfg.initial_context.length > 1000}
-                  className="rounded-lg bg-brand py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {savingConfig === cfg.id ? '저장 중…' : '저장'}
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
