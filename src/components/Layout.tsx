@@ -4,6 +4,7 @@ const TABS = [
   { to: '/works', label: '작품', icon: '📚' },
   { to: '/sessions', label: '채팅방', icon: '💬' },
   { to: '/create', label: '제작', icon: '✏️' },
+  { to: '/my', label: 'My', icon: '👤' },
   { to: '/settings', label: '설정', icon: '⚙️' },
 ];
 
@@ -29,7 +30,7 @@ export default function Layout() {
       </main>
 
       {/* 하단 탭바 */}
-      <nav className="grid grid-cols-4 border-t border-surface2 bg-bg">
+      <nav className="grid grid-cols-5 border-t border-surface2 bg-bg">
         {TABS.map((t) => (
           <NavLink
             key={t.to}
