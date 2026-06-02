@@ -291,7 +291,7 @@ export default function ChatPage() {
                 </div>
               ) : (
                 <>
-                  <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                  <div className={`min-w-0 overflow-hidden rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                     m.is_hidden
                       ? 'border border-amber-500/40 bg-surface text-amber-200'
                       : m.role === 'user'
@@ -303,7 +303,7 @@ export default function ChatPage() {
                         components={{
                           p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                           strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                          em: ({ children }) => <em className="italic">{children}</em>,
+                          em: ({ children }) => <em className="not-italic opacity-50">{children}</em>,
                           ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
                           ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
                           li: ({ children }) => <li className="mb-0.5">{children}</li>,
@@ -315,15 +315,15 @@ export default function ChatPage() {
                             ),
                           pre: ({ children }) => <pre className="mb-2">{children}</pre>,
                           blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
-                          h1: ({ children }) => <h1 className="mb-2 text-base font-bold">{children}</h1>,
-                          h2: ({ children }) => <h2 className="mb-2 text-sm font-bold">{children}</h2>,
-                          h3: ({ children }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
+                          h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
+                          h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
+                          h3: ({ children }) => <h3 className="mb-1 text-base font-semibold">{children}</h3>,
                           hr: () => <hr className="my-2 border-slate-600" />,
                           img: ({ src, alt }) => (
                             <img
                               src={src}
                               alt={alt ?? ''}
-                              className="my-2 max-w-full"
+                              className="my-2 block w-full"
                               loading="lazy"
                             />
                           ),
