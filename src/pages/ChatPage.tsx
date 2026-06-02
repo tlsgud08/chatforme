@@ -298,10 +298,7 @@ export default function ChatPage() {
                         ? 'bg-brand text-white'
                         : 'bg-surface text-slate-100'
                   }`}>
-                    {m.role === 'user' ? (
-                      <span className="whitespace-pre-wrap">{m.content}</span>
-                    ) : (
-                      <ReactMarkdown
+                    <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
                           p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
@@ -326,7 +323,6 @@ export default function ChatPage() {
                       >
                         {m.content}
                       </ReactMarkdown>
-                    )}
                   </div>
                   {!m.is_hidden && (
                     <div className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
