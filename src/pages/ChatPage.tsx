@@ -323,7 +323,7 @@ export default function ChatPage() {
                             <img
                               src={src}
                               alt={alt ?? ''}
-                              className="my-2 block h-auto w-full max-w-full"
+                              className="my-2 block h-auto max-w-full"
                               loading="lazy"
                             />
                           ),
