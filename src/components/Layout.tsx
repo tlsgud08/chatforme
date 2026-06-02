@@ -4,8 +4,8 @@ const TABS = [
   { to: '/works', label: '작품', icon: '📚' },
   { to: '/sessions', label: '채팅방', icon: '💬' },
   { to: '/create', label: '제작', icon: '✏️' },
-  { to: '/my', label: 'My', icon: '👤' },
   { to: '/settings', label: '설정', icon: '⚙️' },
+  { to: '/my', label: 'My', icon: '👤' },
 ];
 
 export default function Layout() {
