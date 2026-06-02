@@ -10,21 +10,19 @@ import {
   guestGetSession,
   guestAddMessage,
   guestUpdateSession,
+  guestUpdateMessage,
   type GuestSession,
   type GuestMessage,
 } from '@/lib/guest';
-import type { Message, Profile, Session, Work } from '@/types/db';
+import type { Message, Persona, Profile, Session, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
 
-// localStorage에 저장된 provider/model/tokens 키
 const GUEST_SETTINGS_KEY = 'nekochat.guest.settings';
-
 interface GuestSettings {
   provider: 'claude' | 'gemini' | 'openai';
   model: string;
   outputTokens: number | null;
 }
-
 function loadGuestSettings(): GuestSettings {
   try {
     return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings;
@@ -33,14 +31,8 @@ function loadGuestSettings(): GuestSettings {
   }
 }
 
-// GuestMessage → Message 형태로 변환 (UI 공유)
 function toMsg(m: GuestMessage): Message {
-  return {
-    ...m,
-    is_summarized: false,
-    input_tokens: m.input_tokens ?? 0,
-    output_tokens: m.output_tokens ?? 0,
-  };
+  return { ...m, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0 };
 }
 
 export default function ChatPage() {
@@ -52,12 +44,18 @@ export default function ChatPage() {
   const [guestSession, setGuestSession] = useState<GuestSession | null>(null);
   const [work, setWork] = useState<Work | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [persona, setPersona] = useState<Persona | null>(null);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState('');
+
+  // 메시지 편집
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState('');
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 초기 로드
@@ -67,20 +65,9 @@ export default function ChatPage() {
       if (!gs) return;
       setGuestSession(gs);
       setMessages(gs.messages.map(toMsg));
-
-      // work 정보는 supabase에서 (공개 작품)
-      supabase
-        .from('works')
-        .select('*')
-        .eq('id', gs.work_id)
-        .single()
+      supabase.from('works').select('*').eq('id', gs.work_id).single()
         .then(({ data }) => setWork(data as Work));
-
-      supabase
-        .from('platform_config')
-        .select('system_prompt')
-        .eq('id', 1)
-        .single()
+      supabase.from('platform_config').select('system_prompt').eq('id', 1).single()
         .then(({ data }) => setSystemPrompt((data as { system_prompt: string } | null)?.system_prompt ?? ''));
       return;
     }
@@ -88,22 +75,24 @@ export default function ChatPage() {
     (async () => {
       const { data: s } = await supabase.from('sessions').select('*').eq('id', sessionId).single();
       if (!s) return;
-      setSession(s as Session);
+      const sess = s as Session;
+      setSession(sess);
 
       const [{ data: w }, { data: p }, { data: cfg }, { data: msgs }] = await Promise.all([
-        supabase.from('works').select('*').eq('id', (s as Session).work_id).single(),
+        supabase.from('works').select('*').eq('id', sess.work_id).single(),
         supabase.from('profiles').select('*').eq('id', user!.id).single(),
         supabase.from('platform_config').select('system_prompt').eq('id', 1).single(),
-        supabase
-          .from('messages')
-          .select('*')
-          .eq('session_id', sessionId)
-          .order('created_at', { ascending: true }),
+        supabase.from('messages').select('*').eq('session_id', sessionId).order('created_at', { ascending: true }),
       ]);
       setWork(w as Work);
       setProfile(p as Profile);
       setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
       setMessages((msgs as Message[]) ?? []);
+
+      if (sess.persona_id) {
+        const { data: pn } = await supabase.from('personas').select('*').eq('id', sess.persona_id).single();
+        if (pn) setPersona(pn as Persona);
+      }
     })();
   }, [sessionId, user, isGuest]);
 
@@ -136,52 +125,30 @@ export default function ChatPage() {
 
     if (isGuest && guestSession) {
       const userMsg: GuestMessage = {
-        id: crypto.randomUUID(),
-        session_id: guestSession.id,
-        role: 'user',
-        content: text,
-        turn_index: turnIndex,
-        input_tokens: 0,
-        output_tokens: 0,
-        created_at: now,
+        id: crypto.randomUUID(), session_id: guestSession.id, role: 'user',
+        content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, created_at: now,
       };
       guestAddMessage(guestSession.id, userMsg);
       const historyMsgs = [...messages];
       setMessages((m) => [...m, toMsg(userMsg)]);
 
       const assembled = assemblePrompt({
-        systemPrompt,
-        mainPrompt: work.main_prompt,
-        userNote: guestSession.user_note,
-        summary: '',
-        history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
+        systemPrompt, mainPrompt: work.main_prompt, userNote: guestSession.user_note,
+        summary: '', history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
         latestUserMessage: text,
       });
 
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
-
       try {
-        const result = await generate(provider, {
-          apiKey,
-          model,
-          system: assembled.system,
-          messages: assembled.messages,
-          maxOutputTokens,
-        });
-
+        const result = await generate(provider, { apiKey, model, system: assembled.system, messages: assembled.messages, maxOutputTokens });
         const aiMsg: GuestMessage = {
-          id: crypto.randomUUID(),
-          session_id: guestSession.id,
-          role: 'assistant',
-          content: result.text,
-          turn_index: turnIndex,
-          input_tokens: result.usage.inputTokens,
-          output_tokens: result.usage.outputTokens,
+          id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
+          content: result.text, turn_index: turnIndex,
+          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens,
           created_at: new Date().toISOString(),
         };
         guestAddMessage(guestSession.id, aiMsg);
         setMessages((m) => [...m, toMsg(aiMsg)]);
-
         const newIn = guestSession.total_input_tokens + result.usage.inputTokens;
         const newOut = guestSession.total_output_tokens + result.usage.outputTokens;
         guestUpdateSession(guestSession.id, { total_input_tokens: newIn, total_output_tokens: newOut });
@@ -194,55 +161,37 @@ export default function ChatPage() {
       return;
     }
 
-    // 로그인 사용자
     if (!session || !profile) { setSending(false); return; }
 
     const { data: userMsg } = await supabase
       .from('messages')
       .insert({ session_id: session.id, role: 'user', content: text, turn_index: turnIndex })
-      .select('*')
-      .single();
+      .select('*').single();
     const historyMsgs = [...messages];
     if (userMsg) setMessages((m) => [...m, userMsg as Message]);
 
     const assembled = assemblePrompt({
-      systemPrompt,
-      mainPrompt: work.main_prompt,
-      userNote: session.user_note,
-      summary: session.summary,
+      systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
+      summary: session.summary, persona,
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: text,
     });
 
     const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
-
     try {
-      const result = await generate(provider, {
-        apiKey,
-        model,
-        system: assembled.system,
-        messages: assembled.messages,
-        maxOutputTokens,
-      });
-
+      const result = await generate(provider, { apiKey, model, system: assembled.system, messages: assembled.messages, maxOutputTokens });
       const { data: aiMsg } = await supabase
         .from('messages')
         .insert({
-          session_id: session.id,
-          role: 'assistant',
-          content: result.text,
-          turn_index: turnIndex,
-          input_tokens: result.usage.inputTokens,
-          output_tokens: result.usage.outputTokens,
+          session_id: session.id, role: 'assistant', content: result.text, turn_index: turnIndex,
+          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens,
         })
-        .select('*')
-        .single();
+        .select('*').single();
       if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
 
       const newIn = session.total_input_tokens + result.usage.inputTokens;
       const newOut = session.total_output_tokens + result.usage.outputTokens;
-      await supabase
-        .from('sessions')
+      await supabase.from('sessions')
         .update({ total_input_tokens: newIn, total_output_tokens: newOut, updated_at: new Date().toISOString() })
         .eq('id', session.id);
       setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut });
@@ -251,6 +200,18 @@ export default function ChatPage() {
     } finally {
       setSending(false);
     }
+  }
+
+  async function saveEdit(msgId: string) {
+    const content = editingContent.trim();
+    if (!content) return;
+    if (isGuest && guestSession) {
+      guestUpdateMessage(guestSession.id, msgId, content);
+    } else {
+      await supabase.from('messages').update({ content }).eq('id', msgId);
+    }
+    setMessages((m) => m.map((msg) => msg.id === msgId ? { ...msg, content } : msg));
+    setEditingId(null);
   }
 
   const currentSession = isGuest ? guestSession : session;
@@ -266,24 +227,17 @@ export default function ChatPage() {
     <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
       {/* 상단바 */}
       <header className="flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
-        <button onClick={() => navigate('/sessions')} className="text-slate-400">
-          ←
-        </button>
-        <button
-          onClick={() => navigate(`/works/${work.id}`)}
-          className="min-w-0 flex-1 text-left"
-        >
+        <button onClick={() => navigate('/sessions')} className="text-slate-400">←</button>
+        <button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 flex-1 text-left">
           <p className="truncate text-sm font-semibold text-white">{work.title}</p>
           <p className="text-[11px] text-slate-500">누적 토큰 {totalTokens.toLocaleString()}</p>
         </button>
         {!isGuest && (
-          <button onClick={() => setMenuOpen(true)} className="px-2 text-xl text-slate-300">
-            ☰
-          </button>
+          <button onClick={() => setMenuOpen(true)} className="px-2 text-xl text-slate-300">☰</button>
         )}
       </header>
 
-      {/* 메시지 */}
+      {/* 메시지 목록 */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4">
         {messages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
@@ -292,13 +246,51 @@ export default function ChatPage() {
           {messages.map((m) => (
             <div
               key={m.id}
-              className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                m.role === 'user'
-                  ? 'self-end bg-brand text-white'
-                  : 'self-start bg-surface text-slate-100'
-              }`}
+              className={`flex max-w-[85%] flex-col gap-1 ${m.role === 'user' ? 'self-end items-end' : 'self-start items-start'}`}
             >
-              {m.content}
+              {editingId === m.id ? (
+                <div className="flex w-full flex-col gap-1.5">
+                  <textarea
+                    value={editingContent}
+                    onChange={(e) => setEditingContent(e.target.value)}
+                    rows={3}
+                    autoFocus
+                    className="w-full resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-100 outline-none"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300"
+                    >
+                      취소
+                    </button>
+                    <button
+                      onClick={() => saveEdit(m.id)}
+                      className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white"
+                    >
+                      저장
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="group relative">
+                  <div
+                    className={`whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                      m.role === 'user' ? 'bg-brand text-white' : 'bg-surface text-slate-100'
+                    }`}
+                  >
+                    {m.content}
+                  </div>
+                  {m.role === 'user' && (
+                    <button
+                      onClick={() => { setEditingId(m.id); setEditingContent(m.content); }}
+                      className="mt-1 self-end text-xs text-slate-500"
+                    >
+                      편집
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
           {sending && (
@@ -317,10 +309,7 @@ export default function ChatPage() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
           }}
           rows={1}
           placeholder="메시지 입력…"
@@ -341,6 +330,7 @@ export default function ChatPage() {
           profile={profile}
           onClose={() => setMenuOpen(false)}
           onUpdate={(patch) => setSession((s) => (s ? { ...s, ...patch } : s))}
+          onPersonaChange={(p) => setPersona(p)}
         />
       )}
     </div>

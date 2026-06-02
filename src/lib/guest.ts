@@ -67,3 +67,14 @@ export function guestUpdateSession(sessionId: string, patch: Partial<GuestSessio
   sessions[idx] = { ...sessions[idx], ...patch, updated_at: new Date().toISOString() };
   save(sessions);
 }
+
+export function guestUpdateMessage(sessionId: string, messageId: string, content: string): void {
+  const sessions = load();
+  const s = sessions.find((s) => s.id === sessionId);
+  if (!s) return;
+  const msg = s.messages.find((m) => m.id === messageId);
+  if (!msg) return;
+  msg.content = content;
+  s.updated_at = new Date().toISOString();
+  save(sessions);
+}
