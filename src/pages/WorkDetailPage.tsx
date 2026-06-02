@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -40,6 +40,20 @@ export default function WorkDetailPage() {
     },
     enabled: !!user && !isGuest,
   });
+
+  useEffect(() => {
+    if (personas.length > 0 && !selectedPersonaId) {
+      const def = personas.find((p) => p.is_default) ?? personas[0];
+      setSelectedPersonaId(def.id);
+    }
+  }, [personas]);
+
+  useEffect(() => {
+    if (startConfigs.length > 0 && !selectedConfigId) {
+      const def = startConfigs.find((c) => c.is_default) ?? startConfigs[0];
+      setSelectedConfigId(def.id);
+    }
+  }, [startConfigs]);
 
   async function startChat() {
     if (!work) return;
@@ -135,7 +149,7 @@ export default function WorkDetailPage() {
 
       <div className="mt-6 flex flex-col gap-3">
         {/* 페르소나 선택 (로그인 사용자만) */}
-        {!isGuest && (
+        {!isGuest && personas.length > 0 && (
           <div>
             <label className="mb-1 block text-xs text-slate-400">페르소나</label>
             <select
@@ -143,12 +157,16 @@ export default function WorkDetailPage() {
               onChange={(e) => setSelectedPersonaId(e.target.value)}
               className="w-full rounded-lg bg-surface px-4 py-2.5 text-sm outline-none"
             >
-              <option value="">없음 (미사용)</option>
               {personas.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
           </div>
+        )}
+        {!isGuest && personas.length === 0 && (
+          <p className="text-xs text-slate-500">
+            페르소나 없음 — 설정 탭에서 추가하면 여기서 선택할 수 있습니다.
+          </p>
         )}
 
         {/* 시작 설정 선택 */}
@@ -160,7 +178,6 @@ export default function WorkDetailPage() {
               onChange={(e) => setSelectedConfigId(e.target.value)}
               className="w-full rounded-lg bg-surface px-4 py-2.5 text-sm outline-none"
             >
-              <option value="">기본 시작 (없음)</option>
               {startConfigs.map((c) => (
                 <option key={c.id} value={c.id}>{c.name || `설정 ${startConfigs.indexOf(c) + 1}`}</option>
               ))}

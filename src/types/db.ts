@@ -39,6 +39,7 @@ export interface StartConfig {
   initial_context: string;
   keep_turns: number;
   sort_order: number;
+  is_default: boolean;
   created_at: string;
 }
 
@@ -58,6 +59,7 @@ export interface Persona {
   user_id: string;
   name: string;
   description: string;
+  is_default: boolean;
   created_at: string;
 }
 

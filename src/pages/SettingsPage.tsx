@@ -68,9 +68,10 @@ export default function SettingsPage() {
 
   async function addPersona() {
     if (!newName.trim() || !user) return;
+    const isFirst = personas.length === 0;
     const { data, error } = await supabase
       .from('personas')
-      .insert({ user_id: user.id, name: newName.trim(), description: newDesc.trim() })
+      .insert({ user_id: user.id, name: newName.trim(), description: newDesc.trim(), is_default: isFirst })
       .select('*')
       .single();
     if (error) { flash('저장 실패: ' + error.message); return; }
@@ -93,7 +94,19 @@ export default function SettingsPage() {
 
   async function deletePersona(id: string) {
     await supabase.from('personas').delete().eq('id', id);
-    setPersonas((p) => p.filter((x) => x.id !== id));
+    const remaining = personas.filter((x) => x.id !== id);
+    if (remaining.length > 0 && !remaining.some((x) => x.is_default)) {
+      await supabase.from('personas').update({ is_default: true }).eq('id', remaining[0].id);
+      remaining[0] = { ...remaining[0], is_default: true };
+    }
+    setPersonas(remaining);
+  }
+
+  async function setDefaultPersona(id: string) {
+    await supabase.from('personas').update({ is_default: false }).eq('user_id', user!.id);
+    await supabase.from('personas').update({ is_default: true }).eq('id', id);
+    setPersonas((ps) => ps.map((p) => ({ ...p, is_default: p.id === id })));
+    flash('기본 페르소나로 설정했습니다.');
   }
 
   function flash(msg: string) {
@@ -282,9 +295,17 @@ export default function SettingsPage() {
               ) : (
                 <li key={p.id} className="flex items-start gap-2 rounded-lg bg-surface p-3">
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-white">{p.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-semibold text-white">{p.name}</p>
+                      {p.is_default && <span className="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] text-brand">기본</span>}
+                    </div>
                     <p className="mt-0.5 line-clamp-2 text-xs text-slate-400">{p.description}</p>
                   </div>
+                  {!p.is_default && (
+                    <button onClick={() => setDefaultPersona(p.id)} title="기본으로 설정" className="shrink-0 px-1 text-slate-600 text-base leading-none">
+                      ☆
+                    </button>
+                  )}
                   <button onClick={() => { setEditingPersona(p); setShowAddForm(false); }} className="shrink-0 px-1 text-slate-400">
                     ✏️
                   </button>
