@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import type { StartConfig, Work } from '@/types/db';
+import type { KeywordBook, StartConfig, Work } from '@/types/db';
 
 type Tab = 'basic' | 'prompt' | 'start' | 'keywords';
 const MAX_THUMB_BYTES = 5 * 1024 * 1024;
@@ -17,11 +17,14 @@ export default function WorkEditorPage() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [startConfigs, setStartConfigs] = useState<StartConfig[]>([]);
+  const [keywordBooks, setKeywordBooks] = useState<KeywordBook[]>([]);
   const [saveAttempted, setSaveAttempted] = useState(false);
 
   useEffect(() => {
     supabase.from('works').select('*').eq('id', workId).single()
       .then(({ data }) => setWork(data as Work));
+    supabase.from('keyword_books').select('*').eq('work_id', workId).order('sort_order')
+      .then(({ data }) => setKeywordBooks((data as KeywordBook[]) ?? []));
     supabase.from('start_configs').select('*').eq('work_id', workId).order('sort_order')
       .then(({ data }) => {
         const configs = (data as StartConfig[]) ?? [];
@@ -42,6 +45,10 @@ export default function WorkEditorPage() {
 
   function setDefaultConfig(id: string) {
     setStartConfigs((cs) => cs.map((c) => ({ ...c, is_default: c.id === id })));
+  }
+
+  function patchKeyword(id: string, p: Partial<KeywordBook>) {
+    setKeywordBooks((ks) => ks.map((k) => (k.id === id ? { ...k, ...p } : k)));
   }
 
   const titleOver = work ? work.title.length > 30 : false;
@@ -79,8 +86,8 @@ export default function WorkEditorPage() {
       .eq('id', work.id);
     if (error) { setSaving(false); alert('저장 실패: ' + error.message); return; }
 
-    await Promise.all(
-      startConfigs.map((cfg) =>
+    await Promise.all([
+      ...startConfigs.map((cfg) =>
         supabase.from('start_configs').update({
           name: cfg.name,
           initial_message: cfg.initial_message,
@@ -88,8 +95,16 @@ export default function WorkEditorPage() {
           keep_turns: cfg.keep_turns,
           is_default: cfg.is_default,
         }).eq('id', cfg.id)
-      )
-    );
+      ),
+      ...keywordBooks.map((kb) =>
+        supabase.from('keyword_books').update({
+          name: kb.name,
+          keywords: kb.keywords,
+          content: kb.content,
+          activation_turns: kb.activation_turns,
+        }).eq('id', kb.id)
+      ),
+    ]);
     setSaving(false);
     alert('저장되었습니다.');
   }
@@ -125,6 +140,22 @@ export default function WorkEditorPage() {
       .select('*').single();
     if (error) { alert('추가 실패: ' + error.message); return; }
     setStartConfigs((cs) => [...cs, data as StartConfig]);
+  }
+
+  async function addKeywordBook() {
+    if (!work) return;
+    const { data, error } = await supabase
+      .from('keyword_books')
+      .insert({ work_id: work.id, name: '', keywords: [], content: '', activation_turns: 3, sort_order: keywordBooks.length })
+      .select('*').single();
+    if (error) { alert('추가 실패: ' + error.message); return; }
+    setKeywordBooks((ks) => [...ks, data as KeywordBook]);
+  }
+
+  async function deleteKeywordBook(id: string) {
+    if (!confirm('이 키워드북을 삭제할까요?')) return;
+    await supabase.from('keyword_books').delete().eq('id', id);
+    setKeywordBooks((ks) => ks.filter((k) => k.id !== id));
   }
 
   async function deleteStartConfig(id: string) {
@@ -361,9 +392,92 @@ export default function WorkEditorPage() {
 
         {/* 키워드북 탭 */}
         {tab === 'keywords' && (
-          <div className="rounded-lg border border-dashed border-surface2 p-6 text-center text-sm text-slate-400">
-            키워드북 편집은 Phase 2에서 추가됩니다.<br />
-            (동시 3개 활성 · 키워드 5개 · 500자 · 1~5턴 유지)
+          <div className="flex flex-col gap-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-slate-400">메시지에 키워드가 감지되면 지정한 내용을 AI 프롬프트에 자동 주입합니다.</p>
+                <p className="mt-0.5 text-xs text-slate-500">동시 최대 3개 활성 · 키워드 최대 5개 · 내용 500자 이하</p>
+              </div>
+              <button
+                onClick={addKeywordBook}
+                className="ml-3 shrink-0 rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-white"
+              >
+                + 추가
+              </button>
+            </div>
+
+            {keywordBooks.length === 0 && (
+              <div className="rounded-lg border border-dashed border-surface2 p-6 text-center text-sm text-slate-500">
+                키워드북이 없습니다.<br />추가하면 특정 키워드가 입력될 때 AI에게 추가 정보를 전달할 수 있습니다.
+              </div>
+            )}
+
+            {keywordBooks.map((kb, idx) => {
+              const kwCount = kb.keywords.filter((k) => k.trim()).length;
+              return (
+                <div key={kb.id} className="flex flex-col gap-3 rounded-xl bg-surface p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-white">키워드북 {idx + 1}</span>
+                    <button onClick={() => deleteKeywordBook(kb.id)} className="text-xs text-red-400">삭제</button>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-400">이름 (메모용, 선택)</label>
+                    <input
+                      value={kb.name}
+                      onChange={(e) => patchKeyword(kb.id, { name: e.target.value })}
+                      placeholder="예: 전투 시작"
+                      className="w-full rounded-lg bg-surface2 px-3 py-2 text-sm outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="mb-1 flex justify-between">
+                      <label className="text-xs text-slate-400">트리거 키워드 (쉼표로 구분, 최대 5개)</label>
+                      <span className={`text-[11px] ${kwCount > 5 ? 'text-red-400' : 'text-slate-500'}`}>{kwCount}/5</span>
+                    </div>
+                    <input
+                      value={kb.keywords.join(', ')}
+                      onChange={(e) => patchKeyword(kb.id, {
+                        keywords: e.target.value.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 5),
+                      })}
+                      placeholder="예: 전투, 싸움, 공격"
+                      className={`w-full rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${kwCount > 5 ? 'ring-red-500' : 'ring-transparent'}`}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="mb-1 flex justify-between">
+                      <label className="text-xs text-slate-400">활성화 시 주입 내용</label>
+                      <span className={`text-[11px] ${kb.content.length > 500 ? 'text-red-400' : 'text-slate-500'}`}>{kb.content.length}/500</span>
+                    </div>
+                    <textarea
+                      value={kb.content}
+                      onChange={(e) => patchKeyword(kb.id, { content: e.target.value })}
+                      rows={4}
+                      placeholder="키워드가 감지됐을 때 AI에게 전달할 추가 지시문을 작성하세요."
+                      className={`w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${kb.content.length > 500 ? 'ring-red-500' : 'ring-transparent'}`}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-400">
+                      활성 유지 턴: {kb.activation_turns}턴
+                      <span className="ml-1 text-slate-500">(감지 후 N턴 동안 유지)</span>
+                    </label>
+                    <input
+                      type="range" min={1} max={5} step={1}
+                      value={kb.activation_turns}
+                      onChange={(e) => patchKeyword(kb.id, { activation_turns: Number(e.target.value) })}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-[11px] text-slate-600">
+                      <span>1턴</span><span>3턴</span><span>5턴</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

@@ -10,7 +10,7 @@ import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage,
   type GuestSession, type GuestMessage,
 } from '@/lib/guest';
-import type { Message, Persona, Profile, Session, StartConfig, Work } from '@/types/db';
+import type { KeywordBook, Message, Persona, Profile, Session, StartConfig, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
 
 const GUEST_SETTINGS_KEY = 'nekochat.guest.settings';
@@ -35,6 +35,7 @@ export default function ChatPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [persona, setPersona] = useState<Persona | null>(null);
   const [startConfig, setStartConfig] = useState<StartConfig | null>(null);
+  const [keywordBooks, setKeywordBooks] = useState<KeywordBook[]>([]);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -57,6 +58,8 @@ export default function ChatPage() {
         .then(({ data }) => setWork(data as Work));
       supabase.from('platform_config').select('system_prompt').eq('id', 1).single()
         .then(({ data }) => setSystemPrompt((data as { system_prompt: string } | null)?.system_prompt ?? ''));
+      supabase.from('keyword_books').select('*').eq('work_id', gs.work_id).order('sort_order')
+        .then(({ data }) => setKeywordBooks((data as KeywordBook[]) ?? []));
       return;
     }
 
@@ -66,16 +69,18 @@ export default function ChatPage() {
       const sess = s as Session;
       setSession(sess);
 
-      const [{ data: w }, { data: p }, { data: cfg }, { data: msgs }] = await Promise.all([
+      const [{ data: w }, { data: p }, { data: cfg }, { data: msgs }, { data: kbs }] = await Promise.all([
         supabase.from('works').select('*').eq('id', sess.work_id).single(),
         supabase.from('profiles').select('*').eq('id', user!.id).single(),
         supabase.from('platform_config').select('system_prompt').eq('id', 1).single(),
         supabase.from('messages').select('*').eq('session_id', sessionId).order('created_at', { ascending: true }),
+        supabase.from('keyword_books').select('*').eq('work_id', sess.work_id).order('sort_order'),
       ]);
       setWork(w as Work);
       setProfile(p as Profile);
       setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
       setMessages((msgs as Message[]) ?? []);
+      setKeywordBooks((kbs as KeywordBook[]) ?? []);
 
       if (sess.persona_id) {
         const { data: pn } = await supabase.from('personas').select('*').eq('id', sess.persona_id).single();
@@ -91,6 +96,24 @@ export default function ChatPage() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, sending]);
+
+  function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
+    const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
+    const activated: { content: string; recency: number }[] = [];
+    for (const kb of keywordBooks) {
+      const kws = kb.keywords.filter((k) => k.trim());
+      if (!kws.length || !kb.content.trim()) continue;
+      for (let i = userMsgs.length - 1; i >= 0; i--) {
+        const turnsAgo = userMsgs.length - 1 - i;
+        if (turnsAgo >= kb.activation_turns) break;
+        if (kws.some((kw) => userMsgs[i].toLowerCase().includes(kw.toLowerCase()))) {
+          activated.push({ content: kb.content, recency: turnsAgo });
+          break;
+        }
+      }
+    }
+    return activated.sort((a, b) => a.recency - b.recency).slice(0, 3).map((a) => a.content);
+  }
 
   // 히스토리에서 keep_turns 초과한 숨김 메시지 제거
   function buildHistory(allMsgs: Message[]) {
@@ -131,6 +154,7 @@ export default function ChatPage() {
       const assembled = assemblePrompt({
         systemPrompt, mainPrompt: work.main_prompt, userNote: guestSession.user_note,
         summary: '',
+        keywordBookContents: getActiveKeywordContents([...messages], text),
         history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
         latestUserMessage: text,
       });
@@ -167,6 +191,7 @@ export default function ChatPage() {
     const assembled = assemblePrompt({
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
       summary: session.summary, persona,
+      keywordBookContents: getActiveKeywordContents([...messages], text),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: text,
     });

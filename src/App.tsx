@@ -10,6 +10,7 @@ import ChatPage from './pages/ChatPage';
 import CreatePage from './pages/CreatePage';
 import WorkEditorPage from './pages/WorkEditorPage';
 import SettingsPage from './pages/SettingsPage';
+import SearchPage from './pages/SearchPage';
 import SetupNotice from './components/SetupNotice';
 
 export default function App() {
@@ -30,8 +31,9 @@ export default function App() {
       {/* 로그인 화면 (CreatePage에서 로그인 유도 시 이동) */}
       <Route path="/login" element={<LoginPage />} />
 
-      {/* 채팅방 화면은 전체화면 (탭바 없음) */}
+      {/* 전체화면 (탭바 없음) */}
       <Route path="/chat/:sessionId" element={<ChatPage />} />
+      <Route path="/search" element={<SearchPage />} />
 
       {/* 나머지는 탭바 레이아웃 */}
       <Route element={<Layout />}>

@@ -12,14 +12,13 @@ export default function Layout() {
 
   return (
     <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
-      {/* 상단바: 통합 검색 (Phase 2에서 실제 검색 연결) */}
       <header className="flex items-center gap-2 border-b border-surface2 px-4 py-3">
         <span className="text-lg font-bold text-white">Nekochat</span>
         <button
-          onClick={() => navigate('/works')}
+          onClick={() => navigate('/search')}
           className="ml-auto flex-1 rounded-full bg-surface px-4 py-2 text-left text-sm text-slate-400"
         >
-          제작자 · 작품 검색…
+          🔍 작품·유저 검색…
         </button>
       </header>
 
