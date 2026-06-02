@@ -212,19 +212,27 @@ export default function SettingsPage() {
 
           {showAddForm && (
             <div className="mb-3 flex flex-col gap-2 rounded-lg bg-surface p-3">
-              <input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="이름 (예: 기사 아르투스)"
-                className="rounded-lg bg-surface2 px-3 py-2 text-sm outline-none"
-              />
-              <textarea
-                value={newDesc}
-                onChange={(e) => setNewDesc(e.target.value)}
-                placeholder="설명 (예: 나는 중세 기사로 행동한다. 존댓말을 쓴다.)"
-                rows={3}
-                className="resize-none rounded-lg bg-surface2 px-3 py-2 text-sm outline-none"
-              />
+              <div>
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value.slice(0, 20))}
+                  placeholder="이름 (예: 기사 아르투스)"
+                  maxLength={20}
+                  className="w-full rounded-lg bg-surface2 px-3 py-2 text-sm outline-none"
+                />
+                <p className="mt-0.5 text-right text-[11px] text-slate-500">{newName.length}/20</p>
+              </div>
+              <div>
+                <textarea
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value.slice(0, 500))}
+                  placeholder="설명 (예: 나는 중세 기사로 행동한다. 존댓말을 쓴다.)"
+                  maxLength={500}
+                  rows={3}
+                  className="w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm outline-none"
+                />
+                <p className="mt-0.5 text-right text-[11px] text-slate-500">{newDesc.length}/500</p>
+              </div>
               <button
                 onClick={addPersona}
                 disabled={!newName.trim()}
@@ -243,17 +251,25 @@ export default function SettingsPage() {
             {personas.map((p) =>
               editingPersona?.id === p.id ? (
                 <li key={p.id} className="flex flex-col gap-2 rounded-lg bg-surface p-3">
-                  <input
-                    value={editingPersona.name}
-                    onChange={(e) => setEditingPersona({ ...editingPersona, name: e.target.value })}
-                    className="rounded-lg bg-surface2 px-3 py-2 text-sm outline-none"
-                  />
-                  <textarea
-                    value={editingPersona.description}
-                    onChange={(e) => setEditingPersona({ ...editingPersona, description: e.target.value })}
-                    rows={3}
-                    className="resize-none rounded-lg bg-surface2 px-3 py-2 text-sm outline-none"
-                  />
+                  <div>
+                    <input
+                      value={editingPersona.name}
+                      onChange={(e) => setEditingPersona({ ...editingPersona, name: e.target.value.slice(0, 20) })}
+                      maxLength={20}
+                      className="w-full rounded-lg bg-surface2 px-3 py-2 text-sm outline-none"
+                    />
+                    <p className="mt-0.5 text-right text-[11px] text-slate-500">{editingPersona.name.length}/20</p>
+                  </div>
+                  <div>
+                    <textarea
+                      value={editingPersona.description}
+                      onChange={(e) => setEditingPersona({ ...editingPersona, description: e.target.value.slice(0, 500) })}
+                      maxLength={500}
+                      rows={3}
+                      className="w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm outline-none"
+                    />
+                    <p className="mt-0.5 text-right text-[11px] text-slate-500">{editingPersona.description.length}/500</p>
+                  </div>
                   <div className="flex gap-2">
                     <button onClick={updatePersona} className="flex-1 rounded-lg bg-brand py-2 text-sm font-semibold text-white">
                       저장
