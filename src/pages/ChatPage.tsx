@@ -319,6 +319,19 @@ export default function ChatPage() {
                           h2: ({ children }) => <h2 className="mb-2 text-sm font-bold">{children}</h2>,
                           h3: ({ children }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
                           hr: () => <hr className="my-2 border-slate-600" />,
+                          img: ({ src, alt }) => (
+                            <img
+                              src={src}
+                              alt={alt ?? ''}
+                              className="my-2 max-w-full rounded-lg"
+                              loading="lazy"
+                            />
+                          ),
+                          a: ({ href, children }) => (
+                            <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">
+                              {children}
+                            </a>
+                          ),
                         }}
                       >
                         {m.content}
