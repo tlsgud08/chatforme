@@ -30,8 +30,12 @@ export default function WorkEditorPage() {
     setWork((w) => (w ? { ...w, ...p } : w));
   }
 
+  const titleOver = work ? work.title.length > 30 : false;
+  const descOver = work ? work.description.length > 1000 : false;
+  const canSave = !titleOver && !descOver;
+
   async function save() {
-    if (!work) return;
+    if (!work || !canSave) return;
     setSaving(true);
     const { error } = await supabase
       .from('works')
@@ -89,7 +93,7 @@ export default function WorkEditorPage() {
         </button>
         <button
           onClick={save}
-          disabled={saving}
+          disabled={saving || !canSave}
           className="ml-auto rounded-lg bg-brand px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
         >
           {saving ? '저장 중…' : '저장'}
@@ -139,27 +143,25 @@ export default function WorkEditorPage() {
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <label className="text-xs text-slate-400">제목</label>
-                <span className="text-[11px] text-slate-500">{work.title.length}/30</span>
+                <span className={`text-[11px] ${titleOver ? 'text-red-400' : 'text-slate-500'}`}>{work.title.length}/30</span>
               </div>
               <input
                 value={work.title}
-                onChange={(e) => patch({ title: e.target.value.slice(0, 30) })}
-                maxLength={30}
-                className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
+                onChange={(e) => patch({ title: e.target.value })}
+                className={`w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none ring-1 ${titleOver ? 'ring-red-500 text-red-300' : 'ring-transparent'}`}
               />
             </div>
 
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <label className="text-xs text-slate-400">설명</label>
-                <span className="text-[11px] text-slate-500">{work.description.length}/1000</span>
+                <span className={`text-[11px] ${descOver ? 'text-red-400' : 'text-slate-500'}`}>{work.description.length}/1000</span>
               </div>
               <textarea
                 value={work.description}
-                onChange={(e) => patch({ description: e.target.value.slice(0, 1000) })}
-                maxLength={1000}
+                onChange={(e) => patch({ description: e.target.value })}
                 rows={5}
-                className="w-full resize-none rounded-lg bg-surface px-4 py-3 text-sm outline-none"
+                className={`w-full resize-none rounded-lg bg-surface px-4 py-3 text-sm outline-none ring-1 ${descOver ? 'ring-red-500 text-red-300' : 'ring-transparent'}`}
               />
             </div>
 
@@ -198,9 +200,11 @@ export default function WorkEditorPage() {
         {tab === 'prompt' && (
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-xs text-slate-400">글자수 제한 없음 (8000자 이내 권장)</p>
-              <span className={`text-[11px] ${work.main_prompt.length > 8000 ? 'text-amber-400' : 'text-slate-500'}`}>
-                {work.main_prompt.length}/8000
+              <p className="text-xs text-slate-400">
+                {work.main_prompt.length > 6000 ? '⚠️ 6000자 권장 초과' : '6000자 이내 권장 (제한 없음)'}
+              </p>
+              <span className={`text-[11px] ${work.main_prompt.length > 6000 ? 'text-amber-400' : 'text-slate-500'}`}>
+                {work.main_prompt.length}/6000
               </span>
             </div>
             <textarea
@@ -208,7 +212,7 @@ export default function WorkEditorPage() {
               onChange={(e) => patch({ main_prompt: e.target.value })}
               rows={18}
               placeholder="롤플레잉 설정, 세계관, 캐릭터 등을 작성하세요."
-              className="w-full resize-none rounded-lg bg-surface px-4 py-3 text-sm leading-relaxed outline-none"
+              className={`w-full resize-none rounded-lg bg-surface px-4 py-3 text-sm leading-relaxed outline-none ring-1 ${work.main_prompt.length > 6000 ? 'ring-amber-500' : 'ring-transparent'}`}
             />
           </div>
         )}
