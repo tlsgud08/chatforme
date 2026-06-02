@@ -269,10 +269,13 @@ export default function ChatPage() {
         <button onClick={() => navigate('/sessions')} className="text-slate-400">
           ←
         </button>
-        <div className="min-w-0 flex-1">
+        <button
+          onClick={() => navigate(`/works/${work.id}`)}
+          className="min-w-0 flex-1 text-left"
+        >
           <p className="truncate text-sm font-semibold text-white">{work.title}</p>
           <p className="text-[11px] text-slate-500">누적 토큰 {totalTokens.toLocaleString()}</p>
-        </div>
+        </button>
         {!isGuest && (
           <button onClick={() => setMenuOpen(true)} className="px-2 text-xl text-slate-300">
             ☰

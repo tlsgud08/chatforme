@@ -66,8 +66,8 @@ export default function CreatePage() {
       ) : (
         <ul className="divide-y divide-surface2">
           {data.map((w) => (
-            <li key={w.id}>
-              <Link to={`/create/${w.id}`} className="flex gap-3 py-3 active:bg-surface">
+            <li key={w.id} className="flex items-center">
+              <Link to={`/create/${w.id}`} className="flex flex-1 gap-3 py-3 active:bg-surface">
                 <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2">
                   {w.thumbnail_url && (
                     <img src={w.thumbnail_url} alt="" className="h-full w-full object-cover" />
@@ -79,6 +79,9 @@ export default function CreatePage() {
                     {w.visibility === 'public' ? '전체 공개' : w.visibility === 'unlisted' ? '링크 공개' : '비공개'}
                   </p>
                 </div>
+              </Link>
+              <Link to={`/works/${w.id}`} className="px-3 py-3 text-slate-500 active:text-white">
+                ↗
               </Link>
             </li>
           ))}
