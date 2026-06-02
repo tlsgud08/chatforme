@@ -1,0 +1,46 @@
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './hooks/useAuth';
+import { isSupabaseConfigured } from './lib/supabase';
+import Layout from './components/Layout';
+import LoginPage from './pages/LoginPage';
+import WorksPage from './pages/WorksPage';
+import WorkDetailPage from './pages/WorkDetailPage';
+import SessionsPage from './pages/SessionsPage';
+import ChatPage from './pages/ChatPage';
+import CreatePage from './pages/CreatePage';
+import WorkEditorPage from './pages/WorkEditorPage';
+import SettingsPage from './pages/SettingsPage';
+import SetupNotice from './components/SetupNotice';
+
+export default function App() {
+  const { user, loading } = useAuth();
+
+  if (!isSupabaseConfigured) return <SetupNotice />;
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>
+    );
+  }
+
+  if (!user) return <LoginPage />;
+
+  return (
+    <Routes>
+      {/* 채팅방 화면은 전체화면 (탭바 없음) */}
+      <Route path="/chat/:sessionId" element={<ChatPage />} />
+
+      {/* 나머지는 탭바 레이아웃 */}
+      <Route element={<Layout />}>
+        <Route path="/" element={<Navigate to="/works" replace />} />
+        <Route path="/works" element={<WorksPage />} />
+        <Route path="/works/:workId" element={<WorkDetailPage />} />
+        <Route path="/sessions" element={<SessionsPage />} />
+        <Route path="/create" element={<CreatePage />} />
+        <Route path="/create/:workId" element={<WorkEditorPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/works" replace />} />
+      </Route>
+    </Routes>
+  );
+}
