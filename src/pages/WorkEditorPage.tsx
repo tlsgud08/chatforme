@@ -137,19 +137,27 @@ export default function WorkEditorPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-slate-400">제목</label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="text-xs text-slate-400">제목</label>
+                <span className="text-[11px] text-slate-500">{work.title.length}/30</span>
+              </div>
               <input
                 value={work.title}
-                onChange={(e) => patch({ title: e.target.value })}
+                onChange={(e) => patch({ title: e.target.value.slice(0, 30) })}
+                maxLength={30}
                 className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-slate-400">설명</label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="text-xs text-slate-400">설명</label>
+                <span className="text-[11px] text-slate-500">{work.description.length}/1000</span>
+              </div>
               <textarea
                 value={work.description}
-                onChange={(e) => patch({ description: e.target.value })}
+                onChange={(e) => patch({ description: e.target.value.slice(0, 1000) })}
+                maxLength={1000}
                 rows={5}
                 className="w-full resize-none rounded-lg bg-surface px-4 py-3 text-sm outline-none"
               />
@@ -189,9 +197,12 @@ export default function WorkEditorPage() {
 
         {tab === 'prompt' && (
           <div>
-            <p className="mb-2 text-xs text-slate-400">
-              글자수 제한은 없으나 8000자 이내를 권장합니다. (현재 {work.main_prompt.length}자)
-            </p>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs text-slate-400">글자수 제한 없음 (8000자 이내 권장)</p>
+              <span className={`text-[11px] ${work.main_prompt.length > 8000 ? 'text-amber-400' : 'text-slate-500'}`}>
+                {work.main_prompt.length}/8000
+              </span>
+            </div>
             <textarea
               value={work.main_prompt}
               onChange={(e) => patch({ main_prompt: e.target.value })}
