@@ -7,7 +7,7 @@ import { generate } from '@/lib/llm';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
 import { assemblePrompt } from '@/lib/prompt/assemble';
 import {
-  guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage,
+  guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
   type GuestSession, type GuestMessage,
 } from '@/lib/guest';
 import type { KeywordBook, Message, Persona, Profile, Session, StartConfig, Work } from '@/types/db';
@@ -218,6 +218,15 @@ export default function ChatPage() {
     } finally { setSending(false); }
   }
 
+  async function deleteMsg(msgId: string) {
+    if (isGuest && guestSession) {
+      guestDeleteMessage(guestSession.id, msgId);
+    } else {
+      await supabase.from('messages').delete().eq('id', msgId);
+    }
+    setMessages((m) => m.filter((msg) => msg.id !== msgId));
+  }
+
   async function saveEdit(msgId: string) {
     const content = editingContent.trim();
     if (!content) return;
@@ -289,13 +298,21 @@ export default function ChatPage() {
                   }`}>
                     {m.content}
                   </div>
-                  {m.role === 'user' && !m.is_hidden && (
-                    <button
-                      onClick={() => { setEditingId(m.id); setEditingContent(m.content); }}
-                      className="text-xs text-slate-500"
-                    >
-                      편집
-                    </button>
+                  {!m.is_hidden && (
+                    <div className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <button
+                        onClick={() => { setEditingId(m.id); setEditingContent(m.content); }}
+                        className="text-xs text-slate-500"
+                      >
+                        편집
+                      </button>
+                      <button
+                        onClick={() => deleteMsg(m.id)}
+                        className="text-xs text-red-400/60"
+                      >
+                        삭제
+                      </button>
+                    </div>
                   )}
                 </>
               )}

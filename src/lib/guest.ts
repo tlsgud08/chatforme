@@ -79,3 +79,12 @@ export function guestUpdateMessage(sessionId: string, messageId: string, content
   s.updated_at = new Date().toISOString();
   save(sessions);
 }
+
+export function guestDeleteMessage(sessionId: string, messageId: string): void {
+  const sessions = load();
+  const s = sessions.find((s) => s.id === sessionId);
+  if (!s) return;
+  s.messages = s.messages.filter((m) => m.id !== messageId);
+  s.updated_at = new Date().toISOString();
+  save(sessions);
+}
