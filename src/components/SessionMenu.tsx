@@ -4,6 +4,17 @@ import { useAuth } from '@/hooks/useAuth';
 import type { Persona, Profile, Session } from '@/types/db';
 
 const MAX_NOTE = 2000;
+const SLIDER_MAX = 4224;
+
+function tokenLabel(v: number | null) {
+  return v === null || v >= SLIDER_MAX ? '무제한' : String(v);
+}
+function sliderToTokens(v: number): number | null {
+  return v >= SLIDER_MAX ? null : v;
+}
+function tokensToSlider(v: number | null): number {
+  return v === null ? SLIDER_MAX : v;
+}
 
 interface Props {
   session: Session;
@@ -19,6 +30,7 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
   const { user } = useAuth();
   const [note, setNote] = useState(session.user_note);
   const [override, setOverride] = useState<number | null>(session.output_tokens_override);
+  const [sliderVal, setSliderVal] = useState(() => tokensToSlider(session.output_tokens_override));
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [savedMsg, setSavedMsg] = useState('');
 
@@ -39,10 +51,20 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
     flash('유저 노트를 저장했습니다.');
   }
 
-  async function saveOverride(value: number | null) {
+  async function saveOverride(sv: number) {
+    const value = sliderToTokens(sv);
+    setSliderVal(sv);
     setOverride(value);
     await supabase.from('sessions').update({ output_tokens_override: value }).eq('id', session.id);
     onUpdate({ output_tokens_override: value });
+  }
+
+  async function resetOverride() {
+    const defaultSv = tokensToSlider(profile?.default_output_tokens ?? null);
+    setSliderVal(defaultSv);
+    setOverride(null);
+    await supabase.from('sessions').update({ output_tokens_override: null }).eq('id', session.id);
+    onUpdate({ output_tokens_override: null });
   }
 
   async function selectPersona(persona: Persona | null) {
@@ -56,8 +78,6 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
     setSavedMsg(m);
     setTimeout(() => setSavedMsg(''), 1500);
   }
-
-  const effectiveOutput = override ?? profile?.default_output_tokens ?? 1024;
 
   return (
     <div className="fixed inset-0 z-20 flex justify-end" onClick={onClose}>
@@ -106,20 +126,21 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
         <section>
           <label className="mb-1 block text-xs text-slate-400">
             이 세션 출력량:{' '}
-            {effectiveOutput === null ? '무제한' : effectiveOutput}
-            {override === null && ' (기본값)'}
+            {override === null
+              ? `${tokenLabel(profile?.default_output_tokens ?? null)} (기본값)`
+              : tokenLabel(override)}
           </label>
           <input
             type="range"
             min={256}
-            max={4096}
+            max={SLIDER_MAX}
             step={128}
-            value={typeof effectiveOutput === 'number' ? effectiveOutput : 4096}
+            value={sliderVal}
             onChange={(e) => saveOverride(Number(e.target.value))}
             className="w-full"
           />
           {override !== null && (
-            <button onClick={() => saveOverride(null)} className="mt-1 text-xs text-slate-400 underline">
+            <button onClick={resetOverride} className="mt-1 text-xs text-slate-400 underline">
               기본값으로 되돌리기
             </button>
           )}

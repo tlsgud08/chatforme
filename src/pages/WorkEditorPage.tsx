@@ -18,6 +18,7 @@ export default function WorkEditorPage() {
   const [uploading, setUploading] = useState(false);
   const [startConfigs, setStartConfigs] = useState<StartConfig[]>([]);
   const [keywordBooks, setKeywordBooks] = useState<KeywordBook[]>([]);
+  const [kwInputs, setKwInputs] = useState<Record<string, string>>({});
   const [saveAttempted, setSaveAttempted] = useState(false);
 
   useEffect(() => {
@@ -433,17 +434,39 @@ export default function WorkEditorPage() {
 
                   <div>
                     <div className="mb-1 flex justify-between">
-                      <label className="text-xs text-slate-400">트리거 키워드 (쉼표로 구분, 최대 5개)</label>
+                      <label className="text-xs text-slate-400">트리거 키워드 (엔터로 추가, 최대 5개)</label>
                       <span className={`text-[11px] ${kwCount > 5 ? 'text-red-400' : 'text-slate-500'}`}>{kwCount}/5</span>
                     </div>
-                    <input
-                      value={kb.keywords.join(', ')}
-                      onChange={(e) => patchKeyword(kb.id, {
-                        keywords: e.target.value.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 5),
-                      })}
-                      placeholder="예: 전투, 싸움, 공격"
-                      className={`w-full rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${kwCount > 5 ? 'ring-red-500' : 'ring-transparent'}`}
-                    />
+                    <div className={`flex flex-wrap gap-1.5 rounded-lg bg-surface2 px-3 py-2 ring-1 ${kwCount > 5 ? 'ring-red-500' : 'ring-transparent'}`}>
+                      {kb.keywords.filter((k) => k.trim()).map((kw, ki) => (
+                        <span key={ki} className="flex items-center gap-1 rounded bg-surface px-2 py-0.5 text-xs text-slate-200">
+                          {kw}
+                          <button
+                            type="button"
+                            onClick={() => patchKeyword(kb.id, { keywords: kb.keywords.filter((_, i) => i !== ki) })}
+                            className="ml-0.5 text-slate-400 hover:text-white"
+                          >✕</button>
+                        </span>
+                      ))}
+                      {kwCount < 5 && (
+                        <input
+                          value={kwInputs[kb.id] ?? ''}
+                          onChange={(e) => setKwInputs((prev) => ({ ...prev, [kb.id]: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const val = (kwInputs[kb.id] ?? '').trim();
+                              if (val && !kb.keywords.includes(val)) {
+                                patchKeyword(kb.id, { keywords: [...kb.keywords, val] });
+                              }
+                              setKwInputs((prev) => ({ ...prev, [kb.id]: '' }));
+                            }
+                          }}
+                          placeholder={kwCount === 0 ? '예: 전투' : '추가…'}
+                          className="min-w-[80px] flex-1 bg-transparent text-sm outline-none"
+                        />
+                      )}
+                    </div>
                   </div>
 
                   <div>
