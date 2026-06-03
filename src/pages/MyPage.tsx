@@ -12,7 +12,7 @@ interface FollowEntry {
 }
 
 export default function MyPage() {
-  const { user, isGuest } = useAuth();
+  const { user, isGuest, signOut } = useAuth();
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -153,7 +153,6 @@ export default function MyPage() {
     <div className="flex flex-col gap-6 p-4">
       {/* 프로필 카드 */}
       <section className="flex flex-col items-center gap-3 rounded-xl bg-surface p-5">
-        {/* 아바타 (클릭 → 업로드) */}
         <button
           onClick={() => fileRef.current?.click()}
           disabled={avatarUploading}
@@ -167,7 +166,6 @@ export default function MyPage() {
         </button>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
 
-        {/* 표시 이름 */}
         <div className="w-full text-center">
           <input
             value={profile?.display_name ?? ''}
@@ -179,7 +177,6 @@ export default function MyPage() {
           <p className="mt-1 text-xs text-slate-500">{user?.email}</p>
         </div>
 
-        {/* 소개 */}
         <div className="w-full">
           <textarea
             value={profile?.bio ?? ''}
@@ -195,13 +192,12 @@ export default function MyPage() {
           <p className="mt-0.5 text-right text-xs text-slate-600">{(profile?.bio ?? '').length}/500</p>
         </div>
 
-        {/* 내 명함 보기 */}
         {user && (
           <button
             onClick={() => navigate(`/users/${user.id}`)}
             className="w-full rounded-lg bg-surface2 py-2 text-sm text-slate-300"
           >
-            내 명함 보기 →
+            내 프로필 보기 →
           </button>
         )}
       </section>
@@ -361,6 +357,14 @@ export default function MyPage() {
       {savedMsg && (
         <p className="rounded-lg bg-surface px-4 py-2 text-center text-sm text-brand">{savedMsg}</p>
       )}
+
+      {/* 로그아웃 */}
+      <button
+        onClick={() => signOut()}
+        className="w-full rounded-xl bg-surface py-3 text-sm font-semibold text-red-400"
+      >
+        로그아웃
+      </button>
     </div>
   );
 }

@@ -89,7 +89,6 @@ export default function WorkDetailPage() {
 
     if (isGuest) {
       const session = guestCreateSession({ id: work.id, title: work.title });
-      // 시작 기본 정보 (숨김 메시지)
       if (selectedConfig?.initial_context.trim()) {
         guestAddMessage(session.id, {
           id: crypto.randomUUID(), role: 'user',
@@ -98,7 +97,6 @@ export default function WorkDetailPage() {
           is_hidden: true, created_at: now,
         });
       }
-      // 시작 메시지 (AI 첫 출력)
       if (selectedConfig?.initial_message.trim()) {
         guestAddMessage(session.id, {
           id: crypto.randomUUID(), role: 'assistant',
@@ -128,7 +126,6 @@ export default function WorkDetailPage() {
 
     const sessionId = data.id;
 
-    // 시작 기본 정보 (숨김 메시지)
     if (selectedConfig?.initial_context.trim()) {
       await supabase.from('messages').insert({
         session_id: sessionId, role: 'user',
@@ -136,7 +133,6 @@ export default function WorkDetailPage() {
         turn_index: 0, is_hidden: true,
       });
     }
-    // 시작 메시지 (AI 첫 출력)
     if (selectedConfig?.initial_message.trim()) {
       await supabase.from('messages').insert({
         session_id: sessionId, role: 'assistant',
@@ -180,7 +176,6 @@ export default function WorkDetailPage() {
       <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">{work.description}</p>
 
       <div className="mt-6 flex flex-col gap-3">
-        {/* 페르소나 선택 (로그인 사용자만) */}
         {!isGuest && personas.length > 0 && (
           <div>
             <label className="mb-1 block text-xs text-slate-400">페르소나</label>
@@ -197,11 +192,10 @@ export default function WorkDetailPage() {
         )}
         {!isGuest && personas.length === 0 && (
           <p className="text-xs text-slate-500">
-            페르소나 없음 — 설정 탭에서 추가하면 여기서 선택할 수 있습니다.
+            페르소나 없음 — My 탭에서 추가하면 여기서 선택할 수 있습니다.
           </p>
         )}
 
-        {/* 시작 설정 선택 */}
         {startConfigs.length > 0 && (
           <div>
             <label className="mb-1 block text-xs text-slate-400">시작 설정</label>
