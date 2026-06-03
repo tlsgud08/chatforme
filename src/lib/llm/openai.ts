@@ -17,7 +17,7 @@ export const openaiAdapter: LLMAdapter = {
       },
       body: JSON.stringify({
         model: opts.model,
-        max_tokens: opts.maxOutputTokens,
+        ...(opts.maxOutputTokens !== null && { max_tokens: opts.maxOutputTokens }),
         messages,
       }),
     });

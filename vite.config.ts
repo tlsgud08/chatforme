@@ -9,8 +9,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'ChatForMe',
-        short_name: 'ChatForMe',
+        name: 'Nekochat',
+        short_name: 'Nekochat',
         description: 'AI 롤플레잉 채팅 플랫폼',
         theme_color: '#0f172a',
         background_color: '#0f172a',

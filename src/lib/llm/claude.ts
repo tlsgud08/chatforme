@@ -15,7 +15,7 @@ export const claudeAdapter: LLMAdapter = {
       },
       body: JSON.stringify({
         model: opts.model,
-        max_tokens: opts.maxOutputTokens,
+        ...(opts.maxOutputTokens !== null && { max_tokens: opts.maxOutputTokens }),
         system: opts.system || undefined,
         messages: opts.messages.map((m) => ({ role: m.role, content: m.content })),
       }),
