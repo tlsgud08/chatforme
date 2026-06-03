@@ -13,6 +13,7 @@ export default function Layout() {
   return (
     <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
       <header className="flex items-center gap-2 border-b border-surface2 px-4 py-3">
+        <img src="/IMG_6928.png" alt="logo" className="h-8 w-8 rounded-full object-cover" />
         <span className="text-lg font-bold text-white">Nekochat</span>
         <button
           onClick={() => navigate('/search')}
