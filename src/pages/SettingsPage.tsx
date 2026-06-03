@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, ADMIN_EMAIL } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { loadApiKeys, saveApiKeys, type ApiKeys } from '@/lib/apiKeys';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
@@ -24,6 +24,12 @@ export default function SettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
 
+  const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
+
+  // 관리자 전역 시스템 프롬프트
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const [systemPromptLoaded, setSystemPromptLoaded] = useState(false);
+
   // 페르소나
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
@@ -45,6 +51,17 @@ export default function SettingsPage() {
       .eq('user_id', user.id)
       .order('created_at')
       .then(({ data }) => setPersonas((data as Persona[]) ?? []));
+    if (user.email === ADMIN_EMAIL && ADMIN_EMAIL) {
+      supabase
+        .from('platform_config')
+        .select('system_prompt')
+        .eq('id', 1)
+        .single()
+        .then(({ data }) => {
+          setSystemPrompt(data?.system_prompt ?? '');
+          setSystemPromptLoaded(true);
+        });
+    }
   }, [user, isGuest]);
 
   function saveKeys() {
@@ -107,6 +124,15 @@ export default function SettingsPage() {
     await supabase.from('personas').update({ is_default: true }).eq('id', id);
     setPersonas((ps) => ps.map((p) => ({ ...p, is_default: p.id === id })));
     flash('기본 페르소나로 설정했습니다.');
+  }
+
+  async function saveSystemPrompt() {
+    const { error } = await supabase
+      .from('platform_config')
+      .update({ system_prompt: systemPrompt, updated_at: new Date().toISOString() })
+      .eq('id', 1);
+    if (error) { flash('저장 실패: ' + error.message); return; }
+    flash('전역 시스템 프롬프트를 저장했습니다.');
   }
 
   function flash(msg: string) {
@@ -316,6 +342,32 @@ export default function SettingsPage() {
               )
             )}
           </ul>
+        </section>
+      )}
+
+      {/* 관리자 전용: 전역 시스템 프롬프트 */}
+      {isAdmin && systemPromptLoaded && (
+        <section className="rounded-lg border border-yellow-600/30 bg-yellow-950/20 p-4">
+          <h2 className="mb-1 font-semibold text-yellow-400">관리자 — 전역 시스템 프롬프트</h2>
+          <p className="mb-3 text-xs text-yellow-600/70">
+            모든 채팅에 공통 적용되는 최상단 지시문입니다. 신중하게 편집하세요.
+          </p>
+          <textarea
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+            rows={8}
+            placeholder="예: 당신은 성인 롤플레이 서비스의 AI 캐릭터입니다. 항상 캐릭터 설정을 유지하세요."
+            className="w-full resize-y rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
+          />
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xs text-slate-500">{systemPrompt.length}자</span>
+            <button
+              onClick={saveSystemPrompt}
+              className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-semibold text-white"
+            >
+              저장
+            </button>
+          </div>
         </section>
       )}
 
