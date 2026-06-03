@@ -81,7 +81,7 @@ export default function WorksPage() {
               onClick={(e) => toggleFav(e, w.id)}
               className="shrink-0 px-4 py-4 text-lg leading-none"
             >
-              {favSet.has(w.id) ? '❤️' : '🧡'}
+              {favSet.has(w.id) ? '❤️' : '🤍'}
             </button>
           )}
         </li>

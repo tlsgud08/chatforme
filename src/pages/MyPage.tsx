@@ -130,12 +130,12 @@ export default function MyPage() {
         <ul className="overflow-hidden rounded-xl bg-surface divide-y divide-surface2">
           <li>
             <button
-              disabled
-              className="flex w-full items-center gap-3 px-4 py-3.5 text-left opacity-40"
+              onClick={() => navigate('/favorites')}
+              className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
             >
               <span className="text-xl">❤️</span>
               <span className="flex-1 text-sm text-white">즐겨찾기</span>
-              <span className="text-[10px] text-slate-500">Phase 3 예정</span>
+              <span className="text-xs text-slate-400">▶</span>
             </button>
           </li>
           <li>

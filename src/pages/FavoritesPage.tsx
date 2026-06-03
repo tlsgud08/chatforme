@@ -45,9 +45,9 @@ export default function FavoritesPage() {
         <p className="p-6 text-slate-400">불러오는 중…</p>
       ) : favs.length === 0 ? (
         <div className="flex flex-col items-center gap-3 p-10 text-center">
-          <p className="text-4xl">🧡</p>
+          <p className="text-4xl">🤍</p>
           <p className="text-sm text-slate-400">즐겨찾기한 작품이 없습니다.</p>
-          <p className="text-xs text-slate-500">작품 상세 화면이나 목록에서 하트를 눈러 추가하세요.</p>
+          <p className="text-xs text-slate-500">작품 상세 화면이나 목록에서 하트를 눌러 추가하세요.</p>
         </div>
       ) : (
         <ul className="divide-y divide-surface2">
