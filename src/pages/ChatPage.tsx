@@ -7,7 +7,7 @@ import { generate } from '@/lib/llm';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
 import { assemblePrompt } from '@/lib/prompt/assemble';
 import {
-  guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage,
+  guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
   type GuestSession, type GuestMessage,
 } from '@/lib/guest';
 import type { KeywordBook, Message, Persona, Profile, Session, StartConfig, Work } from '@/types/db';
@@ -217,6 +217,15 @@ export default function ChatPage() {
     } finally { setSending(false); }
   }
 
+  async function deleteMsg(msgId: string) {
+    if (isGuest && guestSession) {
+      guestDeleteMessage(guestSession.id, msgId);
+    } else {
+      await supabase.from('messages').delete().eq('id', msgId);
+    }
+    setMessages((m) => m.filter((msg) => msg.id !== msgId));
+  }
+
   async function saveEdit(msgId: string) {
     const content = editingContent.trim();
     if (!content) return;
@@ -256,7 +265,8 @@ export default function ChatPage() {
         )}
         <div className="flex flex-col gap-3">
           {visibleMessages.map((m) => (
-            <div key={m.id}
+            <div
+              key={m.id}
               className={`flex max-w-[85%] flex-col gap-1 ${m.role === 'user' ? 'self-end items-end' : 'self-start items-start'}`}
             >
               {m.is_hidden && debugMode && (
@@ -264,9 +274,13 @@ export default function ChatPage() {
               )}
               {editingId === m.id ? (
                 <div className="flex w-full flex-col gap-1.5">
-                  <textarea value={editingContent} onChange={(e) => setEditingContent(e.target.value)}
-                    rows={3} autoFocus
-                    className="w-full resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-100 outline-none" />
+                  <textarea
+                    value={editingContent}
+                    onChange={(e) => setEditingContent(e.target.value)}
+                    rows={3}
+                    autoFocus
+                    className="w-full resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-100 outline-none"
+                  />
                   <div className="flex justify-end gap-2">
                     <button onClick={() => setEditingId(null)} className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300">취소</button>
                     <button onClick={() => saveEdit(m.id)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white">저장</button>
@@ -275,12 +289,29 @@ export default function ChatPage() {
               ) : (
                 <>
                   <div className={`whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                    m.is_hidden ? 'border border-amber-500/40 bg-surface text-amber-200'
-                    : m.role === 'user' ? 'bg-brand text-white' : 'bg-surface text-slate-100'
-                  }`}>{m.content}</div>
-                  {m.role === 'user' && !m.is_hidden && (
-                    <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); }}
-                      className="text-xs text-slate-500">편집</button>
+                    m.is_hidden
+                      ? 'border border-amber-500/40 bg-surface text-amber-200'
+                      : m.role === 'user'
+                        ? 'bg-brand text-white'
+                        : 'bg-surface text-slate-100'
+                  }`}>
+                    {m.content}
+                  </div>
+                  {!m.is_hidden && (
+                    <div className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <button
+                        onClick={() => { setEditingId(m.id); setEditingContent(m.content); }}
+                        className="text-xs text-slate-500"
+                      >
+                        편집
+                      </button>
+                      <button
+                        onClick={() => deleteMsg(m.id)}
+                        className="text-xs text-red-400/60"
+                      >
+                        삭제
+                      </button>
+                    </div>
                   )}
                 </>
               )}
@@ -295,20 +326,33 @@ export default function ChatPage() {
       {error && <p className="px-3 py-1 text-xs text-amber-400">{error}</p>}
 
       <div className="flex items-end gap-2 border-t border-surface2 p-2">
-        <textarea value={input} onChange={(e) => setInput(e.target.value)}
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          rows={1} placeholder="메시지 입력…"
-          className="max-h-32 flex-1 resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm outline-none" />
-        <button onClick={send} disabled={sending || !input.trim()}
-          className="rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40">전송</button>
+          rows={1}
+          placeholder="메시지 입력…"
+          className="max-h-32 flex-1 resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm outline-none"
+        />
+        <button
+          onClick={send}
+          disabled={sending || !input.trim()}
+          className="rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+        >
+          전송
+        </button>
       </div>
 
       {menuOpen && !isGuest && session && (
-        <SessionMenu session={session} profile={profile}
+        <SessionMenu
+          session={session}
+          profile={profile}
           onClose={() => setMenuOpen(false)}
           onUpdate={(patch) => setSession((s) => (s ? { ...s, ...patch } : s))}
           onPersonaChange={(p) => setPersona(p)}
-          debugMode={debugMode} onDebugToggle={setDebugMode} />
+          debugMode={debugMode}
+          onDebugToggle={setDebugMode}
+        />
       )}
     </div>
   );
