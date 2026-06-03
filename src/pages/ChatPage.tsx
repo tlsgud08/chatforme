@@ -117,7 +117,6 @@ export default function ChatPage() {
     return activated.sort((a, b) => a.recency - b.recency).slice(0, 3).map((a) => a.content);
   }
 
-  // 히스토리에서 keep_turns 초과한 숨김 메시지 제거
   function buildHistory(allMsgs: Message[]) {
     const userCount = allMsgs.filter((m) => m.role === 'user' && !m.is_hidden).length;
     return allMsgs.filter((m) => {
@@ -323,7 +322,7 @@ export default function ChatPage() {
                             <img
                               src={src}
                               alt={alt ?? ''}
-                              className="my-2 max-w-full rounded-lg"
+                              className="my-2 max-w-full"
                               loading="lazy"
                             />
                           ),
