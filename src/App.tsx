@@ -11,6 +11,7 @@ import CreatePage from './pages/CreatePage';
 import WorkEditorPage from './pages/WorkEditorPage';
 import SettingsPage from './pages/SettingsPage';
 import SearchPage from './pages/SearchPage';
+import MyPage from './pages/MyPage';
 import SetupNotice from './components/SetupNotice';
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/create" element={<CreatePage />} />
         <Route path="/create/:workId" element={<WorkEditorPage />} />
+        <Route path="/my" element={<MyPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/works" replace />} />
       </Route>
