@@ -117,6 +117,7 @@ export default function ChatPage() {
     return activated.sort((a, b) => a.recency - b.recency).slice(0, 3).map((a) => a.content);
   }
 
+  // 히스토리에서 keep_turns 초과한 숨김 메시지 제거
   function buildHistory(allMsgs: Message[]) {
     const userCount = allMsgs.filter((m) => m.role === 'user' && !m.is_hidden).length;
     return allMsgs.filter((m) => {
@@ -298,30 +299,43 @@ export default function ChatPage() {
                         : 'bg-surface text-slate-100'
                   }`}>
                     <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                        strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                        em: ({ children }) => <em className="italic">{children}</em>,
-                        ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
-                        ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
-                        li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                        code: ({ children, className }) =>
-                          className ? (
-                            <code className="block overflow-x-auto rounded-lg bg-surface2 p-3 text-xs font-mono">{children}</code>
-                          ) : (
-                            <code className="rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                          strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                          em: ({ children }) => <em className="italic">{children}</em>,
+                          ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
+                          ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
+                          li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                          code: ({ children, className }) =>
+                            className ? (
+                              <code className="block overflow-x-auto rounded-lg bg-surface2 p-3 text-xs font-mono">{children}</code>
+                            ) : (
+                              <code className="rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>
+                            ),
+                          pre: ({ children }) => <pre className="mb-2">{children}</pre>,
+                          blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
+                          h1: ({ children }) => <h1 className="mb-2 text-base font-bold">{children}</h1>,
+                          h2: ({ children }) => <h2 className="mb-2 text-sm font-bold">{children}</h2>,
+                          h3: ({ children }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
+                          hr: () => <hr className="my-2 border-slate-600" />,
+                          img: ({ src, alt }) => (
+                            <img
+                              src={src}
+                              alt={alt ?? ''}
+                              className="my-2 max-w-full rounded-lg"
+                              loading="lazy"
+                            />
                           ),
-                        pre: ({ children }) => <pre className="mb-2">{children}</pre>,
-                        blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
-                        h1: ({ children }) => <h1 className="mb-2 text-base font-bold">{children}</h1>,
-                        h2: ({ children }) => <h2 className="mb-2 text-sm font-bold">{children}</h2>,
-                        h3: ({ children }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
-                        hr: () => <hr className="my-2 border-slate-600" />,
-                      }}
-                    >
-                      {m.content}
-                    </ReactMarkdown>
+                          a: ({ href, children }) => (
+                            <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">
+                              {children}
+                            </a>
+                          ),
+                        }}
+                      >
+                        {m.content}
+                      </ReactMarkdown>
                   </div>
                   {!m.is_hidden && (
                     <div className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
