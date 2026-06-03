@@ -5,7 +5,7 @@ const STORAGE_KEY = 'chatforme.apiKeys';
 
 export type ApiKeys = Record<Provider, string>;
 
-const EMPTY: ApiKeys = { claude: '', gemini: '', openai: '' };
+const EMPTY: ApiKeys = { openrouter: '', claude: '', gemini: '', openai: '' };
 
 export function loadApiKeys(): ApiKeys {
   try {

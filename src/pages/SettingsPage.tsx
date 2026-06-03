@@ -5,7 +5,7 @@ import { loadApiKeys, saveApiKeys, type ApiKeys } from '@/lib/apiKeys';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
 import type { Profile, Provider } from '@/types/db';
 
-const PROVIDERS: Provider[] = ['claude', 'gemini', 'openai'];
+const PROVIDERS: Provider[] = ['openrouter', 'claude', 'gemini', 'openai'];
 const SLIDER_MAX = 4224;
 
 function tokenLabel(v: number | null) {
@@ -93,18 +93,45 @@ export default function SettingsPage() {
           키는 이 기기 브라우저에만 저장되며 서버로 전송되지 않습니다.
         </p>
         <div className="flex flex-col gap-3">
-          {PROVIDERS.map((p) => (
-            <div key={p}>
-              <label className="mb-1 block text-xs text-slate-400">{PROVIDER_LABELS[p]}</label>
-              <input
-                type="password"
-                value={keys[p]}
-                onChange={(e) => setKeys((k) => ({ ...k, [p]: e.target.value }))}
-                placeholder="API 키 입력"
-                className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
-              />
-            </div>
-          ))}
+          {PROVIDERS.map((p) =>
+            p === 'openrouter' ? (
+              <div key={p} className="rounded-lg border border-brand/40 bg-brand/5 p-3">
+                <div className="mb-1 flex items-center gap-2">
+                  <label className="text-sm font-semibold text-white">{PROVIDER_LABELS[p]}</label>
+                  <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">추천</span>
+                </div>
+                <p className="mb-2 text-[11px] text-slate-400">
+                  키 하나로 Claude·Gemini·GPT 등 모든 모델 사용 가능.{' '}
+                  <a
+                    href="https://openrouter.ai/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-brand underline"
+                  >
+                    키 발급받기 →
+                  </a>
+                </p>
+                <input
+                  type="password"
+                  value={keys[p]}
+                  onChange={(e) => setKeys((k) => ({ ...k, [p]: e.target.value }))}
+                  placeholder="OpenRouter API 키 입력"
+                  className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
+                />
+              </div>
+            ) : (
+              <div key={p}>
+                <label className="mb-1 block text-xs text-slate-400">{PROVIDER_LABELS[p]}</label>
+                <input
+                  type="password"
+                  value={keys[p]}
+                  onChange={(e) => setKeys((k) => ({ ...k, [p]: e.target.value }))}
+                  placeholder="API 키 입력"
+                  className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
+                />
+              </div>
+            ),
+          )}
           <button onClick={saveKeys} className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">
             API 키 저장
           </button>
