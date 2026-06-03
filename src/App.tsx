@@ -12,6 +12,7 @@ import WorkEditorPage from './pages/WorkEditorPage';
 import SettingsPage from './pages/SettingsPage';
 import SearchPage from './pages/SearchPage';
 import MyPage from './pages/MyPage';
+import FavoritesPage from './pages/FavoritesPage';
 import SetupNotice from './components/SetupNotice';
 
 export default function App() {
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="/create" element={<CreatePage />} />
         <Route path="/create/:workId" element={<WorkEditorPage />} />
         <Route path="/my" element={<MyPage />} />
+        <Route path="/favorites" element={<FavoritesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/works" replace />} />
       </Route>

@@ -80,6 +80,12 @@ export interface Session {
   updated_at: string;
 }
 
+export interface WorkFavorite {
+  user_id: string;
+  work_id: string;
+  created_at: string;
+}
+
 export interface Message {
   id: string;
   session_id: string;
