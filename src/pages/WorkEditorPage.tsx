@@ -23,7 +23,13 @@ export default function WorkEditorPage() {
     supabase.from('works').select('*').eq('id', workId).single()
       .then(({ data }) => setWork(data as Work));
     supabase.from('start_configs').select('*').eq('work_id', workId).order('sort_order')
-      .then(({ data }) => setStartConfigs((data as StartConfig[]) ?? []));
+      .then(({ data }) => {
+        const configs = (data as StartConfig[]) ?? [];
+        if (configs.length > 0 && !configs.some((c) => c.is_default)) {
+          configs[0] = { ...configs[0], is_default: true };
+        }
+        setStartConfigs(configs);
+      });
   }, [workId]);
 
   function patch(p: Partial<Work>) {
@@ -32,6 +38,10 @@ export default function WorkEditorPage() {
 
   function patchConfig(id: string, p: Partial<StartConfig>) {
     setStartConfigs((cs) => cs.map((c) => (c.id === id ? { ...c, ...p } : c)));
+  }
+
+  function setDefaultConfig(id: string) {
+    setStartConfigs((cs) => cs.map((c) => ({ ...c, is_default: c.id === id })));
   }
 
   const titleOver = work ? work.title.length > 30 : false;
@@ -76,6 +86,7 @@ export default function WorkEditorPage() {
           initial_message: cfg.initial_message,
           initial_context: cfg.initial_context,
           keep_turns: cfg.keep_turns,
+          is_default: cfg.is_default,
         }).eq('id', cfg.id)
       )
     );
@@ -110,7 +121,7 @@ export default function WorkEditorPage() {
     if (!work || startConfigs.length >= 3) return;
     const { data, error } = await supabase
       .from('start_configs')
-      .insert({ work_id: work.id, name: '', initial_message: '', initial_context: '', keep_turns: 3, sort_order: startConfigs.length })
+      .insert({ work_id: work.id, name: '', initial_message: '', initial_context: '', keep_turns: 3, sort_order: startConfigs.length, is_default: startConfigs.length === 0 })
       .select('*').single();
     if (error) { alert('추가 실패: ' + error.message); return; }
     setStartConfigs((cs) => [...cs, data as StartConfig]);
@@ -119,7 +130,11 @@ export default function WorkEditorPage() {
   async function deleteStartConfig(id: string) {
     if (!confirm('이 시작 설정을 삭제할까요?')) return;
     await supabase.from('start_configs').delete().eq('id', id);
-    setStartConfigs((cs) => cs.filter((c) => c.id !== id));
+    const remaining = startConfigs.filter((c) => c.id !== id);
+    if (remaining.length > 0 && !remaining.some((c) => c.is_default)) {
+      remaining[0] = { ...remaining[0], is_default: true };
+    }
+    setStartConfigs(remaining);
   }
 
   if (!work) return <p className="p-6 text-slate-400">불러오는 중…</p>;
@@ -272,7 +287,16 @@ export default function WorkEditorPage() {
                 <div key={cfg.id} className="flex flex-col gap-3 rounded-xl bg-surface p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-white">설정 {idx + 1}</span>
-                    <button onClick={() => deleteStartConfig(cfg.id)} className="text-xs text-red-400">삭제</button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setDefaultConfig(cfg.id)}
+                        title={cfg.is_default ? '기본 설정' : '기본으로 설정'}
+                        className={`text-base leading-none ${cfg.is_default ? 'text-brand' : 'text-slate-600'}`}
+                      >
+                        {cfg.is_default ? '★' : '☆'}
+                      </button>
+                      <button onClick={() => deleteStartConfig(cfg.id)} className="text-xs text-red-400">삭제</button>
+                    </div>
                   </div>
 
                   <div>

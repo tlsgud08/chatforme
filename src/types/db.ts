@@ -6,7 +6,7 @@ export type Role = 'user' | 'assistant';
 export interface Profile {
   id: string;
   display_name: string;
-  default_output_tokens: number;
+  default_output_tokens: number | null;
   default_provider: Provider;
   default_model: string;
   created_at: string;
@@ -26,8 +26,21 @@ export interface Work {
   thumbnail_url: string | null;
   main_prompt: string;
   is_published: boolean;
+  visibility: 'public' | 'unlisted' | 'private';
   created_at: string;
   updated_at: string;
+}
+
+export interface StartConfig {
+  id: string;
+  work_id: string;
+  name: string;
+  initial_message: string;
+  initial_context: string;
+  keep_turns: number;
+  sort_order: number;
+  is_default: boolean;
+  created_at: string;
 }
 
 export interface KeywordBook {
@@ -46,6 +59,7 @@ export interface Persona {
   user_id: string;
   name: string;
   description: string;
+  is_default: boolean;
   created_at: string;
 }
 
@@ -55,6 +69,7 @@ export interface Session {
   work_id: string;
   title: string;
   persona_id: string | null;
+  start_config_id: string | null;
   user_note: string;
   output_tokens_override: number | null;
   summary: string;
@@ -72,6 +87,7 @@ export interface Message {
   turn_index: number;
   input_tokens: number;
   output_tokens: number;
+  is_hidden: boolean;
   is_summarized: boolean;
   created_at: string;
 }

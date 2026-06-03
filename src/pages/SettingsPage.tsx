@@ -3,24 +3,49 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { loadApiKeys, saveApiKeys, type ApiKeys } from '@/lib/apiKeys';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
-import type { Profile, Provider } from '@/types/db';
+import type { Persona, Profile, Provider } from '@/types/db';
 
 const PROVIDERS: Provider[] = ['claude', 'gemini', 'openai'];
+const SLIDER_MAX = 4224;
+
+function tokenLabel(v: number | null) {
+  return v === null || v >= SLIDER_MAX ? '무제한' : String(v);
+}
+function sliderToTokens(v: number): number | null {
+  return v >= SLIDER_MAX ? null : v;
+}
+function tokensToSlider(v: number | null): number {
+  return v === null ? SLIDER_MAX : v;
+}
 
 export default function SettingsPage() {
-  const { user, signOut } = useAuth();
+  const { user, isGuest, signOut } = useAuth();
   const [keys, setKeys] = useState<ApiKeys>(loadApiKeys());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
 
+  // 페르소나
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [showAddForm, setShowAddForm] = useState(false);
+
   useEffect(() => {
+    if (isGuest || !user) return;
     supabase
       .from('profiles')
       .select('*')
-      .eq('id', user!.id)
+      .eq('id', user.id)
       .single()
       .then(({ data }) => setProfile(data as Profile));
-  }, [user]);
+    supabase
+      .from('personas')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at')
+      .then(({ data }) => setPersonas((data as Persona[]) ?? []));
+  }, [user, isGuest]);
 
   function saveKeys() {
     saveApiKeys(keys);
@@ -39,6 +64,49 @@ export default function SettingsPage() {
       })
       .eq('id', profile.id);
     flash('프로필을 저장했습니다.');
+  }
+
+  async function addPersona() {
+    if (!newName.trim() || !user) return;
+    const isFirst = personas.length === 0;
+    const { data, error } = await supabase
+      .from('personas')
+      .insert({ user_id: user.id, name: newName.trim(), description: newDesc.trim(), is_default: isFirst })
+      .select('*')
+      .single();
+    if (error) { flash('저장 실패: ' + error.message); return; }
+    setPersonas((p) => [...p, data as Persona]);
+    setNewName('');
+    setNewDesc('');
+    setShowAddForm(false);
+  }
+
+  async function updatePersona() {
+    if (!editingPersona) return;
+    const { error } = await supabase
+      .from('personas')
+      .update({ name: editingPersona.name, description: editingPersona.description })
+      .eq('id', editingPersona.id);
+    if (error) { flash('저장 실패: ' + error.message); return; }
+    setPersonas((p) => p.map((x) => (x.id === editingPersona.id ? editingPersona : x)));
+    setEditingPersona(null);
+  }
+
+  async function deletePersona(id: string) {
+    await supabase.from('personas').delete().eq('id', id);
+    const remaining = personas.filter((x) => x.id !== id);
+    if (remaining.length > 0 && !remaining.some((x) => x.is_default)) {
+      await supabase.from('personas').update({ is_default: true }).eq('id', remaining[0].id);
+      remaining[0] = { ...remaining[0], is_default: true };
+    }
+    setPersonas(remaining);
+  }
+
+  async function setDefaultPersona(id: string) {
+    await supabase.from('personas').update({ is_default: false }).eq('user_id', user!.id);
+    await supabase.from('personas').update({ is_default: true }).eq('id', id);
+    setPersonas((ps) => ps.map((p) => ({ ...p, is_default: p.id === id })));
+    flash('기본 페르소나로 설정했습니다.');
   }
 
   function flash(msg: string) {
@@ -73,8 +141,8 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* 기본 출력량 & 모델 */}
-      {profile && (
+      {/* 기본 출력 설정 */}
+      {!isGuest && profile && (
         <section>
           <h2 className="mb-3 font-semibold text-white">기본 출력 설정</h2>
           <div className="flex flex-col gap-3">
@@ -88,9 +156,7 @@ export default function SettingsPage() {
                 className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
               >
                 {PROVIDERS.map((p) => (
-                  <option key={p} value={p}>
-                    {PROVIDER_LABELS[p]}
-                  </option>
+                  <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
                 ))}
               </select>
             </div>
@@ -102,40 +168,35 @@ export default function SettingsPage() {
                 className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
               >
                 {DEFAULT_MODELS[profile.default_provider].map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
+                  <option key={m} value={m}>{m}</option>
                 ))}
               </select>
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-400">
-                기본 출력량 (최대 출력 토큰): {profile.default_output_tokens}
+                기본 출력량: {tokenLabel(profile.default_output_tokens)}
               </label>
               <input
                 type="range"
                 min={256}
-                max={4096}
+                max={SLIDER_MAX}
                 step={128}
-                value={profile.default_output_tokens}
+                value={tokensToSlider(profile.default_output_tokens)}
                 onChange={(e) =>
-                  setProfile({ ...profile, default_output_tokens: Number(e.target.value) })
+                  setProfile({ ...profile, default_output_tokens: sliderToTokens(Number(e.target.value)) })
                 }
                 className="w-full"
               />
             </div>
-            <button
-              onClick={saveProfile}
-              className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white"
-            >
+            <button onClick={saveProfile} className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">
               저장
             </button>
           </div>
         </section>
       )}
 
-      {/* 프로필 / 계정 */}
-      {profile && (
+      {/* 프로필 */}
+      {!isGuest && profile && (
         <section>
           <h2 className="mb-3 font-semibold text-white">프로필</h2>
           <label className="mb-1 block text-xs text-slate-400">표시 이름</label>
@@ -149,17 +210,121 @@ export default function SettingsPage() {
         </section>
       )}
 
-      <section>
-        <h2 className="mb-2 font-semibold text-white">페르소나</h2>
-        <p className="text-sm text-slate-500">페르소나 설정은 Phase 2에서 추가됩니다.</p>
-      </section>
+      {/* 페르소나 */}
+      {!isGuest && (
+        <section>
+          <div className="mb-3 flex items-center">
+            <h2 className="font-semibold text-white">페르소나</h2>
+            <button
+              onClick={() => { setShowAddForm((v) => !v); setEditingPersona(null); }}
+              className="ml-auto text-sm text-brand"
+            >
+              {showAddForm ? '취소' : '+ 추가'}
+            </button>
+          </div>
+
+          {showAddForm && (
+            <div className="mb-3 flex flex-col gap-2 rounded-lg bg-surface p-3">
+              <div>
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="이름 (예: 기사 아르투스)"
+                  className={`w-full rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${newName.length > 20 ? 'ring-red-500 text-red-300' : 'ring-transparent'}`}
+                />
+                <p className={`mt-0.5 text-right text-[11px] ${newName.length > 20 ? 'text-red-400' : 'text-slate-500'}`}>{newName.length}/20</p>
+              </div>
+              <div>
+                <textarea
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                  placeholder="설명 (예: 나는 중세 기사로 행동한다. 존댓말을 쓴다.)"
+                  rows={3}
+                  className={`w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${newDesc.length > 500 ? 'ring-red-500 text-red-300' : 'ring-transparent'}`}
+                />
+                <p className={`mt-0.5 text-right text-[11px] ${newDesc.length > 500 ? 'text-red-400' : 'text-slate-500'}`}>{newDesc.length}/500</p>
+              </div>
+              <button
+                onClick={addPersona}
+                disabled={!newName.trim() || newName.length > 20 || newDesc.length > 500}
+                className="rounded-lg bg-brand py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                저장
+              </button>
+            </div>
+          )}
+
+          {personas.length === 0 && !showAddForm && (
+            <p className="text-sm text-slate-500">아직 페르소나가 없습니다.</p>
+          )}
+
+          <ul className="flex flex-col gap-2">
+            {personas.map((p) =>
+              editingPersona?.id === p.id ? (
+                <li key={p.id} className="flex flex-col gap-2 rounded-lg bg-surface p-3">
+                  <div>
+                    <input
+                      value={editingPersona.name}
+                      onChange={(e) => setEditingPersona({ ...editingPersona, name: e.target.value })}
+                      className={`w-full rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${editingPersona.name.length > 20 ? 'ring-red-500 text-red-300' : 'ring-transparent'}`}
+                    />
+                    <p className={`mt-0.5 text-right text-[11px] ${editingPersona.name.length > 20 ? 'text-red-400' : 'text-slate-500'}`}>{editingPersona.name.length}/20</p>
+                  </div>
+                  <div>
+                    <textarea
+                      value={editingPersona.description}
+                      onChange={(e) => setEditingPersona({ ...editingPersona, description: e.target.value })}
+                      rows={3}
+                      className={`w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm outline-none ring-1 ${editingPersona.description.length > 500 ? 'ring-red-500 text-red-300' : 'ring-transparent'}`}
+                    />
+                    <p className={`mt-0.5 text-right text-[11px] ${editingPersona.description.length > 500 ? 'text-red-400' : 'text-slate-500'}`}>{editingPersona.description.length}/500</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={updatePersona}
+                      disabled={editingPersona.name.length > 20 || editingPersona.description.length > 500}
+                      className="flex-1 rounded-lg bg-brand py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      저장
+                    </button>
+                    <button onClick={() => setEditingPersona(null)} className="rounded-lg bg-surface2 px-4 py-2 text-sm text-slate-300">
+                      취소
+                    </button>
+                  </div>
+                </li>
+              ) : (
+                <li key={p.id} className="flex items-start gap-2 rounded-lg bg-surface p-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-semibold text-white">{p.name}</p>
+                      {p.is_default && <span className="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] text-brand">기본</span>}
+                    </div>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-slate-400">{p.description}</p>
+                  </div>
+                  {!p.is_default && (
+                    <button onClick={() => setDefaultPersona(p.id)} title="기본으로 설정" className="shrink-0 px-1 text-slate-600 text-base leading-none">
+                      ☆
+                    </button>
+                  )}
+                  <button onClick={() => { setEditingPersona(p); setShowAddForm(false); }} className="shrink-0 px-1 text-slate-400">
+                    ✏️
+                  </button>
+                  <button onClick={() => deletePersona(p.id)} className="shrink-0 px-1 text-red-400">
+                    ✕
+                  </button>
+                </li>
+              )
+            )}
+          </ul>
+        </section>
+      )}
 
       {savedMsg && (
         <p className="rounded-lg bg-surface px-4 py-2 text-center text-sm text-brand">{savedMsg}</p>
       )}
 
       <button onClick={() => signOut()} className="mt-2 text-sm text-red-400">
-        로그아웃
+        {isGuest ? '비회원 모드 종료' : '로그아웃'}
       </button>
     </div>
   );
