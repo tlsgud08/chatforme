@@ -198,6 +198,8 @@ export default function SettingsPage() {
       <button onClick={() => signOut()} className="mt-2 text-sm text-red-400">
         {isGuest ? '비회원 모드 종료' : '로그아웃'}
       </button>
+
+      <p className="pb-2 text-center text-[11px] text-slate-600">v0.1.0</p>
     </div>
   );
 }
