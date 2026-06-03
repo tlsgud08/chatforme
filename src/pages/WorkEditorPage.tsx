@@ -448,24 +448,24 @@ export default function WorkEditorPage() {
                           >✕</button>
                         </span>
                       ))}
-                      {kwCount < 5 && (
-                        <input
-                          value={kwInputs[kb.id] ?? ''}
-                          onChange={(e) => setKwInputs((prev) => ({ ...prev, [kb.id]: e.target.value }))}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              const val = (kwInputs[kb.id] ?? '').trim();
-                              if (val && !kb.keywords.includes(val)) {
-                                patchKeyword(kb.id, { keywords: [...kb.keywords, val] });
-                              }
-                              setKwInputs((prev) => ({ ...prev, [kb.id]: '' }));
+                      <input
+                        value={kwInputs[kb.id] ?? ''}
+                        onChange={(e) => kwCount < 5 && setKwInputs((prev) => ({ ...prev, [kb.id]: e.target.value }))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const val = (kwInputs[kb.id] ?? '').trim();
+                            if (val && kwCount < 5 && !kb.keywords.includes(val)) {
+                              patchKeyword(kb.id, { keywords: [...kb.keywords, val] });
                             }
-                          }}
-                          placeholder={kwCount === 0 ? '예: 전투' : '추가…'}
-                          className="min-w-[80px] flex-1 bg-transparent text-sm outline-none"
-                        />
-                      )}
+                            setKwInputs((prev) => ({ ...prev, [kb.id]: '' }));
+                          } else if (e.key === 'Backspace' && !(kwInputs[kb.id] ?? '')) {
+                            patchKeyword(kb.id, { keywords: kb.keywords.slice(0, -1) });
+                          }
+                        }}
+                        placeholder={kwCount === 0 ? '예: 전투' : kwCount >= 5 ? '← Backspace로 삭제' : '추가…'}
+                        className="min-w-[80px] flex-1 bg-transparent text-sm outline-none placeholder:text-slate-600"
+                      />
                     </div>
                   </div>
 
