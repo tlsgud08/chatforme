@@ -75,6 +75,7 @@ export interface Session {
   summary: string;
   total_input_tokens: number;
   total_output_tokens: number;
+  is_archived: boolean;
   created_at: string;
   updated_at: string;
 }
