@@ -1,15 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import AvatarCircle from '@/components/AvatarCircle';
 import type { Persona, Profile } from '@/types/db';
+
+interface FollowEntry {
+  following_id: string;
+  display_name: string;
+  avatar_url: string | null;
+}
 
 export default function MyPage() {
   const { user, isGuest } = useAuth();
   const navigate = useNavigate();
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
@@ -17,25 +26,59 @@ export default function MyPage() {
   const [newDesc, setNewDesc] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
 
+  const [following, setFollowing] = useState<FollowEntry[]>([]);
+
   useEffect(() => {
     if (isGuest || !user) return;
-    supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single()
+    supabase.from('profiles').select('*').eq('id', user.id).single()
       .then(({ data }) => setProfile(data as Profile));
-    supabase
-      .from('personas')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at')
+    supabase.from('personas').select('*').eq('user_id', user.id).order('created_at')
       .then(({ data }) => setPersonas((data as Persona[]) ?? []));
+    loadFollowing();
   }, [user, isGuest]);
+
+  async function loadFollowing() {
+    if (!user) return;
+    const { data: followData } = await supabase
+      .from('user_follows').select('following_id').eq('follower_id', user.id)
+      .order('created_at', { ascending: false });
+    const ids = (followData ?? []).map((f: { following_id: string }) => f.following_id);
+    if (ids.length === 0) return;
+    const { data: profilesData } = await supabase
+      .from('profiles').select('id, display_name, avatar_url').in('id', ids);
+    const profileMap: Record<string, { display_name: string; avatar_url: string | null }> = {};
+    for (const p of profilesData ?? []) profileMap[p.id] = p;
+    setFollowing(ids.map((id: string) => ({
+      following_id: id,
+      display_name: profileMap[id]?.display_name ?? '알 수 없음',
+      avatar_url: profileMap[id]?.avatar_url ?? null,
+    })));
+  }
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    if (file.size > 5 * 1024 * 1024) { flash('파일 크기가 5MB를 초과합니다.'); return; }
+    setAvatarUploading(true);
+    const ext = file.name.split('.').pop() ?? 'jpg';
+    const path = `${user.id}/avatar.${ext}`;
+    const { error: upErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true });
+    if (upErr) { flash('업로드 실패: ' + upErr.message); setAvatarUploading(false); return; }
+    const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+    const cacheBusted = publicUrl + '?t=' + Date.now();
+    await supabase.from('profiles').update({ avatar_url: cacheBusted }).eq('id', user.id);
+    setProfile((p) => p ? { ...p, avatar_url: cacheBusted } : p);
+    setAvatarUploading(false);
+    flash('프로필 사진이 변경되었습니다.');
+    if (e.target) e.target.value = '';
+  }
 
   async function saveProfile() {
     if (!profile) return;
-    await supabase.from('profiles').update({ display_name: profile.display_name }).eq('id', profile.id);
+    await supabase.from('profiles').update({
+      display_name: profile.display_name,
+      bio: profile.bio,
+    }).eq('id', profile.id);
     flash('저장했습니다.');
   }
 
@@ -45,13 +88,10 @@ export default function MyPage() {
     const { data, error } = await supabase
       .from('personas')
       .insert({ user_id: user.id, name: newName.trim(), description: newDesc.trim(), is_default: isFirst })
-      .select('*')
-      .single();
+      .select('*').single();
     if (error) { flash('저장 실패: ' + error.message); return; }
     setPersonas((p) => [...p, data as Persona]);
-    setNewName('');
-    setNewDesc('');
-    setShowAddForm(false);
+    setNewName(''); setNewDesc(''); setShowAddForm(false);
   }
 
   async function updatePersona() {
@@ -82,9 +122,15 @@ export default function MyPage() {
     flash('기본 페르소나로 설정했습니다.');
   }
 
+  async function unfollow(followingId: string) {
+    if (!user) return;
+    setFollowing((f) => f.filter((x) => x.following_id !== followingId));
+    await supabase.from('user_follows').delete().eq('follower_id', user.id).eq('following_id', followingId);
+  }
+
   function flash(msg: string) {
     setSavedMsg(msg);
-    setTimeout(() => setSavedMsg(''), 2000);
+    setTimeout(() => setSavedMsg(''), 2500);
   }
 
   if (isGuest) {
@@ -103,15 +149,25 @@ export default function MyPage() {
     );
   }
 
-  const initial = profile?.display_name?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? '?';
-
   return (
     <div className="flex flex-col gap-6 p-4">
       {/* 프로필 카드 */}
       <section className="flex flex-col items-center gap-3 rounded-xl bg-surface p-5">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-brand/20 text-3xl font-bold text-brand">
-          {initial}
-        </div>
+        {/* 아바타 (클릭 → 업로드) */}
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={avatarUploading}
+          className="relative"
+          aria-label="프로필 사진 변경"
+        >
+          <AvatarCircle name={profile?.display_name ?? null} avatarUrl={profile?.avatar_url ?? null} size="lg" />
+          <span className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full bg-surface2 text-xs">
+            {avatarUploading ? '…' : '📷'}
+          </span>
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+
+        {/* 표시 이름 */}
         <div className="w-full text-center">
           <input
             value={profile?.display_name ?? ''}
@@ -122,12 +178,38 @@ export default function MyPage() {
           />
           <p className="mt-1 text-xs text-slate-500">{user?.email}</p>
         </div>
+
+        {/* 소개 */}
+        <div className="w-full">
+          <textarea
+            value={profile?.bio ?? ''}
+            onChange={(e) => {
+              if (e.target.value.length <= 500 && profile)
+                setProfile({ ...profile, bio: e.target.value });
+            }}
+            onBlur={saveProfile}
+            rows={3}
+            placeholder="소개를 입력하세요 (최대 500자)"
+            className="w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm text-slate-300 outline-none placeholder:text-slate-600"
+          />
+          <p className="mt-0.5 text-right text-xs text-slate-600">{(profile?.bio ?? '').length}/500</p>
+        </div>
+
+        {/* 내 명함 보기 */}
+        {user && (
+          <button
+            onClick={() => navigate(`/users/${user.id}`)}
+            className="w-full rounded-lg bg-surface2 py-2 text-sm text-slate-300"
+          >
+            내 명함 보기 →
+          </button>
+        )}
       </section>
 
-      {/* 메뉴 */}
+      {/* 활동 */}
       <section>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">활동</h2>
-        <ul className="overflow-hidden rounded-xl bg-surface divide-y divide-surface2">
+        <ul className="divide-y divide-surface2 overflow-hidden rounded-xl bg-surface">
           <li>
             <button
               onClick={() => navigate('/favorites')}
@@ -138,17 +220,35 @@ export default function MyPage() {
               <span className="text-xs text-slate-400">▶</span>
             </button>
           </li>
-          <li>
-            <button
-              disabled
-              className="flex w-full items-center gap-3 px-4 py-3.5 text-left opacity-40"
-            >
-              <span className="text-xl">👥</span>
-              <span className="flex-1 text-sm text-white">팔로우</span>
-              <span className="text-[10px] text-slate-500">Phase 3 예정</span>
-            </button>
-          </li>
         </ul>
+      </section>
+
+      {/* 팔로잉 */}
+      <section>
+        <h2 className="mb-3 font-semibold text-white">팔로잉</h2>
+        {following.length === 0 ? (
+          <p className="text-sm text-slate-500">팔로우한 유저가 없습니다.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {following.map((f) => (
+              <li key={f.following_id} className="flex items-center gap-3 rounded-lg bg-surface p-3">
+                <button
+                  onClick={() => navigate(`/users/${f.following_id}`)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <AvatarCircle name={f.display_name} avatarUrl={f.avatar_url} size="sm" />
+                  <p className="truncate font-semibold text-white">{f.display_name}</p>
+                </button>
+                <button
+                  onClick={() => unfollow(f.following_id)}
+                  className="shrink-0 rounded bg-surface2 px-2 py-1 text-xs text-slate-400"
+                >
+                  언팔로우
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* 페르소나 */}

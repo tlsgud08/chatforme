@@ -13,6 +13,7 @@ import SettingsPage from './pages/SettingsPage';
 import SearchPage from './pages/SearchPage';
 import MyPage from './pages/MyPage';
 import FavoritesPage from './pages/FavoritesPage';
+import UserPage from './pages/UserPage';
 import SetupNotice from './components/SetupNotice';
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
       {/* 전체화면 (탭바 없음) */}
       <Route path="/chat/:sessionId" element={<ChatPage />} />
       <Route path="/search" element={<SearchPage />} />
+      <Route path="/users/:userId" element={<UserPage />} />
 
       {/* 나머지는 탭바 레이아웃 */}
       <Route element={<Layout />}>

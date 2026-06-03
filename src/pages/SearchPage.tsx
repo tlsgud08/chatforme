@@ -16,19 +16,17 @@ export default function SearchPage() {
   const [works, setWorks] = useState<(Work & { creator_name: string })[]>([]);
   const [users, setUsers] = useState<(Profile & { work_count: number })[]>([]);
   const [loading, setLoading] = useState(false);
-  const [creatorFilter, setCreatorFilter] = useState<string | null>(null);
-  const [creatorName, setCreatorName] = useState<string | null>(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (query.trim() || creatorFilter) runSearch();
+      if (query.trim()) runSearch();
       else { setWorks([]); setUsers([]); }
     }, 300);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, tab, creatorFilter]);
+  }, [query, tab]);
 
   async function runSearch() {
     setLoading(true);
@@ -38,13 +36,10 @@ export default function SearchPage() {
   }
 
   async function searchWorks() {
-    let q = supabase.from('works').select('*').eq('visibility', 'public');
-    if (creatorFilter) {
-      q = q.eq('creator_id', creatorFilter);
-    } else if (query.trim()) {
-      q = q.or(`title.ilike.%${query.trim()}%,description.ilike.%${query.trim()}%`);
-    }
-    const { data: worksData } = await q.order('created_at', { ascending: false }).limit(30);
+    const { data: worksData } = await supabase
+      .from('works').select('*').eq('visibility', 'public')
+      .or(`title.ilike.%${query.trim()}%,description.ilike.%${query.trim()}%`)
+      .order('created_at', { ascending: false }).limit(30);
     if (!worksData || worksData.length === 0) { setWorks([]); return; }
 
     const creatorIds = [...new Set((worksData as Work[]).map((w) => w.creator_id))];
@@ -71,15 +66,8 @@ export default function SearchPage() {
     setUsers(profilesData.map((p) => ({ ...(p as Profile), work_count: countMap[p.id] ?? 0 })));
   }
 
-  function handleUserClick(userId: string, name: string) {
-    setCreatorFilter(userId);
-    setCreatorName(name);
-    setTab('works');
-  }
-
-  function clearCreatorFilter() {
-    setCreatorFilter(null);
-    setCreatorName(null);
+  function handleUserClick(userId: string) {
+    navigate(`/users/${userId}`);
   }
 
   return (
@@ -89,7 +77,7 @@ export default function SearchPage() {
         <input
           ref={inputRef}
           value={query}
-          onChange={(e) => { setQuery(e.target.value); clearCreatorFilter(); }}
+          onChange={(e) => setQuery(e.target.value)}
           placeholder="작품·유저 검색…"
           className="flex-1 rounded-full bg-surface px-4 py-2 text-sm text-white outline-none"
         />
@@ -102,7 +90,7 @@ export default function SearchPage() {
         {(['works', 'users'] as SearchTab[]).map((t) => (
           <button
             key={t}
-            onClick={() => { setTab(t); clearCreatorFilter(); }}
+            onClick={() => setTab(t)}
             className={`flex-1 py-2.5 text-sm ${tab === t ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
           >
             {t === 'works' ? '작품' : '유저'}
@@ -110,22 +98,15 @@ export default function SearchPage() {
         ))}
       </div>
 
-      {creatorFilter && creatorName && (
-        <div className="flex items-center gap-2 border-b border-surface2 px-4 py-2">
-          <span className="text-xs text-slate-300">{creatorName}의 작품</span>
-          <button onClick={clearCreatorFilter} className="ml-auto text-xs text-slate-500">✕ 필터 해제</button>
-        </div>
-      )}
-
       <div className="flex-1 overflow-y-auto">
         {loading && <p className="p-6 text-center text-sm text-slate-400">검색 중…</p>}
 
         {!loading && tab === 'works' && (
           <>
-            {works.length === 0 && (query.trim() || creatorFilter) && (
+            {works.length === 0 && query.trim() && (
               <p className="p-6 text-center text-sm text-slate-500">검색 결과가 없습니다.</p>
             )}
-            {works.length === 0 && !query.trim() && !creatorFilter && (
+            {works.length === 0 && !query.trim() && (
               <p className="p-6 text-center text-sm text-slate-500">작품 제목·설명으로 검색하세요.</p>
             )}
             <ul className="divide-y divide-surface2">
@@ -162,17 +143,21 @@ export default function SearchPage() {
               {users.map((u) => (
                 <li key={u.id}>
                   <button
-                    onClick={() => handleUserClick(u.id, u.display_name)}
+                    onClick={() => handleUserClick(u.id)}
                     className="flex w-full items-center gap-3 p-4 text-left active:bg-surface"
                   >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/20 text-sm font-bold text-brand">
-                      {u.display_name?.[0]?.toUpperCase() ?? '?'}
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/20">
+                      {(u as Profile & { work_count: number }).avatar_url ? (
+                        <img src={(u as Profile & { work_count: number }).avatar_url!} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="text-sm font-bold text-brand">{u.display_name?.[0]?.toUpperCase() ?? '?'}</span>
+                      )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-white">{u.display_name || '(이름 없음)'}</p>
                       <p className="text-xs text-slate-400">공개 작품 {u.work_count}개</p>
                     </div>
-                    <span className="shrink-0 text-xs text-slate-500">작품 보기 →</span>
+                    <span className="shrink-0 text-xs text-slate-500">프로필 보기 →</span>
                   </button>
                 </li>
               ))}
