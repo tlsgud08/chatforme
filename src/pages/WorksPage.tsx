@@ -1,100 +1,166 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/hooks/useAuth';
-import type { Work } from '@/types/db';
+import WorkPosterCard from '@/components/WorkPosterCard';
+import {
+  fetchWorksWithStats,
+  sortForSection,
+  metricForSection,
+  isRankingSection,
+  SECTION_TITLES,
+  type SectionId,
+  type WorkStat,
+} from '@/lib/works';
 
-async function fetchWorks(): Promise<(Work & { creator_name: string })[]> {
-  const { data: works, error } = await supabase
-    .from('works')
-    .select('*')
-    .eq('visibility', 'public')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  if (!works || works.length === 0) return [];
+type MainTab = 'ranking' | 'new' | 'genre';
 
-  const creatorIds = [...new Set((works as Work[]).map((w) => w.creator_id))];
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, display_name')
-    .in('id', creatorIds);
+const MAIN_TABS: { id: MainTab; label: string }[] = [
+  { id: 'ranking', label: '랭킹' },
+  { id: 'new', label: '신작순' },
+  { id: 'genre', label: '장르별' },
+];
 
-  const nameMap: Record<string, string> = {};
-  for (const p of profiles ?? []) {
-    nameMap[p.id] = p.display_name || '알 수 없음';
-  }
+const TAB_SECTIONS: Record<Exclude<MainTab, 'genre'>, SectionId[]> = {
+  ranking: ['daily', 'weekly', 'monthly'],
+  new: ['today-hot', 'latest'],
+};
 
-  return (works as Work[]).map((w) => ({ ...w, creator_name: nameMap[w.creator_id] ?? '알 수 없음' }));
-}
+// 추후 장르 시스템 도입 시 실제 데이터로 교체
+const GENRES = ['로맨스', '판타지', '무협', '로맨스판타지', '일상', '액션', '스릴러', 'BL', 'GL'];
 
 export default function WorksPage() {
-  const { user, isGuest } = useAuth();
-  const [favSet, setFavSet] = useState<Set<string>>(new Set());
-  const { data, isLoading, error } = useQuery({ queryKey: ['works'], queryFn: fetchWorks });
+  const [tab, setTab] = useState<MainTab>('ranking');
+  const [genre, setGenre] = useState('');
+  const [genreSort, setGenreSort] = useState<'latest' | 'popular'>('latest');
 
-  useEffect(() => {
-    if (!user || isGuest) return;
-    supabase
-      .from('work_favorites')
-      .select('work_id')
-      .eq('user_id', user.id)
-      .then(({ data }) => {
-        setFavSet(new Set((data ?? []).map((f: { work_id: string }) => f.work_id)));
-      });
-  }, [user, isGuest]);
-
-  async function toggleFav(e: React.MouseEvent, workId: string) {
-    e.preventDefault();
-    if (!user || isGuest) return;
-    const wasFav = favSet.has(workId);
-    if (wasFav) {
-      setFavSet((s) => { const n = new Set(s); n.delete(workId); return n; });
-      const { error } = await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId);
-      if (error) {
-        setFavSet((s) => new Set(s).add(workId)); // 원복
-        alert('즐겨찾기 삭제 실패: ' + error.message);
-      }
-    } else {
-      setFavSet((s) => new Set(s).add(workId));
-      const { error } = await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
-      if (error) {
-        setFavSet((s) => { const n = new Set(s); n.delete(workId); return n; }); // 원복
-        alert('즐겨찾기 저장 실패: ' + error.message);
-      }
-    }
-  }
-
-  if (isLoading) return <p className="p-6 text-slate-400">불러오는 중…</p>;
-  if (error) return <p className="p-6 text-amber-400">목록을 불러오지 못했습니다.</p>;
-  if (!data || data.length === 0)
-    return <p className="p-6 text-slate-400">아직 작품이 없습니다. 제작 탭에서 만들어보세요.</p>;
+  const { data, isLoading, error } = useQuery({ queryKey: ['works-stats'], queryFn: fetchWorksWithStats });
 
   return (
-    <ul className="divide-y divide-surface2">
-      {data.map((w) => (
-        <li key={w.id} className="flex items-center">
-          <Link to={`/works/${w.id}`} className="flex min-w-0 flex-1 gap-3 p-4 active:bg-surface">
-            <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-surface2">
-              {w.thumbnail_url && (
-                <img src={w.thumbnail_url} alt="" className="h-full w-full object-cover" />
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate font-semibold text-white">{w.title || '(제목 없음)'}</p>
-              <p className="text-sm text-slate-400">by {w.creator_name}</p>
-            </div>
-          </Link>
-          {user && !isGuest && (
-            <button
-              onClick={(e) => toggleFav(e, w.id)}
-              className="shrink-0 px-4 py-4 text-lg leading-none"
-            >
-              {favSet.has(w.id) ? '❤️' : '🤍'}
-            </button>
+    <div className="flex flex-col pb-4">
+      {/* 상단 카테고리 칩 */}
+      <div className="sticky top-0 z-10 flex gap-2 overflow-x-auto border-b border-surface2 bg-bg px-4 py-3">
+        {MAIN_TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold ${
+              tab === t.id ? 'bg-brand text-white' : 'bg-surface text-slate-400'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {isLoading && <p className="p-6 text-slate-400">불러오는 중…</p>}
+      {error && <p className="p-6 text-amber-400">목록을 불러오지 못했습니다.</p>}
+
+      {!isLoading && !error && data && (
+        <>
+          {(tab === 'ranking' || tab === 'new') &&
+            (data.length === 0 ? (
+              <p className="p-6 text-slate-400">아직 작품이 없습니다. 제작 탭에서 만들어보세요.</p>
+            ) : (
+              <div className="flex flex-col gap-6 pt-4">
+                {TAB_SECTIONS[tab].map((sid) => (
+                  <Section key={sid} id={sid} data={data} />
+                ))}
+              </div>
+            ))}
+
+          {tab === 'genre' && (
+            <GenrePanel
+              genre={genre}
+              setGenre={setGenre}
+              sort={genreSort}
+              setSort={setGenreSort}
+            />
           )}
-        </li>
-      ))}
-    </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Section({ id, data }: { id: SectionId; data: WorkStat[] }) {
+  const sorted = sortForSection(id, data);
+  const ranked = isRankingSection(id);
+  const items = sorted.slice(0, 10);
+
+  if (items.length === 0) {
+    return (
+      <section>
+        <div className="mb-2 flex items-center px-4">
+          <h2 className="text-base font-bold text-white">{SECTION_TITLES[id]}</h2>
+        </div>
+        <p className="px-4 text-sm text-slate-500">표시할 작품이 없습니다.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section>
+      <Link to={`/works/section/${id}`} className="mb-2 flex items-center px-4">
+        <h2 className="text-base font-bold text-white">{SECTION_TITLES[id]}</h2>
+        <span className="ml-auto text-slate-500">›</span>
+      </Link>
+      <div className="flex gap-3 overflow-x-auto px-4 pb-1">
+        {items.map((w, i) => (
+          <WorkPosterCard
+            key={w.id}
+            work={w}
+            count={metricForSection(id, w)}
+            rank={ranked ? i + 1 : undefined}
+            className="w-28 shrink-0"
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function GenrePanel({
+  genre,
+  setGenre,
+  sort,
+  setSort,
+}: {
+  genre: string;
+  setGenre: (v: string) => void;
+  sort: 'latest' | 'popular';
+  setSort: (v: 'latest' | 'popular') => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      <div className="flex gap-2">
+        <select
+          value={genre}
+          onChange={(e) => setGenre(e.target.value)}
+          className="flex-1 rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
+        >
+          <option value="">장르 선택</option>
+          {GENRES.map((g) => (
+            <option key={g} value={g}>{g}</option>
+          ))}
+        </select>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as 'latest' | 'popular')}
+          className="w-28 rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
+        >
+          <option value="latest">최신순</option>
+          <option value="popular">인기순</option>
+        </select>
+      </div>
+
+      <div className="mt-4 flex flex-col items-center gap-2 rounded-xl bg-surface p-8 text-center">
+        <p className="text-3xl">🚧</p>
+        <p className="text-sm font-semibold text-white">장르 시스템 준비 중</p>
+        <p className="text-xs text-slate-400">
+          장르 분류 기능은 추후 업데이트에서 추가됩니다.
+          {genre && <><br />선택한 장르: <span className="text-slate-200">{genre}</span></>}
+        </p>
+      </div>
+    </div>
   );
 }

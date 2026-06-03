@@ -14,6 +14,7 @@ import SearchPage from './pages/SearchPage';
 import MyPage from './pages/MyPage';
 import FavoritesPage from './pages/FavoritesPage';
 import UserPage from './pages/UserPage';
+import WorksSectionPage from './pages/WorksSectionPage';
 import SetupNotice from './components/SetupNotice';
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Navigate to="/works" replace />} />
         <Route path="/works" element={<WorksPage />} />
+        <Route path="/works/section/:sectionId" element={<WorksSectionPage />} />
         <Route path="/works/:workId" element={<WorkDetailPage />} />
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/create" element={<CreatePage />} />

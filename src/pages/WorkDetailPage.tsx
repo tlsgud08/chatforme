@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { guestCreateSession, guestAddMessage } from '@/lib/guest';
+import { recordPlay } from '@/lib/works';
 import type { Persona, StartConfig, Work } from '@/types/db';
 
 export default function WorkDetailPage() {
@@ -86,6 +87,8 @@ export default function WorkDetailPage() {
 
     const selectedConfig = startConfigs.find((c) => c.id === selectedConfigId) ?? null;
     const now = new Date().toISOString();
+
+    recordPlay(work.id, user?.id ?? null);
 
     if (isGuest) {
       const session = guestCreateSession({ id: work.id, title: work.title });
