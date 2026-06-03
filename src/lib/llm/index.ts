@@ -3,8 +3,10 @@ import type { GenerateOptions, GenerateResult, LLMAdapter } from './types';
 import { claudeAdapter } from './claude';
 import { geminiAdapter } from './gemini';
 import { openaiAdapter } from './openai';
+import { openrouterAdapter } from './openrouter';
 
 const ADAPTERS: Record<Provider, LLMAdapter> = {
+  openrouter: openrouterAdapter,
   claude: claudeAdapter,
   gemini: geminiAdapter,
   openai: openaiAdapter,

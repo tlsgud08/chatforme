@@ -1,6 +1,6 @@
 // DB 테이블에 대응하는 TypeScript 타입 (supabase/migrations/0001_init.sql 와 일치)
 
-export type Provider = 'claude' | 'gemini' | 'openai';
+export type Provider = 'openrouter' | 'claude' | 'gemini' | 'openai';
 export type Role = 'user' | 'assistant';
 
 export interface Profile {

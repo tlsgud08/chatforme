@@ -12,14 +12,14 @@ import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
   type GuestSession, type GuestMessage,
 } from '@/lib/guest';
-import type { KeywordBook, Message, Persona, Profile, Session, StartConfig, Work } from '@/types/db';
+import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
 
 const GUEST_SETTINGS_KEY = 'nekochat.guest.settings';
-interface GuestSettings { provider: 'claude' | 'gemini' | 'openai'; model: string; outputTokens: number | null; }
+interface GuestSettings { provider: Provider; model: string; outputTokens: number | null; }
 function loadGuestSettings(): GuestSettings {
   try { return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings; }
-  catch { return { provider: 'claude', model: '', outputTokens: 1024 }; }
+  catch { return { provider: 'openrouter', model: '', outputTokens: 1024 }; }
 }
 
 function toMsg(m: GuestMessage): Message {
@@ -132,7 +132,7 @@ export default function ChatPage() {
     setError('');
 
     const guestSettings = loadGuestSettings();
-    const provider = isGuest ? (guestSettings.provider ?? 'claude') : (profile?.default_provider ?? 'claude');
+    const provider = isGuest ? (guestSettings.provider ?? 'openrouter') : (profile?.default_provider ?? 'openrouter');
     const model = isGuest ? (guestSettings.model || DEFAULT_MODELS[provider][0]) : (profile?.default_model || DEFAULT_MODELS[provider][0]);
     const apiKey = getApiKey(provider);
     if (!apiKey) { setError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
