@@ -47,12 +47,21 @@ export default function WorksPage() {
   async function toggleFav(e: React.MouseEvent, workId: string) {
     e.preventDefault();
     if (!user || isGuest) return;
-    if (favSet.has(workId)) {
+    const wasFav = favSet.has(workId);
+    if (wasFav) {
       setFavSet((s) => { const n = new Set(s); n.delete(workId); return n; });
-      await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId);
+      const { error } = await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId);
+      if (error) {
+        setFavSet((s) => new Set(s).add(workId)); // 원복
+        alert('즐겨찾기 삭제 실패: ' + error.message);
+      }
     } else {
       setFavSet((s) => new Set(s).add(workId));
-      await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
+      const { error } = await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
+      if (error) {
+        setFavSet((s) => { const n = new Set(s); n.delete(workId); return n; }); // 원복
+        alert('즐겨찾기 저장 실패: ' + error.message);
+      }
     }
   }
 

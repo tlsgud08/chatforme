@@ -64,10 +64,12 @@ export default function WorkDetailPage() {
     if (!user || isGuest || !workId) return;
     if (isFavorited) {
       setIsFavorited(false);
-      await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId);
+      const { error } = await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId);
+      if (error) { setIsFavorited(true); alert('즐겨찾기 삭제 실패: ' + error.message); }
     } else {
       setIsFavorited(true);
-      await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
+      const { error } = await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
+      if (error) { setIsFavorited(false); alert('즐겨찾기 저장 실패: ' + error.message); }
     }
   }
 
