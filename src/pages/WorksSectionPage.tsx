@@ -29,7 +29,7 @@ export default function WorksSectionPage() {
   }
 
   const ranked = isRankingSection(id);
-  const sorted = data ? sortForSection(id, data) : [];
+  const sorted = data ? sortForSection(id, data).slice(0, 100) : [];
 
   return (
     <div className="flex flex-col">

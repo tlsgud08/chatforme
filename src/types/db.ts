@@ -6,17 +6,9 @@ export type Role = 'user' | 'assistant';
 export interface Profile {
   id: string;
   display_name: string;
-  avatar_url: string | null;
-  bio: string | null;
   default_output_tokens: number | null;
   default_provider: Provider;
   default_model: string;
-  created_at: string;
-}
-
-export interface UserFollow {
-  follower_id: string;
-  following_id: string;
   created_at: string;
 }
 
@@ -86,12 +78,6 @@ export interface Session {
   is_archived: boolean;
   created_at: string;
   updated_at: string;
-}
-
-export interface WorkFavorite {
-  user_id: string;
-  work_id: string;
-  created_at: string;
 }
 
 export interface Message {

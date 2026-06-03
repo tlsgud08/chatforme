@@ -68,7 +68,7 @@ export async function fetchWorksWithStats(): Promise<WorkStat[]> {
 }
 
 export function isRankingSection(id: SectionId): boolean {
-  return id === 'daily' || id === 'weekly' || id === 'monthly';
+  return id === 'daily' || id === 'weekly' || id === 'monthly' || id === 'today-hot';
 }
 
 const byNewest = (a: WorkStat, b: WorkStat) =>
@@ -84,10 +84,11 @@ export function sortForSection(id: SectionId, data: WorkStat[]): WorkStat[] {
     case 'monthly':
       return [...data].sort((a, b) => b.month_count - a.month_count || byNewest(a, b));
     case 'today-hot': {
-      const cutoff = Date.now() - 14 * DAY;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
       return data
-        .filter((w) => +new Date(w.created_at) >= cutoff)
-        .sort((a, b) => b.week_count - a.week_count || byNewest(a, b));
+        .filter((w) => +new Date(w.created_at) >= today.getTime())
+        .sort((a, b) => b.day_count - a.day_count || byNewest(a, b));
     }
     case 'latest':
       return [...data].sort(byNewest);
@@ -100,8 +101,9 @@ export function metricForSection(id: SectionId, w: WorkStat): number {
     case 'daily':
       return w.day_count;
     case 'weekly':
-    case 'today-hot':
       return w.week_count;
+    case 'today-hot':
+      return w.day_count;
     default:
       return w.month_count;
   }

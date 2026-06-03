@@ -4,7 +4,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { guestCreateSession, guestAddMessage } from '@/lib/guest';
-import { recordPlay } from '@/lib/works';
 import type { Persona, StartConfig, Work } from '@/types/db';
 
 export default function WorkDetailPage() {
@@ -14,7 +13,6 @@ export default function WorkDetailPage() {
   const [starting, setStarting] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>('');
   const [selectedConfigId, setSelectedConfigId] = useState<string>('');
-  const [isFavorited, setIsFavorited] = useState(false);
 
   const { data: work, isLoading } = useQuery({
     queryKey: ['work', workId],
@@ -51,30 +49,6 @@ export default function WorkDetailPage() {
   }, [personas]);
 
   useEffect(() => {
-    if (!user || isGuest || !workId) return;
-    supabase
-      .from('work_favorites')
-      .select('work_id')
-      .eq('user_id', user.id)
-      .eq('work_id', workId)
-      .maybeSingle()
-      .then(({ data }) => setIsFavorited(!!data));
-  }, [user, isGuest, workId]);
-
-  async function toggleFav() {
-    if (!user || isGuest || !workId) return;
-    if (isFavorited) {
-      setIsFavorited(false);
-      const { error } = await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId);
-      if (error) { setIsFavorited(true); alert('즐겨찾기 삭제 실패: ' + error.message); }
-    } else {
-      setIsFavorited(true);
-      const { error } = await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
-      if (error) { setIsFavorited(false); alert('즐겨찾기 저장 실패: ' + error.message); }
-    }
-  }
-
-  useEffect(() => {
     if (startConfigs.length > 0 && !selectedConfigId) {
       const def = startConfigs.find((c) => c.is_default) ?? startConfigs[0];
       setSelectedConfigId(def.id);
@@ -88,10 +62,9 @@ export default function WorkDetailPage() {
     const selectedConfig = startConfigs.find((c) => c.id === selectedConfigId) ?? null;
     const now = new Date().toISOString();
 
-    recordPlay(work.id, user?.id ?? null);
-
     if (isGuest) {
       const session = guestCreateSession({ id: work.id, title: work.title });
+      // 시작 기본 정보 (숨김 메시지)
       if (selectedConfig?.initial_context.trim()) {
         guestAddMessage(session.id, {
           id: crypto.randomUUID(), role: 'user',
@@ -100,6 +73,7 @@ export default function WorkDetailPage() {
           is_hidden: true, created_at: now,
         });
       }
+      // 시작 메시지 (AI 첫 출력)
       if (selectedConfig?.initial_message.trim()) {
         guestAddMessage(session.id, {
           id: crypto.randomUUID(), role: 'assistant',
@@ -129,6 +103,7 @@ export default function WorkDetailPage() {
 
     const sessionId = data.id;
 
+    // 시작 기본 정보 (숨김 메시지)
     if (selectedConfig?.initial_context.trim()) {
       await supabase.from('messages').insert({
         session_id: sessionId, role: 'user',
@@ -136,6 +111,7 @@ export default function WorkDetailPage() {
         turn_index: 0, is_hidden: true,
       });
     }
+    // 시작 메시지 (AI 첫 출력)
     if (selectedConfig?.initial_message.trim()) {
       await supabase.from('messages').insert({
         session_id: sessionId, role: 'assistant',
@@ -168,17 +144,11 @@ export default function WorkDetailPage() {
       <div className="aspect-video w-full overflow-hidden rounded-xl bg-surface2">
         {work.thumbnail_url && <img src={work.thumbnail_url} alt="" className="h-full w-full object-cover" />}
       </div>
-      <div className="mt-4 flex items-start gap-2">
-        <h1 className="flex-1 text-xl font-bold text-white">{work.title || '(제목 없음)'}</h1>
-        {user && !isGuest && (
-          <button onClick={toggleFav} className="shrink-0 text-2xl leading-none">
-            {isFavorited ? '❤️' : '🤍'}
-          </button>
-        )}
-      </div>
+      <h1 className="mt-4 text-xl font-bold text-white">{work.title || '(제목 없음)'}</h1>
       <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">{work.description}</p>
 
       <div className="mt-6 flex flex-col gap-3">
+        {/* 페르소나 선택 (로그인 사용자만) */}
         {!isGuest && personas.length > 0 && (
           <div>
             <label className="mb-1 block text-xs text-slate-400">페르소나</label>
@@ -195,10 +165,11 @@ export default function WorkDetailPage() {
         )}
         {!isGuest && personas.length === 0 && (
           <p className="text-xs text-slate-500">
-            페르소나 없음 — My 탭에서 추가하면 여기서 선택할 수 있습니다.
+            페르소나 없음 — 설정 탭에서 추가하면 여기서 선택할 수 있습니다.
           </p>
         )}
 
+        {/* 시작 설정 선택 */}
         {startConfigs.length > 0 && (
           <div>
             <label className="mb-1 block text-xs text-slate-400">시작 설정</label>

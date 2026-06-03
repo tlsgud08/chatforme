@@ -12,9 +12,6 @@ import WorkEditorPage from './pages/WorkEditorPage';
 import SettingsPage from './pages/SettingsPage';
 import SearchPage from './pages/SearchPage';
 import MyPage from './pages/MyPage';
-import FavoritesPage from './pages/FavoritesPage';
-import UserPage from './pages/UserPage';
-import WorksSectionPage from './pages/WorksSectionPage';
 import SetupNotice from './components/SetupNotice';
 
 export default function App() {
@@ -38,19 +35,16 @@ export default function App() {
       {/* 전체화면 (탭바 없음) */}
       <Route path="/chat/:sessionId" element={<ChatPage />} />
       <Route path="/search" element={<SearchPage />} />
-      <Route path="/users/:userId" element={<UserPage />} />
 
       {/* 나머지는 탭바 레이아웃 */}
       <Route element={<Layout />}>
         <Route path="/" element={<Navigate to="/works" replace />} />
         <Route path="/works" element={<WorksPage />} />
-        <Route path="/works/section/:sectionId" element={<WorksSectionPage />} />
         <Route path="/works/:workId" element={<WorkDetailPage />} />
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/create" element={<CreatePage />} />
         <Route path="/create/:workId" element={<WorkEditorPage />} />
         <Route path="/my" element={<MyPage />} />
-        <Route path="/favorites" element={<FavoritesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/works" replace />} />
       </Route>

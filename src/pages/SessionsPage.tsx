@@ -111,7 +111,6 @@ export default function SessionsPage() {
       {/* 상단 탭 + 버튼 영역 */}
       {selectMode === 'none' ? (
         <div className="flex items-center border-b border-surface2">
-          {/* 활성 / 보관함 탭 */}
           <button
             onClick={() => setViewTab('active')}
             className={`flex-1 py-2.5 text-sm ${viewTab === 'active' ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
@@ -124,7 +123,6 @@ export default function SessionsPage() {
           >
             보관함
           </button>
-          {/* 보관 / 삭제 버튼 */}
           <div className="flex gap-2 px-3">
             <button
               onClick={() => enterSelectMode('archive')}
@@ -141,7 +139,6 @@ export default function SessionsPage() {
           </div>
         </div>
       ) : (
-        /* 선택 모드 상단 바 */
         <div className="flex items-center gap-3 border-b border-surface2 px-4 py-2.5">
           <button onClick={toggleAll} className="text-sm text-slate-300">
             {allSelected ? '전체 해제' : '전체 선택'}
@@ -171,7 +168,6 @@ export default function SessionsPage() {
         </div>
       )}
 
-      {/* 목록 */}
       <div className="flex-1 overflow-y-auto">
         {isLoading && <p className="p-6 text-slate-400">불러오는 중…</p>}
         {!isLoading && list.length === 0 && (
