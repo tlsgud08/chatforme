@@ -210,7 +210,7 @@ export default function SessionMenu({
                   <p className="mt-2 text-[11px] text-slate-500">
                     {sessionCost !== null
                       ? `이 채팅방: 약 $${sessionCost.toFixed(6)}`
-                      : `이 채팅방: 입력 ${session.total_input_tokens.toLocaleString()} / 출력 ${session.total_output_tokens.toLocaleString()} 토큰`}
+                      : '이 채팅방: 크레딧 계산 중…'}
                   </p>
                 );
               })()}
