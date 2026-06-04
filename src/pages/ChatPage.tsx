@@ -148,7 +148,7 @@ export default function ChatPage() {
   }
 
   async function send() {
-    if (!input.trim() || !work || sending) return;
+    if (!work || sending) return;
     setError('');
 
     const guestSettings = loadGuestSettings();
@@ -164,19 +164,23 @@ export default function ChatPage() {
     const turnIndex = messages.filter((m) => !m.is_hidden).length;
 
     if (isGuest && guestSession) {
-      const userMsg: GuestMessage = {
-        id: crypto.randomUUID(), session_id: guestSession.id, role: 'user',
-        content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0,
-        is_hidden: false, created_at: now,
-      };
-      guestAddMessage(guestSession.id, userMsg);
       const historyMsgs = buildHistory([...messages]);
-      setMessages((m) => [...m, toMsg(userMsg)]);
+      let updatedMessages = [...messages];
+      if (text) {
+        const userMsg: GuestMessage = {
+          id: crypto.randomUUID(), session_id: guestSession.id, role: 'user',
+          content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0,
+          is_hidden: false, created_at: now,
+        };
+        guestAddMessage(guestSession.id, userMsg);
+        updatedMessages = [...messages, toMsg(userMsg)];
+        setMessages(updatedMessages);
+      }
 
       const assembled = assemblePrompt({
         systemPrompt, mainPrompt: work.main_prompt, userNote: guestSession.user_note,
         summary: '',
-        keywordBookContents: getActiveKeywordContents([...messages], text),
+        keywordBookContents: getActiveKeywordContents(updatedMessages, text),
         history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
         latestUserMessage: text,
       });
@@ -203,17 +207,23 @@ export default function ChatPage() {
 
     if (!session || !profile) { setSending(false); return; }
 
-    const { data: userMsg } = await supabase
-      .from('messages')
-      .insert({ session_id: session.id, role: 'user', content: text, turn_index: turnIndex })
-      .select('*').single();
     const historyMsgs = buildHistory([...messages]);
-    if (userMsg) setMessages((m) => [...m, userMsg as Message]);
+    let currentMessages = [...messages];
+    if (text) {
+      const { data: userMsg } = await supabase
+        .from('messages')
+        .insert({ session_id: session.id, role: 'user', content: text, turn_index: turnIndex })
+        .select('*').single();
+      if (userMsg) {
+        currentMessages = [...messages, userMsg as Message];
+        setMessages(currentMessages);
+      }
+    }
 
     const assembled = assemblePrompt({
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
       summary: session.summary, persona,
-      keywordBookContents: getActiveKeywordContents([...messages], text),
+      keywordBookContents: getActiveKeywordContents(currentMessages, text),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: text,
     });
@@ -376,7 +386,7 @@ export default function ChatPage() {
         />
         <button
           onClick={send}
-          disabled={sending || !input.trim()}
+          disabled={sending}
           className="rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
         >
           전송
