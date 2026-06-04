@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { getApiKey } from '@/lib/apiKeys';
 import type { Persona, Profile } from '@/types/db';
+
+interface OpenRouterCredit {
+  remaining: number | null;
+  usage: number;
+  limit: number | null;
+}
 
 export default function MyPage() {
   const { user, isGuest } = useAuth();
@@ -11,6 +18,7 @@ export default function MyPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
 
+  const [credit, setCredit] = useState<OpenRouterCredit | null>(null);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
   const [newName, setNewName] = useState('');
@@ -32,6 +40,21 @@ export default function MyPage() {
       .order('created_at')
       .then(({ data }) => setPersonas((data as Persona[]) ?? []));
   }, [user, isGuest]);
+
+  useEffect(() => {
+    const apiKey = getApiKey('openrouter');
+    if (!apiKey) return;
+    fetch('https://openrouter.ai/api/v1/auth/key', {
+      headers: { authorization: `Bearer ${apiKey}` },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const d = data?.data;
+        if (!d) return;
+        setCredit({ remaining: d.limit_remaining ?? null, usage: d.usage ?? 0, limit: d.limit ?? null });
+      })
+      .catch(() => {});
+  }, []);
 
   async function saveProfile() {
     if (!profile) return;
@@ -124,18 +147,43 @@ export default function MyPage() {
         </div>
       </section>
 
+      {/* OpenRouter 크레딧 */}
+      {credit && (
+        <section className="rounded-xl bg-surface p-4">
+          <p className="mb-1 text-xs font-semibold text-slate-400">OpenRouter 크레딧</p>
+          {credit.remaining !== null ? (
+            <div className="flex items-center justify-between">
+              <p className="text-lg font-bold text-white">
+                ${credit.remaining.toFixed(3)}
+                <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
+              </p>
+              {credit.limit !== null && (
+                <p className="text-xs text-slate-500">
+                  총 ${credit.limit.toFixed(2)} 중 ${credit.usage.toFixed(3)} 사용
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-lg font-bold text-white">
+              ${credit.usage.toFixed(3)}
+              <span className="ml-1 text-xs font-normal text-slate-400">사용됨 (무제한)</span>
+            </p>
+          )}
+        </section>
+      )}
+
       {/* 메뉴 */}
       <section>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">활동</h2>
         <ul className="overflow-hidden rounded-xl bg-surface divide-y divide-surface2">
           <li>
             <button
-              disabled
-              className="flex w-full items-center gap-3 px-4 py-3.5 text-left opacity-40"
+              onClick={() => navigate('/favorites')}
+              className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
             >
               <span className="text-xl">❤️</span>
               <span className="flex-1 text-sm text-white">하트 목록</span>
-              <span className="text-[10px] text-slate-500">Phase 3 예정</span>
+              <span className="text-slate-500">›</span>
             </button>
           </li>
           <li>
@@ -145,7 +193,7 @@ export default function MyPage() {
             >
               <span className="text-xl">👥</span>
               <span className="flex-1 text-sm text-white">팔로우</span>
-              <span className="text-[10px] text-slate-500">Phase 3 예정</span>
+              <span className="text-[10px] text-slate-500">추후 지원 예정</span>
             </button>
           </li>
         </ul>

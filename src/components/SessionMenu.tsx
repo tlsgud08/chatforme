@@ -148,52 +148,47 @@ export default function SessionMenu({
             {PROVIDER_LABELS[sessionProvider]} 크레딧
           </p>
           {sessionProvider === 'openrouter' ? (
-            !getApiKey('openrouter') ? (
-              <p className="text-xs text-slate-500">API 키를 설정하면 잔여 크레딧을 확인할 수 있습니다.</p>
-            ) : creditLoading ? (
-              <p className="text-xs text-slate-500">불러오는 중…</p>
-            ) : credit ? (
-              <div className="flex items-end justify-between">
-                <div>
-                  {credit.remaining !== null ? (
-                    <>
-                      <p className="text-lg font-bold text-white">
+            <>
+              {!getApiKey('openrouter') ? (
+                <p className="text-xs text-slate-500">API 키를 설정하면 잔여 크레딧을 확인할 수 있습니다.</p>
+              ) : creditLoading ? (
+                <p className="text-xs text-slate-500">불러오는 중…</p>
+              ) : credit ? (
+                <div className="flex items-center justify-between">
+                  <div>
+                    {credit.remaining !== null ? (
+                      <p className="text-xl font-bold text-white">
                         ${credit.remaining.toFixed(3)}
                         <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
                       </p>
-                      {credit.limit !== null && (
-                        <p className="text-[11px] text-slate-500">
-                          총 ${credit.limit.toFixed(2)} 중 ${credit.usage.toFixed(3)} 사용
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-lg font-bold text-white">
+                    ) : (
+                      <p className="text-xl font-bold text-white">
                         ${credit.usage.toFixed(3)}
-                        <span className="ml-1 text-xs font-normal text-slate-400">사용됨</span>
+                        <span className="ml-1 text-xs font-normal text-slate-400">사용됨 (무제한)</span>
                       </p>
-                      <p className="text-[11px] text-slate-500">한도 없음</p>
-                    </>
+                    )}
+                  </div>
+                  {credit.remaining !== null && credit.limit !== null && (
+                    <div className="w-20">
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface2">
+                        <div
+                          className="h-full rounded-full bg-emerald-500"
+                          style={{ width: `${Math.max(0, Math.min(100, (credit.remaining / credit.limit) * 100))}%` }}
+                        />
+                      </div>
+                      <p className="mt-0.5 text-right text-[10px] text-slate-500">
+                        {Math.round((credit.remaining / credit.limit) * 100)}% 남음
+                      </p>
+                    </div>
                   )}
                 </div>
-                {credit.remaining !== null && credit.limit !== null && (
-                  <div className="w-20">
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface2">
-                      <div
-                        className="h-full rounded-full bg-emerald-500"
-                        style={{ width: `${Math.max(0, Math.min(100, (credit.remaining / credit.limit) * 100))}%` }}
-                      />
-                    </div>
-                    <p className="mt-0.5 text-right text-[10px] text-slate-500">
-                      {Math.round((credit.remaining / credit.limit) * 100)}% 남음
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p className="text-xs text-slate-500">크레딧 정보를 불러올 수 없습니다.</p>
-            )
+              ) : (
+                <p className="text-xs text-slate-500">크레딧 정보를 불러올 수 없습니다.</p>
+              )}
+              <p className="mt-2 text-[11px] text-slate-500">
+                이 채팅방: 입력 {session.total_input_tokens.toLocaleString()} / 출력 {session.total_output_tokens.toLocaleString()} 토큰
+              </p>
+            </>
           ) : (
             <p className="text-xs text-slate-500">타 API 크레딧 조회는 추후 지원 예정입니다.</p>
           )}
