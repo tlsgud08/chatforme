@@ -54,6 +54,8 @@ export default function SessionMenu({
   const [creditLoading, setCreditLoading] = useState(false);
 
   useEffect(() => {
+    setCredit(null);
+    if (sessionProvider !== 'openrouter') return;
     const apiKey = getApiKey('openrouter');
     if (!apiKey) return;
     setCreditLoading(true);
@@ -72,7 +74,7 @@ export default function SessionMenu({
       })
       .catch(() => {})
       .finally(() => setCreditLoading(false));
-  }, []);
+  }, [sessionProvider]);
   const [sliderVal, setSliderVal] = useState(() => tokensToSlider(session.output_tokens_override));
   const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_tokens_override !== null);
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -140,11 +142,15 @@ export default function SessionMenu({
           <button onClick={onClose} className="ml-auto text-slate-400">✕</button>
         </div>
 
-        {/* OpenRouter 잔여 크레딧 */}
-        {getApiKey('openrouter') && (
-          <section className="rounded-xl bg-surface p-3">
-            <p className="mb-1 text-xs font-semibold text-slate-400">OpenRouter 크레딧</p>
-            {creditLoading ? (
+        {/* 크레딧 */}
+        <section className="rounded-xl bg-surface p-3">
+          <p className="mb-1 text-xs font-semibold text-slate-400">
+            {PROVIDER_LABELS[sessionProvider]} 크레딧
+          </p>
+          {sessionProvider === 'openrouter' ? (
+            !getApiKey('openrouter') ? (
+              <p className="text-xs text-slate-500">API 키를 설정하면 잔여 크레딧을 확인할 수 있습니다.</p>
+            ) : creditLoading ? (
               <p className="text-xs text-slate-500">불러오는 중…</p>
             ) : credit ? (
               <div className="flex items-end justify-between">
@@ -187,9 +193,11 @@ export default function SessionMenu({
               </div>
             ) : (
               <p className="text-xs text-slate-500">크레딧 정보를 불러올 수 없습니다.</p>
-            )}
-          </section>
-        )}
+            )
+          ) : (
+            <p className="text-xs text-slate-500">타 API 크레딧 조회는 추후 지원 예정입니다.</p>
+          )}
+        </section>
 
         {/* 페르소나 */}
         <section>
