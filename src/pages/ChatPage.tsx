@@ -54,10 +54,8 @@ function classifyError(raw: string): string {
   if (raw.includes('(429)')) return 'API 요청 한도를 초과했습니다. 잠시 후 재시도하세요';
   if (raw.includes('(500)') || raw.includes('(502)') || raw.includes('(503)')) return 'AI 서버 오류입니다. 잠시 후 재시도하세요';
   if (raw.includes('Failed to fetch') || raw.toLowerCase().includes('networkerror')) return '네트워크 오류입니다. 인터넷 연결을 확인하세요';
-  // 그 외 상태코드: "OpenRouter API 오류 (422)" 형태를 그대로 노출
   const apiMatch = raw.match(/^(.+?API 오류 \(\d+\))/);
   if (apiMatch) return apiMatch[1];
-  // 짧은 에러는 그대로, 긴 에러는 앞 80자
   return raw.length <= 80 ? raw : raw.slice(0, 80) + '…';
 }
 
@@ -361,7 +359,6 @@ export default function ChatPage() {
         )}
       </header>
 
-      {/* 에러 토스트 */}
       {toastError && (
         <div className="toast-enter pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-4">
           <div className="max-w-[88vw] rounded-full bg-red-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg">
