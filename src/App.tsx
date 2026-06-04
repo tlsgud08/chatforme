@@ -13,6 +13,8 @@ import SettingsPage from './pages/SettingsPage';
 import SearchPage from './pages/SearchPage';
 import MyPage from './pages/MyPage';
 import SetupNotice from './components/SetupNotice';
+import FavoritesPage from './pages/FavoritesPage';
+import UserPage from './pages/UserPage';
 
 export default function App() {
   const { user, isGuest, loading } = useAuth();
@@ -46,6 +48,8 @@ export default function App() {
         <Route path="/create/:workId" element={<WorkEditorPage />} />
         <Route path="/my" element={<MyPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/favorites" element={<FavoritesPage />} />
+        <Route path="/users/:userId" element={<UserPage />} />
         <Route path="*" element={<Navigate to="/works" replace />} />
       </Route>
     </Routes>

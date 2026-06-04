@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
@@ -17,6 +18,9 @@ export default function MyPage() {
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
+  const [bio, setBio] = useState('');
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [credit, setCredit] = useState<OpenRouterCredit | null>(null);
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -32,7 +36,11 @@ export default function MyPage() {
       .select('*')
       .eq('id', user.id)
       .single()
-      .then(({ data }) => setProfile(data as Profile));
+      .then(({ data }) => {
+        const p = data as Profile;
+        setProfile(p);
+        setBio(p?.bio ?? '');
+      });
     supabase
       .from('personas')
       .select('*')
@@ -110,6 +118,61 @@ export default function MyPage() {
     setTimeout(() => setSavedMsg(''), 2000);
   }
 
+  const { data: followerCountData } = useQuery({
+    queryKey: ['follower-count', user?.id],
+    queryFn: async () => {
+      if (!user) return 0;
+      const { count } = await supabase
+        .from('user_follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('following_id', user.id);
+      return count ?? 0;
+    },
+    enabled: !!user && !isGuest,
+  });
+
+  const { data: followingCountData } = useQuery({
+    queryKey: ['following-count', user?.id],
+    queryFn: async () => {
+      if (!user) return 0;
+      const { count } = await supabase
+        .from('user_follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('follower_id', user.id);
+      return count ?? 0;
+    },
+    enabled: !!user && !isGuest,
+  });
+
+  async function uploadAvatar(file: File) {
+    if (!user || !profile) return;
+    if (file.size > 5 * 1024 * 1024) {
+      flash('5MB 이하 이미지만 업로드 가능합니다.');
+      return;
+    }
+    setAvatarUploading(true);
+    const { data, error } = await supabase.storage
+      .from('avatars')
+      .upload(`${user.id}/${Date.now()}`, file, { upsert: true, contentType: file.type });
+    if (error) {
+      flash('업로드 실패: ' + error.message);
+      setAvatarUploading(false);
+      return;
+    }
+    const publicUrl = supabase.storage.from('avatars').getPublicUrl(data.path).data.publicUrl;
+    await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id);
+    setProfile({ ...profile, avatar_url: publicUrl });
+    setAvatarUploading(false);
+    flash('프로필 사진을 업데이트했습니다.');
+  }
+
+  async function saveBio() {
+    if (!profile) return;
+    const trimmed = bio.slice(0, 500);
+    await supabase.from('profiles').update({ bio: trimmed }).eq('id', profile.id);
+    setProfile({ ...profile, bio: trimmed });
+  }
+
   if (isGuest) {
     return (
       <div className="flex flex-col items-center gap-4 p-8 text-center">
@@ -132,18 +195,65 @@ export default function MyPage() {
     <div className="flex flex-col gap-6 p-4">
       {/* 프로필 카드 */}
       <section className="flex flex-col items-center gap-3 rounded-xl bg-surface p-5">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-brand/20 text-3xl font-bold text-brand">
-          {initial}
-        </div>
+        {/* 아바타 */}
+        <button
+          type="button"
+          className="relative h-20 w-20 shrink-0 rounded-full"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={avatarUploading}
+        >
+          <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-brand/20">
+            {profile?.avatar_url ? (
+              <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <span className="text-3xl font-bold text-brand">{initial}</span>
+            )}
+          </div>
+          <div className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full bg-surface2 text-xs shadow">
+            📷
+          </div>
+          {avatarUploading && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
+              <span className="text-xs text-white">…</span>
+            </div>
+          )}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAvatar(f); }}
+        />
+
         <div className="w-full text-center">
-          <input
-            value={profile?.display_name ?? ''}
-            onChange={(e) => profile && setProfile({ ...profile, display_name: e.target.value })}
-            onBlur={saveProfile}
-            className="w-full rounded-lg bg-surface2 px-3 py-2 text-center text-lg font-semibold text-white outline-none"
-            placeholder="표시 이름"
+          <button
+            type="button"
+            onClick={() => user && navigate(`/users/${user.id}`)}
+            className="block w-full"
+          >
+            <input
+              value={profile?.display_name ?? ''}
+              onChange={(e) => profile && setProfile({ ...profile, display_name: e.target.value })}
+              onBlur={saveProfile}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full rounded-lg bg-surface2 px-3 py-2 text-center text-lg font-semibold text-white outline-none"
+              placeholder="표시 이름"
+            />
+          </button>
+          <textarea
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            onBlur={saveBio}
+            maxLength={500}
+            rows={3}
+            placeholder="자기소개 (500자 이내)"
+            className="mt-2 w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm text-slate-300 outline-none"
           />
           <p className="mt-1 text-xs text-slate-500">{user?.email}</p>
+          <p className="mt-1 text-xs text-slate-400">
+            팔로워 {followerCountData ?? 0} · 팔로잉 {followingCountData ?? 0}
+          </p>
         </div>
       </section>
 

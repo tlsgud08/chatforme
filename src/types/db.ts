@@ -94,3 +94,9 @@ export interface Message {
   is_summarized: boolean;
   created_at: string;
 }
+
+export interface Follow {
+  follower_id: string;
+  following_id: string;
+  created_at: string;
+}
