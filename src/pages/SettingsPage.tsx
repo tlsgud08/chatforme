@@ -26,7 +26,6 @@ export default function SettingsPage() {
 
   const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
-  // 관리자 전역 시스템 프롬프트
   const [systemPrompt, setSystemPrompt] = useState('');
   const [systemPromptLoaded, setSystemPromptLoaded] = useState(false);
 
@@ -53,7 +52,7 @@ export default function SettingsPage() {
 
   function saveKeys() {
     saveApiKeys(keys);
-    flash('API 키를 이 기기에 저장했습니다.');
+    flash('API 키를 저장했습니다.');
   }
 
   async function saveProfile() {
@@ -219,7 +218,11 @@ export default function SettingsPage() {
       )}
 
       {savedMsg && (
-        <p className="rounded-lg bg-surface px-4 py-2 text-center text-sm text-brand">{savedMsg}</p>
+        <div className="toast-enter pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-4">
+          <div className="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-lg">
+            {savedMsg}
+          </div>
+        </div>
       )}
 
       <button onClick={() => signOut()} className="mt-2 text-sm text-red-400">
