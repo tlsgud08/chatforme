@@ -53,8 +53,12 @@ function classifyError(raw: string): string {
   if (raw.includes('(404)')) return '모델을 찾을 수 없습니다. 세션 메뉴에서 모델을 재선택하세요';
   if (raw.includes('(429)')) return 'API 요청 한도를 초과했습니다. 잠시 후 재시도하세요';
   if (raw.includes('(500)') || raw.includes('(502)') || raw.includes('(503)')) return 'AI 서버 오류입니다. 잠시 후 재시도하세요';
-  if (raw.includes('fetch') || raw.includes('network') || raw.includes('Failed to fetch')) return '네트워크 오류입니다. 인터넷 연결을 확인하세요';
-  return 'AI 응답 생성에 실패했습니다';
+  if (raw.includes('Failed to fetch') || raw.toLowerCase().includes('networkerror')) return '네트워크 오류입니다. 인터넷 연결을 확인하세요';
+  // 그 외 상태코드: "OpenRouter API 오류 (422)" 형태를 그대로 노출
+  const apiMatch = raw.match(/^(.+?API 오류 \(\d+\))/);
+  if (apiMatch) return apiMatch[1];
+  // 짧은 에러는 그대로, 긴 에러는 앞 80자
+  return raw.length <= 80 ? raw : raw.slice(0, 80) + '…';
 }
 
 export default function ChatPage() {
