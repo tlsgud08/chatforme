@@ -9,7 +9,7 @@ export interface PromptLabels {
 }
 
 export const DEFAULT_LABELS: PromptLabels = {
-  workPrompt: '작품 설정',
+  workPrompt: 'Main prompt',
   persona: '{{user}} info',
   userNote: 'Additional info & rules',
   summary: 'Plot summary',

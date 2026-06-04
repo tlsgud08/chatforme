@@ -229,7 +229,7 @@ export default function SettingsPage() {
           <p className="mb-3 text-xs text-yellow-600/70">AI에게 전달되는 각 섹션의 헤더 텍스트입니다. (예: <code className="text-yellow-400">{'{{user}}'}</code>는 그대로 전달됩니다)</p>
           <div className="flex flex-col gap-2">
             {[
-              { label: 'L1 — 작품 설정', value: workPromptLabel, set: setWorkPromptLabel },
+              { label: 'L1 — Main prompt', value: workPromptLabel, set: setWorkPromptLabel },
               { label: 'L2 — 페르소나', value: personaLabel, set: setPersonaLabel },
               { label: 'L3 — 유저 노트', value: userNoteLabel, set: setUserNoteLabel },
               { label: 'L4 — 요약', value: summaryLabel, set: setSummaryLabel },
