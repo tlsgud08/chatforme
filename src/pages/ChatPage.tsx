@@ -175,9 +175,22 @@ export default function ChatPage() {
     }
   }, [profile, sessionId, isGuest]);
 
+  function isNearBottom() {
+    const el = scrollRef.current;
+    if (!el) return false;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }
+
+  // 새 메시지 추가 시엔 항상 스크롤
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, sending, streamingContent]);
+  }, [messages]);
+
+  // 스트리밍 중엔 이미 맨 아래 근처일 때만 스크롤
+  useEffect(() => {
+    if (!streamingContent) return;
+    if (isNearBottom()) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [streamingContent]);
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
