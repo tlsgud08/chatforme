@@ -1,6 +1,6 @@
 import type { GenerateOptions, GenerateResult, LLMAdapter } from './types';
 
-// Google Gemini generateContent API — 브라우저 직접 호출
+// Google Gemini generateContent API — role은 'user' | 'model'
 export const geminiAdapter: LLMAdapter = {
   provider: 'gemini',
   async generate(opts: GenerateOptions): Promise<GenerateResult> {

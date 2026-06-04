@@ -1,6 +1,6 @@
 import type { GenerateOptions, GenerateResult, LLMAdapter } from './types';
 
-// OpenRouter — OpenAI 호환 API. 키 하나로 Claude/Gemini/GPT 등 모든 모델 사용.
+// OpenRouter — OpenAI 호환 API. max_tokens 생략 시 모델 기본값 사용.
 export const openrouterAdapter: LLMAdapter = {
   provider: 'openrouter',
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
