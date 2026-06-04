@@ -97,7 +97,7 @@ export default function SettingsPage() {
               <div key={p} className="rounded-lg border border-brand/40 bg-brand/5 p-3">
                 <div className="mb-1 flex items-center gap-2">
                   <label className="text-sm font-semibold text-white">{PROVIDER_LABELS[p]}</label>
-                  <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">온청</span>
+                  <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">추천</span>
                 </div>
                 <p className="mb-2 text-[11px] text-slate-400">
                   키 하나로 Claude·Gemini·GPT 등 모든 모델 사용 가능.{' '}
