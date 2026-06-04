@@ -52,14 +52,17 @@ export default function MyPage() {
   useEffect(() => {
     const apiKey = getApiKey('openrouter');
     if (!apiKey) return;
-    fetch('https://openrouter.ai/api/v1/auth/key', {
+    // /credits = 계정 실제 잔액 (total_credits - total_usage)
+    fetch('https://openrouter.ai/api/v1/credits', {
       headers: { authorization: `Bearer ${apiKey}` },
     })
       .then((r) => r.json())
       .then((data) => {
         const d = data?.data;
         if (!d) return;
-        setCredit({ remaining: d.limit_remaining ?? null, usage: d.usage ?? 0, limit: d.limit ?? null });
+        const total = d.total_credits ?? 0;
+        const used = d.total_usage ?? 0;
+        setCredit({ remaining: total - used, usage: used, limit: total });
       })
       .catch(() => {});
   }, []);
