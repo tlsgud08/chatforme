@@ -48,7 +48,7 @@ export const DEFAULT_MODELS: Record<Provider, string[]> = {
     'anthropic/claude-sonnet-4-6',
     'anthropic/claude-sonnet-4.5',
     'anthropic/claude-3.5-haiku',
-    'google/gemini-3.1-pro',
+    'google/gemini-3.1-pro-preview',
     'google/gemini-2.5-pro',
     'google/gemini-2.5-flash',
     'openai/gpt-4o-mini',
