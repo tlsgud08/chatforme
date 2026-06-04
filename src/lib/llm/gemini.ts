@@ -1,12 +1,16 @@
 import type { GenerateOptions, GenerateResult, LLMAdapter } from './types';
+import { readGeminiStream } from './stream';
 
 // Google Gemini generateContent API — role은 'user' | 'model'
 export const geminiAdapter: LLMAdapter = {
   provider: 'gemini',
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
+    const streaming = !!opts.onChunk;
+    const endpoint = streaming ? 'streamGenerateContent' : 'generateContent';
     const url =
-      `https://generativelanguage.googleapis.com/v1beta/models/${opts.model}:generateContent?key=` +
-      encodeURIComponent(opts.apiKey);
+      `https://generativelanguage.googleapis.com/v1beta/models/${opts.model}:${endpoint}?key=` +
+      encodeURIComponent(opts.apiKey) +
+      (streaming ? '&alt=sse' : '');
 
     const contents = opts.messages.map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
@@ -15,6 +19,7 @@ export const geminiAdapter: LLMAdapter = {
 
     const res = await fetch(url, {
       method: 'POST',
+      signal: opts.signal,
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         systemInstruction: opts.system ? { parts: [{ text: opts.system }] } : undefined,
@@ -26,6 +31,11 @@ export const geminiAdapter: LLMAdapter = {
     if (!res.ok) {
       const err = await res.text();
       throw new Error(`Gemini API 오류 (${res.status}): ${err}`);
+    }
+
+    if (streaming) {
+      const { text, inputTokens, outputTokens } = await readGeminiStream(res.body!, opts.onChunk!);
+      return { text, usage: { inputTokens, outputTokens } };
     }
 
     const data = await res.json();

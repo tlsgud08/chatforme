@@ -11,6 +11,8 @@ export interface GenerateOptions {
   system: string;
   messages: ChatMessage[];
   maxOutputTokens: number | null;
+  onChunk?: (text: string) => void;
+  signal?: AbortSignal;
 }
 
 export interface Usage {
