@@ -92,7 +92,7 @@ export default function MyPage() {
       <div className="flex flex-col items-center gap-4 p-8 text-center">
         <div className="flex h-20 w-20 items-center justify-center rounded-full bg-surface2 text-4xl">👤</div>
         <p className="font-semibold text-white">비회원 모드</p>
-        <p className="text-sm text-slate-400">로그인하면 프로필·페르소나·팔로우·즐겨찾기를 사용할 수 있습니다.</p>
+        <p className="text-sm text-slate-400">로그인하면 프로필·페르소나·팔로우·하트를 사용할 수 있습니다.</p>
         <button
           onClick={() => navigate('/login')}
           className="mt-2 rounded-lg bg-brand px-6 py-2.5 text-sm font-semibold text-white"
@@ -134,7 +134,7 @@ export default function MyPage() {
               className="flex w-full items-center gap-3 px-4 py-3.5 text-left opacity-40"
             >
               <span className="text-xl">❤️</span>
-              <span className="flex-1 text-sm text-white">즐겨찾기</span>
+              <span className="flex-1 text-sm text-white">하트 목록</span>
               <span className="text-[10px] text-slate-500">Phase 3 예정</span>
             </button>
           </li>

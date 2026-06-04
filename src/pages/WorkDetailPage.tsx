@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { guestCreateSession, guestAddMessage } from '@/lib/guest';
+import { formatCount } from '@/lib/works';
 import type { Persona, StartConfig, Work } from '@/types/db';
 
 export default function WorkDetailPage() {
   const { workId } = useParams();
   const navigate = useNavigate();
   const { user, isGuest } = useAuth();
+  const queryClient = useQueryClient();
   const [starting, setStarting] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>('');
   const [selectedConfigId, setSelectedConfigId] = useState<string>('');
@@ -41,6 +43,44 @@ export default function WorkDetailPage() {
     enabled: !!user && !isGuest,
   });
 
+  const { data: totalPlays = 0 } = useQuery({
+    queryKey: ['work-plays-total', workId],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('work_plays')
+        .select('*', { count: 'exact', head: true })
+        .eq('work_id', workId!);
+      return count ?? 0;
+    },
+    enabled: !!workId,
+  });
+
+  const { data: favoriteCount = 0 } = useQuery({
+    queryKey: ['work-fav-count', workId],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('work_favorites')
+        .select('*', { count: 'exact', head: true })
+        .eq('work_id', workId!);
+      return count ?? 0;
+    },
+    enabled: !!workId,
+  });
+
+  const { data: isFavorited = false } = useQuery({
+    queryKey: ['work-fav-me', workId, user?.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('work_favorites')
+        .select('work_id')
+        .eq('work_id', workId!)
+        .eq('user_id', user!.id)
+        .maybeSingle();
+      return !!data;
+    },
+    enabled: !!workId && !!user && !isGuest,
+  });
+
   useEffect(() => {
     if (personas.length > 0 && !selectedPersonaId) {
       const def = personas.find((p) => p.is_default) ?? personas[0];
@@ -55,6 +95,19 @@ export default function WorkDetailPage() {
     }
   }, [startConfigs]);
 
+  async function toggleFavorite() {
+    if (!user || isGuest) return;
+    const newState = !isFavorited;
+    queryClient.setQueryData(['work-fav-me', workId, user.id], newState);
+    queryClient.setQueryData(['work-fav-count', workId], (old: number) => Math.max(0, old + (newState ? 1 : -1)));
+    if (newState) {
+      await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
+    } else {
+      await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId!);
+    }
+    queryClient.invalidateQueries({ queryKey: ['user-favorites', user.id] });
+  }
+
   async function startChat() {
     if (!work) return;
     setStarting(true);
@@ -64,7 +117,6 @@ export default function WorkDetailPage() {
 
     if (isGuest) {
       const session = guestCreateSession({ id: work.id, title: work.title });
-      // 시작 기본 정보 (숨김 메시지)
       if (selectedConfig?.initial_context.trim()) {
         guestAddMessage(session.id, {
           id: crypto.randomUUID(), role: 'user',
@@ -73,7 +125,6 @@ export default function WorkDetailPage() {
           is_hidden: true, created_at: now,
         });
       }
-      // 시작 메시지 (AI 첫 출력)
       if (selectedConfig?.initial_message.trim()) {
         guestAddMessage(session.id, {
           id: crypto.randomUUID(), role: 'assistant',
@@ -103,7 +154,6 @@ export default function WorkDetailPage() {
 
     const sessionId = data.id;
 
-    // 시작 기본 정보 (숨김 메시지)
     if (selectedConfig?.initial_context.trim()) {
       await supabase.from('messages').insert({
         session_id: sessionId, role: 'user',
@@ -111,7 +161,6 @@ export default function WorkDetailPage() {
         turn_index: 0, is_hidden: true,
       });
     }
-    // 시작 메시지 (AI 첫 출력)
     if (selectedConfig?.initial_message.trim()) {
       await supabase.from('messages').insert({
         session_id: sessionId, role: 'assistant',
@@ -141,14 +190,31 @@ export default function WorkDetailPage() {
   return (
     <div className="p-4">
       <button onClick={() => navigate(-1)} className="mb-3 text-sm text-slate-400">← 뒤로</button>
-      <div className="aspect-video w-full overflow-hidden rounded-xl bg-surface2">
+      <div className="mx-auto aspect-[2/3] w-full max-w-[240px] overflow-hidden rounded-xl bg-surface2">
         {work.thumbnail_url && <img src={work.thumbnail_url} alt="" className="h-full w-full object-cover" />}
       </div>
-      <h1 className="mt-4 text-xl font-bold text-white">{work.title || '(제목 없음)'}</h1>
-      <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">{work.description}</p>
+
+      <div className="mt-4 flex items-start gap-2">
+        <h1 className="flex-1 text-xl font-bold text-white">{work.title || '(제목 없음)'}</h1>
+        {user && !isGuest && (
+          <button
+            onClick={toggleFavorite}
+            className="shrink-0 text-2xl leading-none"
+            aria-label="하트"
+          >
+            {isFavorited ? '❤️' : '🤍'}
+          </button>
+        )}
+      </div>
+
+      <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
+        <span>💬 {formatCount(totalPlays)} 대화</span>
+        <span>❤️ {formatCount(favoriteCount)}</span>
+      </div>
+
+      <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">{work.description}</p>
 
       <div className="mt-6 flex flex-col gap-3">
-        {/* 페르소나 선택 (로그인 사용자만) */}
         {!isGuest && personas.length > 0 && (
           <div>
             <label className="mb-1 block text-xs text-slate-400">페르소나</label>
@@ -169,7 +235,6 @@ export default function WorkDetailPage() {
           </p>
         )}
 
-        {/* 시작 설정 선택 */}
         {startConfigs.length > 0 && (
           <div>
             <label className="mb-1 block text-xs text-slate-400">시작 설정</label>
