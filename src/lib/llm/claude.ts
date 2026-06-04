@@ -1,7 +1,6 @@
 import type { GenerateOptions, GenerateResult, LLMAdapter } from './types';
 
-// Anthropic Messages API — 브라우저 직접 호출
-// 'anthropic-dangerous-direct-browser-access' 헤더로 CORS 허용
+// Anthropic Messages API — max_tokens는 필수 필드. null(무제한)이면 8192로 대체.
 export const claudeAdapter: LLMAdapter = {
   provider: 'claude',
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
@@ -15,7 +14,7 @@ export const claudeAdapter: LLMAdapter = {
       },
       body: JSON.stringify({
         model: opts.model,
-        ...(opts.maxOutputTokens !== null && { max_tokens: opts.maxOutputTokens }),
+        max_tokens: opts.maxOutputTokens ?? 8192,
         system: opts.system || undefined,
         messages: opts.messages.map((m) => ({ role: m.role, content: m.content })),
       }),

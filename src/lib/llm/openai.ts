@@ -1,6 +1,6 @@
 import type { GenerateOptions, GenerateResult, LLMAdapter } from './types';
 
-// OpenAI Chat Completions API — 브라우저 직접 호출
+// OpenAI Chat Completions API — max_tokens 생략 시 모델 기본값 사용
 export const openaiAdapter: LLMAdapter = {
   provider: 'openai',
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
