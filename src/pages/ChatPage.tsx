@@ -84,6 +84,8 @@ export default function ChatPage() {
   const [sessionProvider, setSessionProvider] = useState<Provider>('openrouter');
   const [sessionModel, setSessionModel] = useState('');
 
+  const [streamingContent, setStreamingContent] = useState('');
+  const abortControllerRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -151,7 +153,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, sending]);
+  }, [messages, sending, streamingContent]);
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
@@ -192,8 +194,13 @@ export default function ChatPage() {
     const text = input.trim();
     setInput('');
     setSending(true);
+    setStreamingContent('');
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     const now = new Date().toISOString();
     const turnIndex = messages.filter((m) => !m.is_hidden).length;
+    let partialText = '';
+    const onChunk = (t: string) => { partialText = t; setStreamingContent(t); };
 
     if (isGuest && guestSession) {
       const historyMsgs = buildHistory([...messages]);
@@ -218,7 +225,7 @@ export default function ChatPage() {
       });
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
       try {
-        const result = await generate(provider, { apiKey, model, system: assembled.system, messages: assembled.messages, maxOutputTokens });
+        const result = await generate(provider, { apiKey, model, system: assembled.system, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
         const aiMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
           content: result.text, turn_index: turnIndex,
@@ -232,12 +239,27 @@ export default function ChatPage() {
         guestUpdateSession(guestSession.id, { total_input_tokens: newIn, total_output_tokens: newOut });
         setGuestSession((gs) => gs ? { ...gs, total_input_tokens: newIn, total_output_tokens: newOut } : gs);
       } catch (err) {
-        addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
-      } finally { setSending(false); }
+        const isAbort = err instanceof DOMException && err.name === 'AbortError';
+        if (isAbort && partialText) {
+          const aiMsg: GuestMessage = {
+            id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
+            content: partialText, turn_index: turnIndex, input_tokens: 0, output_tokens: 0,
+            is_hidden: false, created_at: new Date().toISOString(),
+          };
+          guestAddMessage(guestSession.id, aiMsg);
+          setMessages((m) => [...m, toMsg(aiMsg)]);
+        } else if (!isAbort) {
+          addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
+        }
+      } finally {
+        setSending(false);
+        setStreamingContent('');
+        abortControllerRef.current = null;
+      }
       return;
     }
 
-    if (!session || !profile) { setSending(false); return; }
+    if (!session || !profile) { setSending(false); setStreamingContent(''); return; }
 
     const historyMsgs = buildHistory([...messages]);
     let currentMessages = [...messages];
@@ -261,7 +283,7 @@ export default function ChatPage() {
     });
     const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
     try {
-      const result = await generate(provider, { apiKey, model, system: assembled.system, messages: assembled.messages, maxOutputTokens });
+      const result = await generate(provider, { apiKey, model, system: assembled.system, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
       const { data: aiMsg } = await supabase
         .from('messages')
         .insert({
@@ -278,8 +300,21 @@ export default function ChatPage() {
         .eq('id', session.id);
       setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut });
     } catch (err) {
-      addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
-    } finally { setSending(false); }
+      const isAbort = err instanceof DOMException && err.name === 'AbortError';
+      if (isAbort && partialText) {
+        const { data: aiMsg } = await supabase
+          .from('messages')
+          .insert({ session_id: session.id, role: 'assistant', content: partialText, turn_index: turnIndex })
+          .select('*').single();
+        if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
+      } else if (!isAbort) {
+        addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
+      }
+    } finally {
+      setSending(false);
+      setStreamingContent('');
+      abortControllerRef.current = null;
+    }
   }
 
   async function deleteMsg(msgId: string) {
@@ -408,7 +443,40 @@ export default function ChatPage() {
             </div>
           ))}
           {sending && (
-            <div className="self-start rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-400">생각 중…</div>
+            <div className="self-start max-w-full rounded-2xl bg-surface px-4 py-2.5 text-sm leading-relaxed text-slate-100">
+              {streamingContent ? (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                    em: ({ children }) => <em className="not-italic opacity-50">{children}</em>,
+                    ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
+                    ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
+                    li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                    code: ({ children, className }) =>
+                      className ? (
+                        <code className="block overflow-x-auto rounded-lg bg-surface2 p-3 text-xs font-mono">{children}</code>
+                      ) : (
+                        <code className="rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>
+                      ),
+                    pre: ({ children }) => <pre className="mb-2">{children}</pre>,
+                    blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
+                    h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
+                    h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
+                    h3: ({ children }) => <h3 className="mb-1 text-base font-semibold">{children}</h3>,
+                    hr: () => <hr className="my-2 border-slate-600" />,
+                    a: ({ href, children }) => (
+                      <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
+                    ),
+                  }}
+                >
+                  {streamingContent}
+                </ReactMarkdown>
+              ) : (
+                <span className="text-slate-400">생각 중…</span>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -422,13 +490,21 @@ export default function ChatPage() {
           placeholder="메시지 입력…"
           className="max-h-32 flex-1 resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm outline-none"
         />
-        <button
-          onClick={send}
-          disabled={sending}
-          className="rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
-        >
-          전송
-        </button>
+        {sending ? (
+          <button
+            onClick={() => abortControllerRef.current?.abort()}
+            className="rounded-full bg-red-500 px-4 py-2.5 text-sm font-semibold text-white"
+          >
+            중단
+          </button>
+        ) : (
+          <button
+            onClick={send}
+            className="rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white"
+          >
+            전송
+          </button>
+        )}
       </div>
 
       {menuOpen && !isGuest && session && (
