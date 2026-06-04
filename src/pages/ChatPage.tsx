@@ -443,7 +443,7 @@ export default function ChatPage() {
                 </div>
               ) : (
                 <>
-                  <div className={`w-full min-w-0 overflow-hidden break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                  <div className={`w-full min-w-0 overflow-hidden break-words rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed ${
                     m.is_hidden
                       ? 'border border-amber-500/40 bg-surface text-amber-200'
                       : m.role === 'user'
@@ -496,7 +496,7 @@ export default function ChatPage() {
             </div>
           ))}
           {sending && (
-            <div className="self-start max-w-full rounded-2xl bg-surface px-4 py-2.5 text-sm leading-relaxed text-slate-100">
+            <div className="self-start max-w-full rounded-2xl bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-slate-100">
               {streamingContent ? (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
