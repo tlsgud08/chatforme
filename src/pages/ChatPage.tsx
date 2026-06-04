@@ -85,9 +85,25 @@ export default function ChatPage() {
   const [sessionModel, setSessionModel] = useState('');
 
   const [streamingContent, setStreamingContent] = useState('');
+  const [cacheToast, setCacheToast] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cachedPartsRef = useRef({ core: '', persona: '', userNote: '', summary: '' });
+
+  function showCacheToast(parts: { core: string; persona: string; userNote: string; summary: string }) {
+    const labels: string[] = [];
+    if (parts.core !== cachedPartsRef.current.core) labels.push('작품 설정');
+    if (parts.persona !== cachedPartsRef.current.persona) labels.push('페르소나');
+    if (parts.userNote !== cachedPartsRef.current.userNote) labels.push('유저 노트');
+    if (parts.summary !== cachedPartsRef.current.summary) labels.push('요약');
+    if (labels.length === 0) return;
+    cachedPartsRef.current = { ...parts };
+    setCacheToast(`${labels.join(', ')}을(를) 캐싱했습니다`);
+    if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
+    cacheTimerRef.current = setTimeout(() => setCacheToast(''), 3000);
+  }
 
   function addError(raw: string) {
     const short = classifyError(raw);
@@ -226,6 +242,7 @@ export default function ChatPage() {
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
       try {
         const result = await generate(provider, { apiKey, model, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
+        if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
         const aiMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
           content: result.text, turn_index: turnIndex,
@@ -284,6 +301,7 @@ export default function ChatPage() {
     const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
     try {
       const result = await generate(provider, { apiKey, model, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
+      if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
       const { data: aiMsg } = await supabase
         .from('messages')
         .insert({
@@ -363,6 +381,13 @@ export default function ChatPage() {
         <div className="toast-enter pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-4">
           <div className="max-w-[88vw] rounded-full bg-red-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg">
             {toastError}
+          </div>
+        </div>
+      )}
+      {cacheToast && (
+        <div className="toast-enter pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-4">
+          <div className="max-w-[88vw] rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg">
+            {cacheToast}
           </div>
         </div>
       )}
