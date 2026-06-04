@@ -37,7 +37,7 @@ export const DEFAULT_MODELS: Record<Provider, string[]> = {
     'google/gemini-2.5-pro',
     'openai/gpt-4o-mini',
     'openai/gpt-4o',
-    'deepseek/deepseek-chat-v3.1:free',
+    'deepseek/deepseek-r1:free',
   ],
   claude: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-8'],
   gemini: ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'],
