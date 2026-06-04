@@ -40,6 +40,23 @@ function toMsg(m: GuestMessage): Message {
   return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0 };
 }
 
+export interface ErrorEntry {
+  id: string;
+  short: string;
+  detail: string;
+  at: string;
+}
+
+function classifyError(raw: string): string {
+  if (raw.includes('API 키가 없습니다')) return raw;
+  if (raw.includes('(401)') || raw.includes('(403)')) return 'API 키가 유효하지 않습니다';
+  if (raw.includes('(404)')) return '모델을 찾을 수 없습니다. 세션 메뉴에서 모델을 재선택하세요';
+  if (raw.includes('(429)')) return 'API 요청 한도를 초과했습니다. 잠시 후 재시도하세요';
+  if (raw.includes('(500)') || raw.includes('(502)') || raw.includes('(503)')) return 'AI 서버 오류입니다. 잠시 후 재시도하세요';
+  if (raw.includes('fetch') || raw.includes('network') || raw.includes('Failed to fetch')) return '네트워크 오류입니다. 인터넷 연결을 확인하세요';
+  return 'AI 응답 생성에 실패했습니다';
+}
+
 export default function ChatPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -58,13 +75,24 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
-  const [error, setError] = useState('');
+  const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
+  const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
   const [sessionProvider, setSessionProvider] = useState<Provider>('openrouter');
   const [sessionModel, setSessionModel] = useState('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function addError(raw: string) {
+    const short = classifyError(raw);
+    const entry: ErrorEntry = { id: crypto.randomUUID(), short, detail: raw, at: new Date().toISOString() };
+    setErrorLog((prev) => [...prev.slice(-19), entry]);
+    setToastError(short);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastError(''), 4000);
+  }
 
   useEffect(() => {
     if (isGuest) {
@@ -152,13 +180,12 @@ export default function ChatPage() {
 
   async function send() {
     if (!work || sending) return;
-    setError('');
 
     const guestSettings = loadGuestSettings();
     const provider = isGuest ? (guestSettings.provider ?? 'openrouter') : sessionProvider;
     const model = isGuest ? (guestSettings.model || DEFAULT_MODELS[provider][0]) : (sessionModel || DEFAULT_MODELS[provider][0]);
     const apiKey = getApiKey(provider);
-    if (!apiKey) { setError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
+    if (!apiKey) { addError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
 
     const text = input.trim();
     setInput('');
@@ -203,7 +230,7 @@ export default function ChatPage() {
         guestUpdateSession(guestSession.id, { total_input_tokens: newIn, total_output_tokens: newOut });
         setGuestSession((gs) => gs ? { ...gs, total_input_tokens: newIn, total_output_tokens: newOut } : gs);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
+        addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
       } finally { setSending(false); }
       return;
     }
@@ -249,7 +276,7 @@ export default function ChatPage() {
         .eq('id', session.id);
       setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
+      addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
     } finally { setSending(false); }
   }
 
@@ -294,6 +321,15 @@ export default function ChatPage() {
           <button onClick={() => setMenuOpen(true)} className="px-2 text-xl text-slate-300">☰</button>
         )}
       </header>
+
+      {/* 에러 토스트 */}
+      {toastError && (
+        <div className="toast-enter pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-4">
+          <div className="max-w-[88vw] rounded-full bg-red-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg">
+            {toastError}
+          </div>
+        </div>
+      )}
 
       <div ref={scrollRef} className="w-full flex-1 overflow-y-auto overflow-x-hidden px-3 py-4">
         {visibleMessages.length === 0 && (
@@ -353,7 +389,7 @@ export default function ChatPage() {
                           <img src={src} alt={alt ?? ''} className="my-2 block h-auto max-w-full" loading="lazy" />
                         ),
                         a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
+                          <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
                         ),
                       }}
                     >
@@ -375,8 +411,6 @@ export default function ChatPage() {
           )}
         </div>
       </div>
-
-      {error && <p className="px-3 py-1 text-xs text-amber-400">{error}</p>}
 
       <div className="flex items-end gap-2 border-t border-surface2 p-2">
         <textarea
@@ -417,6 +451,8 @@ export default function ChatPage() {
             setSessionModel(m);
             localStorage.setItem(sessionSettingsKey(sessionId!), JSON.stringify({ provider: sessionProvider, model: m }));
           }}
+          errorLog={errorLog}
+          onClearErrors={() => setErrorLog([])}
         />
       )}
     </div>

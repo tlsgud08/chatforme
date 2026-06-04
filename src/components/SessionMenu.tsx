@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
 import type { Persona, Profile, Provider, Session } from '@/types/db';
+import type { ErrorEntry } from '@/pages/ChatPage';
 
 const PROVIDERS: Provider[] = ['openrouter', 'claude', 'gemini', 'openai'];
 const MAX_NOTE = 2000;
@@ -30,12 +31,15 @@ interface Props {
   sessionModel: string;
   onProviderChange: (p: Provider) => void;
   onModelChange: (m: string) => void;
+  errorLog: ErrorEntry[];
+  onClearErrors: () => void;
 }
 
 export default function SessionMenu({
   session, profile, onClose, onUpdate, onPersonaChange,
   debugMode, onDebugToggle,
   sessionProvider, sessionModel, onProviderChange, onModelChange,
+  errorLog, onClearErrors,
 }: Props) {
   const { user } = useAuth();
   const [note, setNote] = useState(session.user_note);
@@ -43,6 +47,7 @@ export default function SessionMenu({
   const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_tokens_override !== null);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [savedMsg, setSavedMsg] = useState('');
+  const [logOpen, setLogOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -220,6 +225,48 @@ export default function SessionMenu({
               <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${debugMode ? 'translate-x-5' : 'translate-x-0.5'}`} />
             </button>
           </div>
+        </section>
+
+        {/* 에러 로그 */}
+        <section>
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setLogOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-sm font-semibold text-slate-300"
+            >
+              <span>에러 로그</span>
+              {errorLog.length > 0 && (
+                <span className="rounded-full bg-red-500/80 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {errorLog.length}
+                </span>
+              )}
+              <span className="text-xs text-slate-500">{logOpen ? '▲' : '▼'}</span>
+            </button>
+            {errorLog.length > 0 && (
+              <button onClick={onClearErrors} className="text-xs text-slate-500 underline">
+                지우기
+              </button>
+            )}
+          </div>
+          {logOpen && (
+            <div className="mt-2 flex flex-col gap-2">
+              {errorLog.length === 0 ? (
+                <p className="text-xs text-slate-500">기록된 에러가 없습니다.</p>
+              ) : (
+                [...errorLog].reverse().map((e) => (
+                  <div key={e.id} className="rounded-lg border border-red-500/20 bg-surface p-2.5">
+                    <p className="text-[10px] text-slate-500">
+                      {new Date(e.at).toLocaleTimeString('ko-KR')}
+                    </p>
+                    <p className="mt-0.5 text-xs font-semibold text-red-400">{e.short}</p>
+                    {e.detail !== e.short && (
+                      <p className="mt-1 break-all text-[10px] text-slate-500">{e.detail}</p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </section>
 
         {savedMsg && (
