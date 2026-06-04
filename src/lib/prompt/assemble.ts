@@ -49,7 +49,7 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
 
   const messages: ChatMessage[] = [
     ...input.history.map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user' as const, content: input.latestUserMessage },
+    ...(input.latestUserMessage ? [{ role: 'user' as const, content: input.latestUserMessage }] : []),
   ];
 
   return {
