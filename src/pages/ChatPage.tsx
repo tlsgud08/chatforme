@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
-import { assemblePrompt } from '@/lib/prompt/assemble';
+import { assemblePrompt, DEFAULT_LABELS, type PromptLabels } from '@/lib/prompt/assemble';
 import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
   type GuestSession, type GuestMessage,
@@ -72,6 +72,7 @@ export default function ChatPage() {
   const [startConfig, setStartConfig] = useState<StartConfig | null>(null);
   const [keywordBooks, setKeywordBooks] = useState<KeywordBook[]>([]);
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [promptLabels, setPromptLabels] = useState<PromptLabels>(DEFAULT_LABELS);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -123,8 +124,12 @@ export default function ChatPage() {
       setMessages(gs.messages.map(toMsg));
       supabase.from('works').select('*').eq('id', gs.work_id).single()
         .then(({ data }) => setWork(data as Work));
-      supabase.from('platform_config').select('system_prompt').eq('id', 1).single()
-        .then(({ data }) => setSystemPrompt((data as { system_prompt: string } | null)?.system_prompt ?? ''));
+      supabase.from('platform_config').select('*').eq('id', 1).single()
+        .then(({ data }) => {
+          const cfg = data as { system_prompt: string; work_prompt_label?: string; persona_label?: string; user_note_label?: string; summary_label?: string } | null;
+          setSystemPrompt(cfg?.system_prompt ?? '');
+          setPromptLabels({ workPrompt: cfg?.work_prompt_label ?? DEFAULT_LABELS.workPrompt, persona: cfg?.persona_label ?? DEFAULT_LABELS.persona, userNote: cfg?.user_note_label ?? DEFAULT_LABELS.userNote, summary: cfg?.summary_label ?? DEFAULT_LABELS.summary });
+        });
       supabase.from('keyword_books').select('*').eq('work_id', gs.work_id).order('sort_order')
         .then(({ data }) => setKeywordBooks((data as KeywordBook[]) ?? []));
       return;
@@ -139,13 +144,15 @@ export default function ChatPage() {
       const [{ data: w }, { data: p }, { data: cfg }, { data: msgs }, { data: kbs }] = await Promise.all([
         supabase.from('works').select('*').eq('id', sess.work_id).single(),
         supabase.from('profiles').select('*').eq('id', user!.id).single(),
-        supabase.from('platform_config').select('system_prompt').eq('id', 1).single(),
+        supabase.from('platform_config').select('*').eq('id', 1).single(),
         supabase.from('messages').select('*').eq('session_id', sessionId).order('created_at', { ascending: true }),
         supabase.from('keyword_books').select('*').eq('work_id', sess.work_id).order('sort_order'),
       ]);
       setWork(w as Work);
       setProfile(p as Profile);
-      setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
+      const cfgData = cfg as { system_prompt: string; work_prompt_label?: string; persona_label?: string; user_note_label?: string; summary_label?: string } | null;
+      setSystemPrompt(cfgData?.system_prompt ?? '');
+      setPromptLabels({ workPrompt: cfgData?.work_prompt_label ?? DEFAULT_LABELS.workPrompt, persona: cfgData?.persona_label ?? DEFAULT_LABELS.persona, userNote: cfgData?.user_note_label ?? DEFAULT_LABELS.userNote, summary: cfgData?.summary_label ?? DEFAULT_LABELS.summary });
       setMessages((msgs as Message[]) ?? []);
       setKeywordBooks((kbs as KeywordBook[]) ?? []);
 
@@ -239,6 +246,7 @@ export default function ChatPage() {
         keywordBookContents: getActiveKeywordContents(updatedMessages, text),
         history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
         latestUserMessage: text,
+        labels: promptLabels,
       });
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
       try {
@@ -299,6 +307,7 @@ export default function ChatPage() {
       keywordBookContents: getActiveKeywordContents(currentMessages, text),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: text,
+      labels: promptLabels,
     });
     const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
     try {

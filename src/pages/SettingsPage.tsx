@@ -27,6 +27,10 @@ export default function SettingsPage() {
   const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [workPromptLabel, setWorkPromptLabel] = useState('작품 설정');
+  const [personaLabel, setPersonaLabel] = useState('{{user}} info');
+  const [userNoteLabel, setUserNoteLabel] = useState('Additional info & rules');
+  const [summaryLabel, setSummaryLabel] = useState('Plot summary');
   const [systemPromptLoaded, setSystemPromptLoaded] = useState(false);
 
   useEffect(() => {
@@ -40,11 +44,16 @@ export default function SettingsPage() {
     if (user.email === ADMIN_EMAIL && ADMIN_EMAIL) {
       supabase
         .from('platform_config')
-        .select('system_prompt')
+        .select('*')
         .eq('id', 1)
         .single()
         .then(({ data }) => {
-          setSystemPrompt(data?.system_prompt ?? '');
+          const cfg = data as { system_prompt: string; work_prompt_label?: string; persona_label?: string; user_note_label?: string; summary_label?: string } | null;
+          setSystemPrompt(cfg?.system_prompt ?? '');
+          setWorkPromptLabel(cfg?.work_prompt_label ?? '작품 설정');
+          setPersonaLabel(cfg?.persona_label ?? '{{user}} info');
+          setUserNoteLabel(cfg?.user_note_label ?? 'Additional info & rules');
+          setSummaryLabel(cfg?.summary_label ?? 'Plot summary');
           setSystemPromptLoaded(true);
         });
     }
@@ -72,7 +81,14 @@ export default function SettingsPage() {
   async function saveSystemPrompt() {
     const { error } = await supabase
       .from('platform_config')
-      .update({ system_prompt: systemPrompt, updated_at: new Date().toISOString() })
+      .update({
+        system_prompt: systemPrompt,
+        work_prompt_label: workPromptLabel,
+        persona_label: personaLabel,
+        user_note_label: userNoteLabel,
+        summary_label: summaryLabel,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', 1);
     if (error) { flash('저장 실패: ' + error.message); return; }
     flash('전역 시스템 프롬프트를 저장했습니다.');
@@ -207,6 +223,29 @@ export default function SettingsPage() {
           />
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs text-slate-500">{systemPrompt.length}자</span>
+          </div>
+
+          <h3 className="mb-2 mt-5 text-sm font-semibold text-yellow-300">프롬프트 섹션 레이블</h3>
+          <p className="mb-3 text-xs text-yellow-600/70">AI에게 전달되는 각 섹션의 헤더 텍스트입니다. (예: <code className="text-yellow-400">{'{{user}}'}</code>는 그대로 전달됩니다)</p>
+          <div className="flex flex-col gap-2">
+            {[
+              { label: 'L1 — 작품 설정', value: workPromptLabel, set: setWorkPromptLabel },
+              { label: 'L2 — 페르소나', value: personaLabel, set: setPersonaLabel },
+              { label: 'L3 — 유저 노트', value: userNoteLabel, set: setUserNoteLabel },
+              { label: 'L4 — 요약', value: summaryLabel, set: setSummaryLabel },
+            ].map(({ label, value, set }) => (
+              <div key={label} className="flex items-center gap-2">
+                <span className="w-32 shrink-0 text-xs text-slate-400">{label}</span>
+                <input
+                  value={value}
+                  onChange={(e) => set(e.target.value)}
+                  className="flex-1 rounded bg-surface px-2.5 py-1.5 text-sm text-white outline-none"
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex justify-end">
             <button
               onClick={saveSystemPrompt}
               className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-semibold text-white"

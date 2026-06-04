@@ -17,6 +17,10 @@ export interface Profile {
 export interface PlatformConfig {
   id: number;
   system_prompt: string;
+  work_prompt_label: string;
+  persona_label: string;
+  user_note_label: string;
+  summary_label: string;
   updated_at: string;
 }
 

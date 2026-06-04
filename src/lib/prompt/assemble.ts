@@ -1,6 +1,20 @@
 import type { ChatMessage, SystemParts } from '@/lib/llm/types';
 import type { Message, Persona } from '@/types/db';
 
+export interface PromptLabels {
+  workPrompt: string;
+  persona: string;
+  userNote: string;
+  summary: string;
+}
+
+export const DEFAULT_LABELS: PromptLabels = {
+  workPrompt: '작품 설정',
+  persona: '{{user}} info',
+  userNote: 'Additional info & rules',
+  summary: 'Plot summary',
+};
+
 export interface AssembleInput {
   systemPrompt: string;
   mainPrompt: string;
@@ -10,6 +24,7 @@ export interface AssembleInput {
   userNote?: string;
   history: Pick<Message, 'role' | 'content'>[];
   latestUserMessage: string;
+  labels?: PromptLabels;
 }
 
 export interface AssembledPrompt {
@@ -22,27 +37,29 @@ function section(title: string, body: string): string {
 }
 
 export function assemblePrompt(input: AssembleInput): AssembledPrompt {
+  const lbl = { ...DEFAULT_LABELS, ...input.labels };
+
   // L1: core — 플랫폼 시스템 + 메인 프롬프트 (세션 내 불변)
   const coreParts: string[] = [];
   if (input.systemPrompt.trim()) coreParts.push(input.systemPrompt.trim());
-  if (input.mainPrompt.trim()) coreParts.push(section('작품 설정', input.mainPrompt));
+  if (input.mainPrompt.trim()) coreParts.push(section(lbl.workPrompt, input.mainPrompt));
 
   // L2: persona — 희소 변경
   let persona = '';
   if (input.persona && (input.persona.name || input.persona.description)) {
-    persona = section('사용자 페르소나', `이름: ${input.persona.name}\n${input.persona.description}`);
+    persona = section(lbl.persona, `이름: ${input.persona.name}\n${input.persona.description}`);
   }
 
   // L3: userNote — 종종 변경
   let userNote = '';
   if (input.userNote && input.userNote.trim()) {
-    userNote = section('유저 노트', input.userNote);
+    userNote = section(lbl.userNote, input.userNote);
   }
 
   // L4: summary — 재요약 시 변경
   let summary = '';
   if (input.summary && input.summary.trim()) {
-    summary = section('지난 줄거리 요약', input.summary);
+    summary = section(lbl.summary, input.summary);
   }
 
   // Dynamic: keywords — 메시지마다 변경, 캐싱 안 함
