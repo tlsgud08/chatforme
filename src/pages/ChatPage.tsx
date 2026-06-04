@@ -27,7 +27,10 @@ interface SessionSettings { provider: Provider; model: string; }
 function loadSessionSettings(id: string, profile: Profile | null): SessionSettings {
   try {
     const raw = localStorage.getItem(sessionSettingsKey(id));
-    if (raw) return JSON.parse(raw) as SessionSettings;
+    if (raw) {
+      const parsed = JSON.parse(raw) as SessionSettings;
+      if (DEFAULT_MODELS[parsed.provider]?.includes(parsed.model)) return parsed;
+    }
   } catch {}
   const p = profile?.default_provider ?? 'openrouter';
   return { provider: p, model: profile?.default_model || DEFAULT_MODELS[p][0] };
