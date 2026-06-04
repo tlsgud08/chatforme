@@ -52,9 +52,11 @@ export default function SessionMenu({
   const [note, setNote] = useState(session.user_note);
   const [credit, setCredit] = useState<OpenRouterCredit | null>(null);
   const [creditLoading, setCreditLoading] = useState(false);
+  const [modelPricing, setModelPricing] = useState<{ prompt: number; completion: number } | null>(null);
 
   useEffect(() => {
     setCredit(null);
+    setModelPricing(null);
     if (sessionProvider !== 'openrouter') return;
     const apiKey = getApiKey('openrouter');
     if (!apiKey) return;
@@ -74,7 +76,22 @@ export default function SessionMenu({
       })
       .catch(() => {})
       .finally(() => setCreditLoading(false));
-  }, [sessionProvider]);
+    fetch('https://openrouter.ai/api/v1/models', {
+      headers: { authorization: `Bearer ${apiKey}` },
+    })
+      .then(r => r.json())
+      .then(data => {
+        const models: Array<{ id: string; pricing?: { prompt: string; completion: string } }> = data?.data ?? [];
+        const found = models.find(m => m.id === sessionModel);
+        if (found?.pricing) {
+          setModelPricing({
+            prompt: parseFloat(found.pricing.prompt) || 0,
+            completion: parseFloat(found.pricing.completion) || 0,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [sessionProvider, sessionModel]);
   const [sliderVal, setSliderVal] = useState(() => tokensToSlider(session.output_tokens_override));
   const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_tokens_override !== null);
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -185,9 +202,18 @@ export default function SessionMenu({
               ) : (
                 <p className="text-xs text-slate-500">크레딧 정보를 불러올 수 없습니다.</p>
               )}
-              <p className="mt-2 text-[11px] text-slate-500">
-                이 채팅방: 입력 {session.total_input_tokens.toLocaleString()} / 출력 {session.total_output_tokens.toLocaleString()} 토큰
-              </p>
+              {(() => {
+                const sessionCost = modelPricing
+                  ? session.total_input_tokens * modelPricing.prompt + session.total_output_tokens * modelPricing.completion
+                  : null;
+                return (
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    {sessionCost !== null
+                      ? `이 채팅방: 약 $${sessionCost.toFixed(6)}`
+                      : `이 채팅방: 입력 ${session.total_input_tokens.toLocaleString()} / 출력 ${session.total_output_tokens.toLocaleString()} 토큰`}
+                  </p>
+                );
+              })()}
             </>
           ) : (
             <p className="text-xs text-slate-500">타 API 크레딧 조회는 추후 지원 예정입니다.</p>
