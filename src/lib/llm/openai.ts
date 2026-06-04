@@ -1,12 +1,20 @@
-import type { GenerateOptions, GenerateResult, LLMAdapter } from './types';
+import type { GenerateOptions, GenerateResult, LLMAdapter, SystemParts } from './types';
 import { readOpenAIStream } from './stream';
+
+// 정적인 것부터 동적인 것 순으로 concat — OpenAI 자동 prefix caching 최적화
+function buildSystem(parts: SystemParts): string {
+  return [parts.core, parts.persona, parts.userNote, parts.summary, parts.keywords]
+    .filter(Boolean)
+    .join('\n\n');
+}
 
 // OpenAI Chat Completions API — max_tokens 생략 시 모델 기본값 사용
 export const openaiAdapter: LLMAdapter = {
   provider: 'openai',
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
+    const system = buildSystem(opts.systemParts);
     const messages = [
-      ...(opts.system ? [{ role: 'system' as const, content: opts.system }] : []),
+      ...(system ? [{ role: 'system' as const, content: system }] : []),
       ...opts.messages,
     ];
 

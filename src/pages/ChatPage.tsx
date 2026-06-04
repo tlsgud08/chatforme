@@ -225,7 +225,7 @@ export default function ChatPage() {
       });
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
       try {
-        const result = await generate(provider, { apiKey, model, system: assembled.system, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
+        const result = await generate(provider, { apiKey, model, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
         const aiMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
           content: result.text, turn_index: turnIndex,
@@ -283,7 +283,7 @@ export default function ChatPage() {
     });
     const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
     try {
-      const result = await generate(provider, { apiKey, model, system: assembled.system, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
+      const result = await generate(provider, { apiKey, model, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
       const { data: aiMsg } = await supabase
         .from('messages')
         .insert({
