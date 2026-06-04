@@ -121,7 +121,7 @@ export default function WorkDetailPage() {
         guestAddMessage(session.id, {
           id: crypto.randomUUID(), role: 'user',
           content: `[시작 설정: 아래 내용을 참고해 첫 장면을 시작하세요]\n\n${selectedConfig.initial_context}`,
-          turn_index: 0, input_tokens: 0, output_tokens: 0,
+          turn_index: 0, input_tokens: 0, output_tokens: 0, cost: 0,
           is_hidden: true, created_at: now,
         });
       }
@@ -129,7 +129,7 @@ export default function WorkDetailPage() {
         guestAddMessage(session.id, {
           id: crypto.randomUUID(), role: 'assistant',
           content: selectedConfig.initial_message,
-          turn_index: 0, input_tokens: 0, output_tokens: 0,
+          turn_index: 0, input_tokens: 0, output_tokens: 0, cost: 0,
           is_hidden: false, created_at: now,
         });
       }

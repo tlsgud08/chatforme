@@ -77,6 +77,7 @@ export interface Session {
   summary: string;
   total_input_tokens: number;
   total_output_tokens: number;
+  total_cost: number;
   is_archived: boolean;
   created_at: string;
   updated_at: string;
@@ -90,6 +91,7 @@ export interface Message {
   turn_index: number;
   input_tokens: number;
   output_tokens: number;
+  cost: number;
   is_hidden: boolean;
   is_summarized: boolean;
   created_at: string;

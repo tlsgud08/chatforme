@@ -44,7 +44,7 @@ export const geminiAdapter: LLMAdapter = {
     if (streaming) {
       const { text, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens } =
         await readGeminiStream(res.body!, opts.onChunk!);
-      return { text, usage: { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens } };
+      return { text, usage: { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost: 0 } };
     }
 
     const data = await res.json();
@@ -59,6 +59,7 @@ export const geminiAdapter: LLMAdapter = {
         outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
+        cost: 0,
       },
     };
   },

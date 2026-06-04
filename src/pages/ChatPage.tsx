@@ -37,7 +37,7 @@ function loadSessionSettings(id: string, profile: Profile | null): SessionSettin
 }
 
 function toMsg(m: GuestMessage): Message {
-  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0 };
+  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0 };
 }
 
 export interface ErrorEntry {
@@ -77,6 +77,7 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') === '1');
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
   const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -224,7 +225,7 @@ export default function ChatPage() {
       if (text) {
         const userMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'user',
-          content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0,
+          content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cost: 0,
           is_hidden: false, created_at: now,
         };
         guestAddMessage(guestSession.id, userMsg);
@@ -246,21 +247,22 @@ export default function ChatPage() {
         const aiMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
           content: result.text, turn_index: turnIndex,
-          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens,
+          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
           is_hidden: false, created_at: new Date().toISOString(),
         };
         guestAddMessage(guestSession.id, aiMsg);
         setMessages((m) => [...m, toMsg(aiMsg)]);
         const newIn = guestSession.total_input_tokens + result.usage.inputTokens;
         const newOut = guestSession.total_output_tokens + result.usage.outputTokens;
-        guestUpdateSession(guestSession.id, { total_input_tokens: newIn, total_output_tokens: newOut });
-        setGuestSession((gs) => gs ? { ...gs, total_input_tokens: newIn, total_output_tokens: newOut } : gs);
+        const newCost = guestSession.total_cost + result.usage.cost;
+        guestUpdateSession(guestSession.id, { total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost });
+        setGuestSession((gs) => gs ? { ...gs, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost } : gs);
       } catch (err) {
         const isAbort = err instanceof DOMException && err.name === 'AbortError';
         if (isAbort && partialText) {
           const aiMsg: GuestMessage = {
             id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
-            content: partialText, turn_index: turnIndex, input_tokens: 0, output_tokens: 0,
+            content: partialText, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cost: 0,
             is_hidden: false, created_at: new Date().toISOString(),
           };
           guestAddMessage(guestSession.id, aiMsg);
@@ -306,17 +308,18 @@ export default function ChatPage() {
         .from('messages')
         .insert({
           session_id: session.id, role: 'assistant', content: result.text, turn_index: turnIndex,
-          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens,
+          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
         })
         .select('*').single();
       if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
 
       const newIn = session.total_input_tokens + result.usage.inputTokens;
       const newOut = session.total_output_tokens + result.usage.outputTokens;
+      const newCost = session.total_cost + result.usage.cost;
       await supabase.from('sessions')
-        .update({ total_input_tokens: newIn, total_output_tokens: newOut, updated_at: new Date().toISOString() })
+        .update({ total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, updated_at: new Date().toISOString() })
         .eq('id', session.id);
-      setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut });
+      setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost });
     } catch (err) {
       const isAbort = err instanceof DOMException && err.name === 'AbortError';
       if (isAbort && partialText) {
@@ -458,9 +461,12 @@ export default function ChatPage() {
                     </ReactMarkdown>
                   </div>
                   {!m.is_hidden && (
-                    <div className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`flex items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); }} className="text-xs text-slate-500">편집</button>
                       <button onClick={() => deleteMsg(m.id)} className="text-xs text-red-400/60">삭제</button>
+                      {showCost && m.role === 'assistant' && m.cost > 0 && (
+                        <span className="text-[10px] text-slate-500">${m.cost.toFixed(6)}</span>
+                      )}
                     </div>
                   )}
                 </>
@@ -541,6 +547,8 @@ export default function ChatPage() {
           onPersonaChange={(p) => setPersona(p)}
           debugMode={debugMode}
           onDebugToggle={setDebugMode}
+          showCost={showCost}
+          onShowCostToggle={(v) => { setShowCost(v); localStorage.setItem('chatforme.showCost', v ? '1' : '0'); }}
           sessionProvider={sessionProvider}
           sessionModel={sessionModel || DEFAULT_MODELS[sessionProvider][0]}
           onProviderChange={(p) => {
