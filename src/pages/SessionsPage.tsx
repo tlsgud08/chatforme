@@ -33,7 +33,24 @@ export default function SessionsPage() {
         .eq('is_archived', viewTab === 'archived')
         .order('updated_at', { ascending: false });
       if (error) throw error;
-      return data as SessionRow[];
+
+      const sessions = (data as SessionRow[]) ?? [];
+      if (sessions.length === 0) return { sessions, aiCountMap: {} as Record<string, number> };
+
+      const sessionIds = sessions.map((s) => s.id);
+      const { data: msgRows } = await supabase
+        .from('messages')
+        .select('session_id')
+        .in('session_id', sessionIds)
+        .eq('role', 'assistant')
+        .eq('is_hidden', false);
+
+      const aiCountMap: Record<string, number> = {};
+      for (const m of (msgRows ?? []) as { session_id: string }[]) {
+        aiCountMap[m.session_id] = (aiCountMap[m.session_id] ?? 0) + 1;
+      }
+
+      return { sessions, aiCountMap };
     },
     enabled: !isGuest,
   });
@@ -57,7 +74,7 @@ export default function SessionsPage() {
   }
 
   function toggleAll() {
-    const ids = (data ?? []).map((s) => s.id);
+    const ids = (data?.sessions ?? []).map((s) => s.id);
     if (selected.size === ids.length) setSelected(new Set());
     else setSelected(new Set(ids));
   }
@@ -79,31 +96,33 @@ export default function SessionsPage() {
     cancelSelect();
   }
 
-  // 비회원 뷰 (보관 기능 없음)
+  // 비회원 뷰
   if (isGuest) {
     const list = guestData ?? [];
     if (list.length === 0)
       return <p className="p-6 text-slate-400">아직 플레이한 채팅방이 없습니다.</p>;
     return (
       <ul className="divide-y divide-surface2">
-        {list.map((s) => (
-          <li key={s.id}>
-            <Link to={`/chat/${s.id}`} className="flex items-center gap-3 p-4 active:bg-surface">
-              <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold text-white">{s.title || '채팅방'}</p>
-                <p className="text-xs text-slate-500">
-                  토큰 누적: {(s.total_input_tokens + s.total_output_tokens).toLocaleString()}
-                </p>
-              </div>
-            </Link>
-          </li>
-        ))}
+        {list.map((s) => {
+          const aiCount = s.messages.filter((m) => m.role === 'assistant' && !m.is_hidden).length;
+          return (
+            <li key={s.id}>
+              <Link to={`/chat/${s.id}`} className="flex items-center gap-3 p-4 active:bg-surface">
+                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-white">{s.title || '채팅방'}</p>
+                  <p className="text-xs text-slate-500">AI 응답 {aiCount}회</p>
+                </div>
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     );
   }
 
-  const list = data ?? [];
+  const list = data?.sessions ?? [];
+  const aiCountMap = data?.aiCountMap ?? {};
   const allSelected = list.length > 0 && selected.size === list.length;
 
   return (
@@ -207,7 +226,7 @@ export default function SessionsPage() {
                     {s.works?.title || s.title || '채팅방'}
                   </p>
                   <p className="text-xs text-slate-500">
-                    토큰 누적: {(s.total_input_tokens + s.total_output_tokens).toLocaleString()}
+                    AI 응답 {aiCountMap[s.id] ?? 0}회
                   </p>
                 </div>
               </Link>
