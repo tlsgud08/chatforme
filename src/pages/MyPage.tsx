@@ -262,22 +262,21 @@ export default function MyPage() {
         <section className="rounded-xl bg-surface p-4">
           <p className="mb-1 text-xs font-semibold text-slate-400">OpenRouter 크레딧</p>
           {credit.remaining !== null ? (
-            <div className="flex items-center justify-between">
+            <div>
               <p className="text-lg font-bold text-white">
                 ${credit.remaining.toFixed(3)}
                 <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
               </p>
-              {credit.limit !== null && (
-                <p className="text-xs text-slate-500">
-                  총 ${credit.limit.toFixed(2)} 중 ${credit.usage.toFixed(3)} 사용
-                </p>
-              )}
+              <p className="mt-0.5 text-[11px] text-slate-500">총 ${credit.usage.toFixed(4)} 사용</p>
             </div>
           ) : (
-            <p className="text-lg font-bold text-white">
-              무제한
-              <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
-            </p>
+            <div>
+              <p className="text-lg font-bold text-white">
+                무제한
+                <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
+              </p>
+              <p className="mt-0.5 text-[11px] text-slate-500">총 ${credit.usage.toFixed(4)} 사용</p>
+            </div>
           )}
         </section>
       )}
