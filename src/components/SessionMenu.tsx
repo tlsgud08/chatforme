@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { getApiKey } from '@/lib/apiKeys';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
 import type { Persona, Profile, Provider, Session } from '@/types/db';
 import type { ErrorEntry } from '@/pages/ChatPage';
+
+interface OpenRouterCredit {
+  usage: number;
+  limit: number | null;
+  remaining: number | null;
+}
 
 const PROVIDERS: Provider[] = ['openrouter', 'claude', 'gemini', 'openai'];
 const MAX_NOTE = 2000;
@@ -43,6 +50,29 @@ export default function SessionMenu({
 }: Props) {
   const { user } = useAuth();
   const [note, setNote] = useState(session.user_note);
+  const [credit, setCredit] = useState<OpenRouterCredit | null>(null);
+  const [creditLoading, setCreditLoading] = useState(false);
+
+  useEffect(() => {
+    const apiKey = getApiKey('openrouter');
+    if (!apiKey) return;
+    setCreditLoading(true);
+    fetch('https://openrouter.ai/api/v1/auth/key', {
+      headers: { authorization: `Bearer ${apiKey}` },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const d = data?.data;
+        if (!d) return;
+        setCredit({
+          usage: d.usage ?? 0,
+          limit: d.limit ?? null,
+          remaining: d.limit_remaining ?? null,
+        });
+      })
+      .catch(() => {})
+      .finally(() => setCreditLoading(false));
+  }, []);
   const [sliderVal, setSliderVal] = useState(() => tokensToSlider(session.output_tokens_override));
   const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_tokens_override !== null);
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -109,6 +139,57 @@ export default function SessionMenu({
           <h2 className="font-semibold text-white">세션 메뉴</h2>
           <button onClick={onClose} className="ml-auto text-slate-400">✕</button>
         </div>
+
+        {/* OpenRouter 잔여 크레딧 */}
+        {getApiKey('openrouter') && (
+          <section className="rounded-xl bg-surface p-3">
+            <p className="mb-1 text-xs font-semibold text-slate-400">OpenRouter 크레딧</p>
+            {creditLoading ? (
+              <p className="text-xs text-slate-500">불러오는 중…</p>
+            ) : credit ? (
+              <div className="flex items-end justify-between">
+                <div>
+                  {credit.remaining !== null ? (
+                    <>
+                      <p className="text-lg font-bold text-white">
+                        ${credit.remaining.toFixed(3)}
+                        <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
+                      </p>
+                      {credit.limit !== null && (
+                        <p className="text-[11px] text-slate-500">
+                          총 ${credit.limit.toFixed(2)} 중 ${credit.usage.toFixed(3)} 사용
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-lg font-bold text-white">
+                        ${credit.usage.toFixed(3)}
+                        <span className="ml-1 text-xs font-normal text-slate-400">사용됨</span>
+                      </p>
+                      <p className="text-[11px] text-slate-500">한도 없음</p>
+                    </>
+                  )}
+                </div>
+                {credit.remaining !== null && credit.limit !== null && (
+                  <div className="w-20">
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface2">
+                      <div
+                        className="h-full rounded-full bg-emerald-500"
+                        style={{ width: `${Math.max(0, Math.min(100, (credit.remaining / credit.limit) * 100))}%` }}
+                      />
+                    </div>
+                    <p className="mt-0.5 text-right text-[10px] text-slate-500">
+                      {Math.round((credit.remaining / credit.limit) * 100)}% 남음
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">크레딧 정보를 불러올 수 없습니다.</p>
+            )}
+          </section>
+        )}
 
         {/* 페르소나 */}
         <section>
