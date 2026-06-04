@@ -32,6 +32,7 @@ export const openrouterAdapter: LLMAdapter = {
       body: JSON.stringify({
         model: opts.model,
         stream: streaming,
+        usage: { include: true }, // 응답에 실제 청구 비용(cost) 포함
         ...(streaming && { stream_options: { include_usage: true } }),
         ...(opts.maxOutputTokens !== null && { max_tokens: opts.maxOutputTokens }),
         messages,
@@ -44,9 +45,9 @@ export const openrouterAdapter: LLMAdapter = {
     }
 
     if (streaming) {
-      const { text, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens } =
+      const { text, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost } =
         await readOpenAIStream(res.body!, opts.onChunk!);
-      return { text, usage: { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens } };
+      return { text, usage: { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost } };
     }
 
     const data = await res.json();
@@ -59,6 +60,7 @@ export const openrouterAdapter: LLMAdapter = {
         outputTokens: data.usage?.completion_tokens ?? 0,
         cacheCreationTokens: 0,
         cacheReadTokens: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+        cost: data.usage?.cost ?? 0,
       },
     };
   },

@@ -34,6 +34,8 @@ interface Props {
   onPersonaChange: (persona: Persona | null) => void;
   debugMode: boolean;
   onDebugToggle: (v: boolean) => void;
+  showCost: boolean;
+  onShowCostToggle: (v: boolean) => void;
   sessionProvider: Provider;
   sessionModel: string;
   onProviderChange: (p: Provider) => void;
@@ -44,7 +46,7 @@ interface Props {
 
 export default function SessionMenu({
   session, profile, onClose, onUpdate, onPersonaChange,
-  debugMode, onDebugToggle,
+  debugMode, onDebugToggle, showCost, onShowCostToggle,
   sessionProvider, sessionModel, onProviderChange, onModelChange,
   errorLog, onClearErrors,
 }: Props) {
@@ -52,11 +54,9 @@ export default function SessionMenu({
   const [note, setNote] = useState(session.user_note);
   const [credit, setCredit] = useState<OpenRouterCredit | null>(null);
   const [creditLoading, setCreditLoading] = useState(false);
-  const [modelPricing, setModelPricing] = useState<{ prompt: number; completion: number } | null>(null);
 
   useEffect(() => {
     setCredit(null);
-    setModelPricing(null);
     if (sessionProvider !== 'openrouter') return;
     const apiKey = getApiKey('openrouter');
     if (!apiKey) return;
@@ -79,22 +79,7 @@ export default function SessionMenu({
       })
       .catch(() => {})
       .finally(() => setCreditLoading(false));
-    fetch('https://openrouter.ai/api/v1/models', {
-      headers: { authorization: `Bearer ${apiKey}` },
-    })
-      .then(r => r.json())
-      .then(data => {
-        const models: Array<{ id: string; pricing?: { prompt: string; completion: string } }> = data?.data ?? [];
-        const found = models.find(m => m.id === sessionModel);
-        if (found?.pricing) {
-          setModelPricing({
-            prompt: parseFloat(found.pricing.prompt) || 0,
-            completion: parseFloat(found.pricing.completion) || 0,
-          });
-        }
-      })
-      .catch(() => {});
-  }, [sessionProvider, sessionModel]);
+  }, [sessionProvider]);
   const [sliderVal, setSliderVal] = useState(() => tokensToSlider(session.output_tokens_override));
   const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_tokens_override !== null);
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -205,18 +190,9 @@ export default function SessionMenu({
               ) : (
                 <p className="text-xs text-slate-500">크레딧 정보를 불러올 수 없습니다.</p>
               )}
-              {(() => {
-                const sessionCost = modelPricing
-                  ? session.total_input_tokens * modelPricing.prompt + session.total_output_tokens * modelPricing.completion
-                  : null;
-                return (
-                  <p className="mt-2 text-[11px] text-slate-500">
-                    {sessionCost !== null
-                      ? `이 채팅방: 약 $${sessionCost.toFixed(6)}`
-                      : '이 채팅방: 크레딧 계산 중…'}
-                  </p>
-                );
-              })()}
+              <p className="mt-2 text-[11px] text-slate-500">
+                이 채팅방 사용: ${session.total_cost.toFixed(6)}
+              </p>
             </>
           ) : (
             <p className="text-xs text-slate-500">타 API 크레딧 조회는 추후 지원 예정입니다.</p>
@@ -322,6 +298,22 @@ export default function SessionMenu({
           >
             유저 노트 저장
           </button>
+        </section>
+
+        {/* 응답별 크레딧 사용량 */}
+        <section>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-300">응답별 크레딧 사용량 보기</p>
+              <p className="text-xs text-slate-500">AI 응답 아래에 실제 비용 표시</p>
+            </div>
+            <button
+              onClick={() => onShowCostToggle(!showCost)}
+              className={`relative h-6 w-11 rounded-full transition-colors ${showCost ? 'bg-emerald-500' : 'bg-surface2'}`}
+            >
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showCost ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
         </section>
 
         {/* 디버그 모드 */}

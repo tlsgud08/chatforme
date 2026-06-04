@@ -28,6 +28,7 @@ export interface Usage {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  cost: number; // 실제 청구 비용 (USD). OpenRouter만 제공, 그 외 0
 }
 
 export interface GenerateResult {

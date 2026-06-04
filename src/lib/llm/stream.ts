@@ -27,6 +27,7 @@ export interface StreamResult {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  cost: number;
 }
 
 export async function readOpenAIStream(
@@ -37,6 +38,7 @@ export async function readOpenAIStream(
   let inputTokens = 0;
   let outputTokens = 0;
   let cacheReadTokens = 0;
+  let cost = 0;
 
   await readLines(body, (line) => {
     const trimmed = line.trim();
@@ -54,11 +56,12 @@ export async function readOpenAIStream(
         inputTokens = parsed.usage.prompt_tokens ?? 0;
         outputTokens = parsed.usage.completion_tokens ?? 0;
         cacheReadTokens = parsed.usage.prompt_tokens_details?.cached_tokens ?? 0;
+        cost = parsed.usage.cost ?? 0; // OpenRouter (usage: {include: true})
       }
     } catch {}
   });
 
-  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens: 0, cacheReadTokens };
+  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens: 0, cacheReadTokens, cost };
 }
 
 export async function readClaudeStream(
@@ -91,7 +94,7 @@ export async function readClaudeStream(
     } catch {}
   });
 
-  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens };
+  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost: 0 };
 }
 
 export async function readGeminiStream(
@@ -118,5 +121,5 @@ export async function readGeminiStream(
     } catch {}
   });
 
-  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens: 0, cacheReadTokens: 0 };
+  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens: 0, cacheReadTokens: 0, cost: 0 };
 }
