@@ -43,10 +43,14 @@ export interface LLMAdapter {
 
 export const DEFAULT_MODELS: Record<Provider, string[]> = {
   openrouter: [
+    'anthropic/claude-opus-4-8',
+    'anthropic/claude-opus-4-7',
+    'anthropic/claude-sonnet-4-6',
     'anthropic/claude-sonnet-4.5',
     'anthropic/claude-3.5-haiku',
-    'google/gemini-2.5-flash',
+    'google/gemini-3.1-pro-preview',
     'google/gemini-2.5-pro',
+    'google/gemini-2.5-flash',
     'openai/gpt-4o-mini',
     'openai/gpt-4o',
     'deepseek/deepseek-r1:free',
