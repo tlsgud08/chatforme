@@ -43,7 +43,8 @@ export default function SessionsPage() {
         .select('session_id')
         .in('session_id', sessionIds)
         .eq('role', 'assistant')
-        .eq('is_hidden', false);
+        .eq('is_hidden', false)
+        .gt('turn_index', 0);
 
       const aiCountMap: Record<string, number> = {};
       for (const m of (msgRows ?? []) as { session_id: string }[]) {
@@ -104,14 +105,14 @@ export default function SessionsPage() {
     return (
       <ul className="divide-y divide-surface2">
         {list.map((s) => {
-          const aiCount = s.messages.filter((m) => m.role === 'assistant' && !m.is_hidden).length;
+          const aiCount = s.messages.filter((m) => m.role === 'assistant' && !m.is_hidden && m.turn_index > 0).length;
           return (
             <li key={s.id}>
               <Link to={`/chat/${s.id}`} className="flex items-center gap-3 p-4 active:bg-surface">
                 <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold text-white">{s.title || '채팅방'}</p>
-                  <p className="text-xs text-slate-500">AI 응답 {aiCount}회</p>
+                  <p className="text-xs text-slate-500">{aiCount} 대화</p>
                 </div>
               </Link>
             </li>
@@ -226,7 +227,7 @@ export default function SessionsPage() {
                     {s.works?.title || s.title || '채팅방'}
                   </p>
                   <p className="text-xs text-slate-500">
-                    AI 응답 {aiCountMap[s.id] ?? 0}회
+                    {aiCountMap[s.id] ?? 0} 대화
                   </p>
                 </div>
               </Link>

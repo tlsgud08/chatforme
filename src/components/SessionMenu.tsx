@@ -180,8 +180,8 @@ export default function SessionMenu({
                       </p>
                     ) : (
                       <p className="text-xl font-bold text-white">
-                        ${credit.usage.toFixed(3)}
-                        <span className="ml-1 text-xs font-normal text-slate-400">사용됨 (무제한)</span>
+                        무제한
+                        <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
                       </p>
                     )}
                   </div>
