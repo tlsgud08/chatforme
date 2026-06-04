@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import WorkPosterCard from '@/components/WorkPosterCard';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import {
   fetchWorksWithStats,
   sortForSection,
@@ -25,19 +27,45 @@ const TAB_SECTIONS: Record<Exclude<MainTab, 'genre'>, SectionId[]> = {
   new: ['today-hot', 'latest'],
 };
 
-// 추후 장르 시스템 도입 시 실제 데이터로 교체
 const GENRES = ['로맨스', '판타지', '무협', '로맨스판타지', '일상', '액션', '스릴러', 'BL', 'GL'];
 
 export default function WorksPage() {
   const [tab, setTab] = useState<MainTab>('ranking');
   const [genre, setGenre] = useState('');
   const [genreSort, setGenreSort] = useState<'latest' | 'popular'>('latest');
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const { data, isLoading, error } = useQuery({ queryKey: ['works-stats'], queryFn: fetchWorksWithStats });
 
+  const { data: favoritedIds = [] } = useQuery({
+    queryKey: ['user-favorites', user?.id],
+    queryFn: async () => {
+      if (!user) return [];
+      const { data } = await supabase
+        .from('work_favorites')
+        .select('work_id')
+        .eq('user_id', user.id);
+      return (data ?? []).map((f: { work_id: string }) => f.work_id);
+    },
+    enabled: !!user,
+  });
+
+  async function toggleFavorite(workId: string) {
+    if (!user) return;
+    const isFav = favoritedIds.includes(workId);
+    queryClient.setQueryData(['user-favorites', user.id], (old: string[] = []) =>
+      isFav ? old.filter((id) => id !== workId) : [...old, workId],
+    );
+    if (isFav) {
+      await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId);
+    } else {
+      await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
+    }
+  }
+
   return (
     <div className="flex flex-col pb-4">
-      {/* 상단 카테고리 칩 */}
       <div className="sticky top-0 z-10 flex gap-2 overflow-x-auto border-b border-surface2 bg-bg px-4 py-3">
         {MAIN_TABS.map((t) => (
           <button
@@ -63,7 +91,13 @@ export default function WorksPage() {
             ) : (
               <div className="flex flex-col gap-6 pt-4">
                 {TAB_SECTIONS[tab].map((sid) => (
-                  <Section key={sid} id={sid} data={data} />
+                  <Section
+                    key={sid}
+                    id={sid}
+                    data={data}
+                    favoritedIds={favoritedIds}
+                    onFavoriteToggle={user ? toggleFavorite : undefined}
+                  />
                 ))}
               </div>
             ))}
@@ -82,7 +116,17 @@ export default function WorksPage() {
   );
 }
 
-function Section({ id, data }: { id: SectionId; data: WorkStat[] }) {
+function Section({
+  id,
+  data,
+  favoritedIds,
+  onFavoriteToggle,
+}: {
+  id: SectionId;
+  data: WorkStat[];
+  favoritedIds: string[];
+  onFavoriteToggle?: (workId: string) => void;
+}) {
   const sorted = sortForSection(id, data);
   const ranked = isRankingSection(id);
   const items = sorted.slice(0, 10);
@@ -112,6 +156,8 @@ function Section({ id, data }: { id: SectionId; data: WorkStat[] }) {
             count={metricForSection(id, w)}
             rank={ranked ? i + 1 : undefined}
             className="w-28 shrink-0"
+            isFavorited={favoritedIds.includes(w.id)}
+            onFavoriteToggle={onFavoriteToggle ? (workId, e) => { void e; onFavoriteToggle(workId); } : undefined}
           />
         ))}
       </div>

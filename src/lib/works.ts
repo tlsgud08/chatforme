@@ -6,6 +6,8 @@ export interface WorkStat extends Work {
   day_count: number;
   week_count: number;
   month_count: number;
+  total_play_count: number;
+  favorite_count: number;
 }
 
 export type SectionId = 'daily' | 'weekly' | 'monthly' | 'today-hot' | 'latest';
@@ -41,21 +43,31 @@ export async function fetchWorksWithStats(): Promise<WorkStat[]> {
   for (const p of profiles ?? []) nameMap[p.id] = p.display_name || '알 수 없음';
 
   const monthAgo = new Date(Date.now() - 30 * DAY).toISOString();
-  const { data: plays } = await supabase
-    .from('work_plays')
-    .select('work_id, created_at')
-    .gte('created_at', monthAgo);
+  const [{ data: plays }, { data: allPlays }, { data: favs }] = await Promise.all([
+    supabase.from('work_plays').select('work_id, created_at').gte('created_at', monthAgo),
+    supabase.from('work_plays').select('work_id'),
+    supabase.from('work_favorites').select('work_id'),
+  ]);
 
   const dayThreshold = Date.now() - DAY;
   const weekThreshold = Date.now() - 7 * DAY;
   const dayC: Record<string, number> = {};
   const weekC: Record<string, number> = {};
   const monthC: Record<string, number> = {};
+  const totalC: Record<string, number> = {};
+  const favC: Record<string, number> = {};
+
   for (const p of (plays as { work_id: string; created_at: string }[]) ?? []) {
     const t = new Date(p.created_at).getTime();
     monthC[p.work_id] = (monthC[p.work_id] ?? 0) + 1;
     if (t >= weekThreshold) weekC[p.work_id] = (weekC[p.work_id] ?? 0) + 1;
     if (t >= dayThreshold) dayC[p.work_id] = (dayC[p.work_id] ?? 0) + 1;
+  }
+  for (const p of (allPlays as { work_id: string }[]) ?? []) {
+    totalC[p.work_id] = (totalC[p.work_id] ?? 0) + 1;
+  }
+  for (const f of (favs as { work_id: string }[]) ?? []) {
+    favC[f.work_id] = (favC[f.work_id] ?? 0) + 1;
   }
 
   return list.map((w) => ({
@@ -64,6 +76,8 @@ export async function fetchWorksWithStats(): Promise<WorkStat[]> {
     day_count: dayC[w.id] ?? 0,
     week_count: weekC[w.id] ?? 0,
     month_count: monthC[w.id] ?? 0,
+    total_play_count: totalC[w.id] ?? 0,
+    favorite_count: favC[w.id] ?? 0,
   }));
 }
 
