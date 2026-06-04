@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import type { Persona, Profile, Session } from '@/types/db';
+import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
+import type { Persona, Profile, Provider, Session } from '@/types/db';
 
+const PROVIDERS: Provider[] = ['openrouter', 'claude', 'gemini', 'openai'];
 const MAX_NOTE = 2000;
 const SLIDER_MAX = 4224;
 
@@ -24,13 +26,21 @@ interface Props {
   onPersonaChange: (persona: Persona | null) => void;
   debugMode: boolean;
   onDebugToggle: (v: boolean) => void;
+  sessionProvider: Provider;
+  sessionModel: string;
+  onProviderChange: (p: Provider) => void;
+  onModelChange: (m: string) => void;
 }
 
-export default function SessionMenu({ session, profile, onClose, onUpdate, onPersonaChange, debugMode, onDebugToggle }: Props) {
+export default function SessionMenu({
+  session, profile, onClose, onUpdate, onPersonaChange,
+  debugMode, onDebugToggle,
+  sessionProvider, sessionModel, onProviderChange, onModelChange,
+}: Props) {
   const { user } = useAuth();
   const [note, setNote] = useState(session.user_note);
-  const [override, setOverride] = useState<number | null>(session.output_tokens_override);
   const [sliderVal, setSliderVal] = useState(() => tokensToSlider(session.output_tokens_override));
+  const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_tokens_override !== null);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [savedMsg, setSavedMsg] = useState('');
 
@@ -54,7 +64,7 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
   async function saveOverride(sv: number) {
     const value = sliderToTokens(sv);
     setSliderVal(sv);
-    setOverride(value);
+    setHasExplicitOverride(true);
     await supabase.from('sessions').update({ output_tokens_override: value }).eq('id', session.id);
     onUpdate({ output_tokens_override: value });
   }
@@ -62,7 +72,7 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
   async function resetOverride() {
     const defaultSv = tokensToSlider(profile?.default_output_tokens ?? null);
     setSliderVal(defaultSv);
-    setOverride(null);
+    setHasExplicitOverride(false);
     await supabase.from('sessions').update({ output_tokens_override: null }).eq('id', session.id);
     onUpdate({ output_tokens_override: null });
   }
@@ -78,6 +88,10 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
     setSavedMsg(m);
     setTimeout(() => setSavedMsg(''), 1500);
   }
+
+  const overrideLabel = hasExplicitOverride
+    ? tokenLabel(sliderToTokens(sliderVal))
+    : `${tokenLabel(profile?.default_output_tokens ?? null)} (기본값)`;
 
   return (
     <div className="fixed inset-0 z-20 flex justify-end" onClick={onClose}>
@@ -95,7 +109,7 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
         <section>
           <h3 className="mb-2 text-sm font-semibold text-slate-300">페르소나</h3>
           {personas.length === 0 ? (
-            <p className="text-xs text-slate-500">설정 탭에서 페르소나를 추가하세요.</p>
+            <p className="text-xs text-slate-500">My 탭에서 페르소나를 추가하세요.</p>
           ) : (
             <div className="flex flex-col gap-1.5">
               <button
@@ -122,13 +136,35 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
           )}
         </section>
 
+        {/* AI 공급사 / 모델 */}
+        <section>
+          <h3 className="mb-2 text-sm font-semibold text-slate-300">AI 공급사 / 모델</h3>
+          <div className="flex flex-col gap-2">
+            <select
+              value={sessionProvider}
+              onChange={(e) => onProviderChange(e.target.value as Provider)}
+              className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
+            >
+              {PROVIDERS.map((p) => (
+                <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
+              ))}
+            </select>
+            <select
+              value={sessionModel || DEFAULT_MODELS[sessionProvider][0]}
+              onChange={(e) => onModelChange(e.target.value)}
+              className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
+            >
+              {DEFAULT_MODELS[sessionProvider].map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+        </section>
+
         {/* 출력량 */}
         <section>
           <label className="mb-1 block text-xs text-slate-400">
-            이 세션 출력량:{' '}
-            {override === null
-              ? `${tokenLabel(profile?.default_output_tokens ?? null)} (기본값)`
-              : tokenLabel(override)}
+            이 세션 출력량: {overrideLabel}
           </label>
           <input
             type="range"
@@ -139,7 +175,7 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
             onChange={(e) => saveOverride(Number(e.target.value))}
             className="w-full"
           />
-          {override !== null && (
+          {hasExplicitOverride && (
             <button onClick={resetOverride} className="mt-1 text-xs text-slate-400 underline">
               기본값으로 되돌리기
             </button>
@@ -186,7 +222,13 @@ export default function SessionMenu({ session, profile, onClose, onUpdate, onPer
           </div>
         </section>
 
-        {savedMsg && <p className="text-center text-xs text-brand">{savedMsg}</p>}
+        {savedMsg && (
+          <div className="toast-enter pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-4">
+            <div className="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-lg">
+              {savedMsg}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
