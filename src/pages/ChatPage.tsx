@@ -22,6 +22,17 @@ function loadGuestSettings(): GuestSettings {
   catch { return { provider: 'openrouter', model: '', outputTokens: 1024 }; }
 }
 
+const sessionSettingsKey = (id: string) => `chatforme.session.${id}.settings`;
+interface SessionSettings { provider: Provider; model: string; }
+function loadSessionSettings(id: string, profile: Profile | null): SessionSettings {
+  try {
+    const raw = localStorage.getItem(sessionSettingsKey(id));
+    if (raw) return JSON.parse(raw) as SessionSettings;
+  } catch {}
+  const p = profile?.default_provider ?? 'openrouter';
+  return { provider: p, model: profile?.default_model || DEFAULT_MODELS[p][0] };
+}
+
 function toMsg(m: GuestMessage): Message {
   return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0 };
 }
@@ -47,6 +58,8 @@ export default function ChatPage() {
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
+  const [sessionProvider, setSessionProvider] = useState<Provider>('openrouter');
+  const [sessionModel, setSessionModel] = useState('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -96,6 +109,14 @@ export default function ChatPage() {
   }, [sessionId, user, isGuest]);
 
   useEffect(() => {
+    if (!isGuest && profile && sessionId) {
+      const s = loadSessionSettings(sessionId, profile);
+      setSessionProvider(s.provider);
+      setSessionModel(s.model);
+    }
+  }, [profile, sessionId, isGuest]);
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, sending]);
 
@@ -117,7 +138,6 @@ export default function ChatPage() {
     return activated.sort((a, b) => a.recency - b.recency).slice(0, 3).map((a) => a.content);
   }
 
-  // 히스토리에서 keep_turns 초과한 숨김 메시지 제거
   function buildHistory(allMsgs: Message[]) {
     const userCount = allMsgs.filter((m) => m.role === 'user' && !m.is_hidden).length;
     return allMsgs.filter((m) => {
@@ -132,8 +152,8 @@ export default function ChatPage() {
     setError('');
 
     const guestSettings = loadGuestSettings();
-    const provider = isGuest ? (guestSettings.provider ?? 'openrouter') : (profile?.default_provider ?? 'openrouter');
-    const model = isGuest ? (guestSettings.model || DEFAULT_MODELS[provider][0]) : (profile?.default_model || DEFAULT_MODELS[provider][0]);
+    const provider = isGuest ? (guestSettings.provider ?? 'openrouter') : sessionProvider;
+    const model = isGuest ? (guestSettings.model || DEFAULT_MODELS[provider][0]) : (sessionModel || DEFAULT_MODELS[provider][0]);
     const apiKey = getApiKey(provider);
     if (!apiKey) { setError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
 
@@ -268,10 +288,7 @@ export default function ChatPage() {
         )}
         <div className="flex w-full flex-col gap-3">
           {visibleMessages.map((m) => (
-            <div
-              key={m.id}
-              className="flex w-full min-w-0 flex-col gap-1"
-            >
+            <div key={m.id} className="flex w-full min-w-0 flex-col gap-1">
               {m.is_hidden && debugMode && (
                 <p className="text-[10px] text-amber-400">🔍 숨김 메시지</p>
               )}
@@ -299,58 +316,41 @@ export default function ChatPage() {
                         : 'bg-surface text-slate-100'
                   }`}>
                     <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                          strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                          em: ({ children }) => <em className="not-italic opacity-50">{children}</em>,
-                          ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
-                          ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
-                          li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                          code: ({ children, className }) =>
-                            className ? (
-                              <code className="block overflow-x-auto rounded-lg bg-surface2 p-3 text-xs font-mono">{children}</code>
-                            ) : (
-                              <code className="rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>
-                            ),
-                          pre: ({ children }) => <pre className="mb-2">{children}</pre>,
-                          blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
-                          h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
-                          h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
-                          h3: ({ children }) => <h3 className="mb-1 text-base font-semibold">{children}</h3>,
-                          hr: () => <hr className="my-2 border-slate-600" />,
-                          img: ({ src, alt }) => (
-                            <img
-                              src={src}
-                              alt={alt ?? ''}
-                              className="my-2 block h-auto max-w-full"
-                              loading="lazy"
-                            />
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                        strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                        em: ({ children }) => <em className="not-italic opacity-50">{children}</em>,
+                        ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
+                        ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
+                        li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                        code: ({ children, className }) =>
+                          className ? (
+                            <code className="block overflow-x-auto rounded-lg bg-surface2 p-3 text-xs font-mono">{children}</code>
+                          ) : (
+                            <code className="rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>
                           ),
-                          a: ({ href, children }) => (
-                            <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">
-                              {children}
-                            </a>
-                          ),
-                        }}
-                      >
-                        {m.content}
-                      </ReactMarkdown>
+                        pre: ({ children }) => <pre className="mb-2">{children}</pre>,
+                        blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
+                        h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
+                        h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
+                        h3: ({ children }) => <h3 className="mb-1 text-base font-semibold">{children}</h3>,
+                        hr: () => <hr className="my-2 border-slate-600" />,
+                        img: ({ src, alt }) => (
+                          <img src={src} alt={alt ?? ''} className="my-2 block h-auto max-w-full" loading="lazy" />
+                        ),
+                        a: ({ href, children }) => (
+                          <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
+                        ),
+                      }}
+                    >
+                      {m.content}
+                    </ReactMarkdown>
                   </div>
                   {!m.is_hidden && (
                     <div className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <button
-                        onClick={() => { setEditingId(m.id); setEditingContent(m.content); }}
-                        className="text-xs text-slate-500"
-                      >
-                        편집
-                      </button>
-                      <button
-                        onClick={() => deleteMsg(m.id)}
-                        className="text-xs text-red-400/60"
-                      >
-                        삭제
-                      </button>
+                      <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); }} className="text-xs text-slate-500">편집</button>
+                      <button onClick={() => deleteMsg(m.id)} className="text-xs text-red-400/60">삭제</button>
                     </div>
                   )}
                 </>
@@ -392,6 +392,18 @@ export default function ChatPage() {
           onPersonaChange={(p) => setPersona(p)}
           debugMode={debugMode}
           onDebugToggle={setDebugMode}
+          sessionProvider={sessionProvider}
+          sessionModel={sessionModel || DEFAULT_MODELS[sessionProvider][0]}
+          onProviderChange={(p) => {
+            const m = DEFAULT_MODELS[p][0];
+            setSessionProvider(p);
+            setSessionModel(m);
+            localStorage.setItem(sessionSettingsKey(sessionId!), JSON.stringify({ provider: p, model: m }));
+          }}
+          onModelChange={(m) => {
+            setSessionModel(m);
+            localStorage.setItem(sessionSettingsKey(sessionId!), JSON.stringify({ provider: sessionProvider, model: m }));
+          }}
         />
       )}
     </div>
