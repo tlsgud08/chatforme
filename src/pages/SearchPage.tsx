@@ -71,12 +71,6 @@ export default function SearchPage() {
     setUsers(profilesData.map((p) => ({ ...(p as Profile), work_count: countMap[p.id] ?? 0 })));
   }
 
-  function handleUserClick(userId: string, name: string) {
-    setCreatorFilter(userId);
-    setCreatorName(name);
-    setTab('works');
-  }
-
   function clearCreatorFilter() {
     setCreatorFilter(null);
     setCreatorName(null);
@@ -162,7 +156,7 @@ export default function SearchPage() {
               {users.map((u) => (
                 <li key={u.id}>
                   <button
-                    onClick={() => handleUserClick(u.id, u.display_name)}
+                    onClick={() => navigate(`/users/${u.id}`)}
                     className="flex w-full items-center gap-3 p-4 text-left active:bg-surface"
                   >
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/20 text-sm font-bold text-brand">
@@ -172,7 +166,7 @@ export default function SearchPage() {
                       <p className="font-semibold text-white">{u.display_name || '(이름 없음)'}</p>
                       <p className="text-xs text-slate-400">공개 작품 {u.work_count}개</p>
                     </div>
-                    <span className="shrink-0 text-xs text-slate-500">작품 보기 →</span>
+                    <span className="shrink-0 text-xs text-slate-500">프로필 →</span>
                   </button>
                 </li>
               ))}
