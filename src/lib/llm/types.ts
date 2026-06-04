@@ -31,10 +31,9 @@ export interface LLMAdapter {
 // 공지사별 기본 모델 (저렴한 모델 우선)
 export const DEFAULT_MODELS: Record<Provider, string[]> = {
   openrouter: [
-    'anthropic/claude-sonnet-4.5',
+    'anthropic/claude-3.5-sonnet',
     'anthropic/claude-3.5-haiku',
-    'google/gemini-2.5-flash',
-    'google/gemini-2.5-pro',
+    'google/gemini-2.0-flash',
     'openai/gpt-4o-mini',
     'openai/gpt-4o',
     'deepseek/deepseek-r1:free',
