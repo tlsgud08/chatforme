@@ -1,8 +1,22 @@
 import type { GenerateOptions, GenerateResult, LLMAdapter, SystemParts } from './types';
 import { readOpenAIStream } from './stream';
 
-// 정적인 것부터 동적인 것 순으로 concat — prefix caching 최적화
-function buildSystem(parts: SystemParts): string {
+type CacheControl = { type: 'ephemeral' };
+type TextBlock = { type: 'text'; text: string; cache_control?: CacheControl };
+
+// Anthropic 모델: 레이어별 content block + cache_control (명시적 캐싱)
+function buildAnthropicSystemBlocks(parts: SystemParts): TextBlock[] {
+  const blocks: TextBlock[] = [];
+  if (parts.core)     blocks.push({ type: 'text', text: parts.core,     cache_control: { type: 'ephemeral' } });
+  if (parts.persona)  blocks.push({ type: 'text', text: parts.persona,  cache_control: { type: 'ephemeral' } });
+  if (parts.userNote) blocks.push({ type: 'text', text: parts.userNote, cache_control: { type: 'ephemeral' } });
+  if (parts.summary)  blocks.push({ type: 'text', text: parts.summary,  cache_control: { type: 'ephemeral' } });
+  if (parts.keywords) blocks.push({ type: 'text', text: parts.keywords });
+  return blocks;
+}
+
+// 그 외 모델: 단순 문자열 (prefix caching 자동)
+function buildPlainSystem(parts: SystemParts): string {
   return [parts.core, parts.persona, parts.userNote, parts.summary, parts.keywords]
     .filter(Boolean)
     .join('\n\n');
@@ -12,11 +26,18 @@ function buildSystem(parts: SystemParts): string {
 export const openrouterAdapter: LLMAdapter = {
   provider: 'openrouter',
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
-    const system = buildSystem(opts.systemParts);
-    const messages = [
-      ...(system ? [{ role: 'system' as const, content: system }] : []),
-      ...opts.messages,
-    ];
+    const isAnthropic = opts.model.startsWith('anthropic/');
+
+    let systemMessages: Array<{ role: 'system'; content: string | TextBlock[] }> = [];
+    if (isAnthropic) {
+      const blocks = buildAnthropicSystemBlocks(opts.systemParts);
+      if (blocks.length > 0) systemMessages = [{ role: 'system', content: blocks }];
+    } else {
+      const text = buildPlainSystem(opts.systemParts);
+      if (text) systemMessages = [{ role: 'system', content: text }];
+    }
+
+    const messages = [...systemMessages, ...opts.messages];
 
     const streaming = !!opts.onChunk;
 
