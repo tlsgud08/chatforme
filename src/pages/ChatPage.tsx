@@ -357,7 +357,7 @@ export default function ChatPage() {
   }
 
   const currentSession = isGuest ? guestSession : session;
-  const totalTokens = currentSession ? currentSession.total_input_tokens + currentSession.total_output_tokens : 0;
+
   const visibleMessages = messages.filter((m) => !m.is_hidden || debugMode);
 
   if (!currentSession || !work) {
@@ -370,7 +370,7 @@ export default function ChatPage() {
         <button onClick={() => navigate('/sessions')} className="text-slate-400">←</button>
         <button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 flex-1 text-left">
           <p className="truncate text-sm font-semibold text-white">{work.title}</p>
-          <p className="text-[11px] text-slate-500">누적 토큰 {totalTokens.toLocaleString()}</p>
+
         </button>
         {!isGuest && (
           <button onClick={() => setMenuOpen(true)} className="px-2 text-xl text-slate-300">☰</button>
