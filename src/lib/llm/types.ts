@@ -5,10 +5,18 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface SystemParts {
+  core: string;      // 플랫폼 시스템 + 메인 프롬프트 (세션 내 불변)
+  persona: string;   // 페르소나 (희소 변경)
+  userNote: string;  // 유저 노트 (종종 변경)
+  summary: string;   // 요약 히스토리 (재요약 시 변경)
+  keywords: string;  // 활성 키워드북 (메시지마다 변경 — 캐싱 안 함)
+}
+
 export interface GenerateOptions {
   apiKey: string;
   model: string;
-  system: string;
+  systemParts: SystemParts;
   messages: ChatMessage[];
   maxOutputTokens: number | null;
   onChunk?: (text: string) => void;
@@ -51,3 +59,4 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   gemini: 'Gemini (Google)',
   openai: 'GPT (OpenAI)',
 };
+

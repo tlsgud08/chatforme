@@ -1,11 +1,26 @@
-import type { GenerateOptions, GenerateResult, LLMAdapter } from './types';
+import type { GenerateOptions, GenerateResult, LLMAdapter, SystemParts } from './types';
 import { readClaudeStream } from './stream';
+
+type CacheControl = { type: 'ephemeral' };
+type ClaudeBlock = { type: 'text'; text: string; cache_control?: CacheControl };
+
+// L1~L4는 cache_control 부여, keywords(dynamic)는 부여 안 함
+function buildSystemBlocks(parts: SystemParts): ClaudeBlock[] {
+  const blocks: ClaudeBlock[] = [];
+  if (parts.core)     blocks.push({ type: 'text', text: parts.core,     cache_control: { type: 'ephemeral' } });
+  if (parts.persona)  blocks.push({ type: 'text', text: parts.persona,  cache_control: { type: 'ephemeral' } });
+  if (parts.userNote) blocks.push({ type: 'text', text: parts.userNote, cache_control: { type: 'ephemeral' } });
+  if (parts.summary)  blocks.push({ type: 'text', text: parts.summary,  cache_control: { type: 'ephemeral' } });
+  if (parts.keywords) blocks.push({ type: 'text', text: parts.keywords });
+  return blocks;
+}
 
 // Anthropic Messages API — max_tokens는 필수 필드. null(무제한)이면 8192로 대체.
 export const claudeAdapter: LLMAdapter = {
   provider: 'claude',
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
     const streaming = !!opts.onChunk;
+    const systemBlocks = buildSystemBlocks(opts.systemParts);
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -14,13 +29,14 @@ export const claudeAdapter: LLMAdapter = {
         'content-type': 'application/json',
         'x-api-key': opts.apiKey,
         'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'prompt-caching-2024-07-31',
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
         model: opts.model,
         max_tokens: opts.maxOutputTokens ?? 8192,
         stream: streaming,
-        system: opts.system || undefined,
+        system: systemBlocks.length > 0 ? systemBlocks : undefined,
         messages: opts.messages.map((m) => ({ role: m.role, content: m.content })),
       }),
     });
