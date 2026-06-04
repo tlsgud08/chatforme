@@ -40,6 +40,33 @@ function toMsg(m: GuestMessage): Message {
   return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0 };
 }
 
+const mdComponents = {
+  p: ({ children }: React.PropsWithChildren) => <p className="mb-2 last:mb-0">{children}</p>,
+  strong: ({ children }: React.PropsWithChildren) => <strong className="font-bold">{children}</strong>,
+  em: ({ children }: React.PropsWithChildren) => <em className="not-italic opacity-50">{children}</em>,
+  ul: ({ children }: React.PropsWithChildren) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
+  ol: ({ children }: React.PropsWithChildren) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
+  li: ({ children }: React.PropsWithChildren) => <li className="mb-0.5">{children}</li>,
+  code: ({ children, className }: React.PropsWithChildren<{ className?: string }>) =>
+    className ? (
+      <code className="block whitespace-pre-wrap break-words rounded-lg bg-surface2 p-3 text-xs font-mono">{children}</code>
+    ) : (
+      <code className="rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>
+    ),
+  pre: ({ children }: React.PropsWithChildren) => <pre className="mb-2 w-full overflow-hidden">{children}</pre>,
+  blockquote: ({ children }: React.PropsWithChildren) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
+  h1: ({ children }: React.PropsWithChildren) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
+  h2: ({ children }: React.PropsWithChildren) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
+  h3: ({ children }: React.PropsWithChildren) => <h3 className="mb-1 text-base font-semibold">{children}</h3>,
+  hr: () => <hr className="my-2 border-slate-600" />,
+  a: ({ href, children }: React.PropsWithChildren<{ href?: string }>) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
+  ),
+  img: ({ src, alt }: { src?: string; alt?: string }) => (
+    <img src={src} alt={alt ?? ''} className="my-2 block h-auto max-w-full" loading="lazy" />
+  ),
+};
+
 export interface ErrorEntry {
   id: string;
   short: string;
@@ -450,35 +477,7 @@ export default function ChatPage() {
                         ? 'bg-brand text-white'
                         : 'bg-surface text-slate-100'
                   }`}>
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                        strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                        em: ({ children }) => <em className="not-italic opacity-50">{children}</em>,
-                        ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
-                        ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
-                        li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                        code: ({ children, className }) =>
-                          className ? (
-                            <code className="block overflow-x-auto rounded-lg bg-surface2 p-3 text-xs font-mono">{children}</code>
-                          ) : (
-                            <code className="rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>
-                          ),
-                        pre: ({ children }) => <pre className="mb-2">{children}</pre>,
-                        blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
-                        h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
-                        h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
-                        h3: ({ children }) => <h3 className="mb-1 text-base font-semibold">{children}</h3>,
-                        hr: () => <hr className="my-2 border-slate-600" />,
-                        img: ({ src, alt }) => (
-                          <img src={src} alt={alt ?? ''} className="my-2 block h-auto max-w-full" loading="lazy" />
-                        ),
-                        a: ({ href, children }) => (
-                          <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
-                        ),
-                      }}
-                    >
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
                       {m.content}
                     </ReactMarkdown>
                   </div>
@@ -498,32 +497,7 @@ export default function ChatPage() {
           {sending && (
             <div className="self-start max-w-full rounded-2xl bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-slate-100">
               {streamingContent ? (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                    em: ({ children }) => <em className="not-italic opacity-50">{children}</em>,
-                    ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
-                    ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
-                    li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                    code: ({ children, className }) =>
-                      className ? (
-                        <code className="block overflow-x-auto rounded-lg bg-surface2 p-3 text-xs font-mono">{children}</code>
-                      ) : (
-                        <code className="rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>
-                      ),
-                    pre: ({ children }) => <pre className="mb-2">{children}</pre>,
-                    blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
-                    h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
-                    h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
-                    h3: ({ children }) => <h3 className="mb-1 text-base font-semibold">{children}</h3>,
-                    hr: () => <hr className="my-2 border-slate-600" />,
-                    a: ({ href, children }) => (
-                      <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
-                    ),
-                  }}
-                >
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
                   {streamingContent}
                 </ReactMarkdown>
               ) : (
