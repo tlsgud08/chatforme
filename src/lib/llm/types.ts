@@ -26,6 +26,8 @@ export interface GenerateOptions {
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
 }
 
 export interface GenerateResult {

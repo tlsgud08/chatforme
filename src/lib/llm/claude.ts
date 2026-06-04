@@ -47,8 +47,9 @@ export const claudeAdapter: LLMAdapter = {
     }
 
     if (streaming) {
-      const { text, inputTokens, outputTokens } = await readClaudeStream(res.body!, opts.onChunk!);
-      return { text, usage: { inputTokens, outputTokens } };
+      const { text, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens } =
+        await readClaudeStream(res.body!, opts.onChunk!);
+      return { text, usage: { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens } };
     }
 
     const data = await res.json();
@@ -62,6 +63,8 @@ export const claudeAdapter: LLMAdapter = {
       usage: {
         inputTokens: data.usage?.input_tokens ?? 0,
         outputTokens: data.usage?.output_tokens ?? 0,
+        cacheCreationTokens: data.usage?.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: data.usage?.cache_read_input_tokens ?? 0,
       },
     };
   },

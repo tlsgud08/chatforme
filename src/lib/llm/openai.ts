@@ -42,8 +42,9 @@ export const openaiAdapter: LLMAdapter = {
     }
 
     if (streaming) {
-      const { text, inputTokens, outputTokens } = await readOpenAIStream(res.body!, opts.onChunk!);
-      return { text, usage: { inputTokens, outputTokens } };
+      const { text, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens } =
+        await readOpenAIStream(res.body!, opts.onChunk!);
+      return { text, usage: { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens } };
     }
 
     const data = await res.json();
@@ -54,6 +55,8 @@ export const openaiAdapter: LLMAdapter = {
       usage: {
         inputTokens: data.usage?.prompt_tokens ?? 0,
         outputTokens: data.usage?.completion_tokens ?? 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
       },
     };
   },

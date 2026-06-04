@@ -25,6 +25,8 @@ export interface StreamResult {
   text: string;
   inputTokens: number;
   outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
 }
 
 export async function readOpenAIStream(
@@ -34,6 +36,7 @@ export async function readOpenAIStream(
   let fullText = '';
   let inputTokens = 0;
   let outputTokens = 0;
+  let cacheReadTokens = 0;
 
   await readLines(body, (line) => {
     const trimmed = line.trim();
@@ -50,11 +53,12 @@ export async function readOpenAIStream(
       if (parsed.usage) {
         inputTokens = parsed.usage.prompt_tokens ?? 0;
         outputTokens = parsed.usage.completion_tokens ?? 0;
+        cacheReadTokens = parsed.usage.prompt_tokens_details?.cached_tokens ?? 0;
       }
     } catch {}
   });
 
-  return { text: fullText, inputTokens, outputTokens };
+  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens: 0, cacheReadTokens };
 }
 
 export async function readClaudeStream(
@@ -64,6 +68,8 @@ export async function readClaudeStream(
   let fullText = '';
   let inputTokens = 0;
   let outputTokens = 0;
+  let cacheCreationTokens = 0;
+  let cacheReadTokens = 0;
 
   await readLines(body, (line) => {
     const trimmed = line.trim();
@@ -75,12 +81,17 @@ export async function readClaudeStream(
         fullText += parsed.delta.text ?? '';
         onChunk(fullText);
       }
-      if (parsed.type === 'message_start') inputTokens = parsed.message?.usage?.input_tokens ?? 0;
+      if (parsed.type === 'message_start') {
+        const u = parsed.message?.usage ?? {};
+        inputTokens = u.input_tokens ?? 0;
+        cacheCreationTokens = u.cache_creation_input_tokens ?? 0;
+        cacheReadTokens = u.cache_read_input_tokens ?? 0;
+      }
       if (parsed.type === 'message_delta') outputTokens = parsed.usage?.output_tokens ?? 0;
     } catch {}
   });
 
-  return { text: fullText, inputTokens, outputTokens };
+  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens };
 }
 
 export async function readGeminiStream(
@@ -107,5 +118,5 @@ export async function readGeminiStream(
     } catch {}
   });
 
-  return { text: fullText, inputTokens, outputTokens };
+  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens: 0, cacheReadTokens: 0 };
 }
