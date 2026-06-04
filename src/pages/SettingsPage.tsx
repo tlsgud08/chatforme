@@ -26,7 +26,6 @@ export default function SettingsPage() {
 
   const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
-  // 관리자 전역 시스템 프롬프트
   const [systemPrompt, setSystemPrompt] = useState('');
   const [systemPromptLoaded, setSystemPromptLoaded] = useState(false);
 
@@ -53,7 +52,7 @@ export default function SettingsPage() {
 
   function saveKeys() {
     saveApiKeys(keys);
-    flash('API 키를 이 기기에 저장했습니다.');
+    flash('API 키를 저장했습니다.');
   }
 
   async function saveProfile() {
@@ -98,7 +97,7 @@ export default function SettingsPage() {
               <div key={p} className="rounded-lg border border-brand/40 bg-brand/5 p-3">
                 <div className="mb-1 flex items-center gap-2">
                   <label className="text-sm font-semibold text-white">{PROVIDER_LABELS[p]}</label>
-                  <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">추천</span>
+                  <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">온청</span>
                 </div>
                 <p className="mb-2 text-[11px] text-slate-400">
                   키 하나로 Claude·Gemini·GPT 등 모든 모델 사용 가능.{' '}
@@ -219,7 +218,11 @@ export default function SettingsPage() {
       )}
 
       {savedMsg && (
-        <p className="rounded-lg bg-surface px-4 py-2 text-center text-sm text-brand">{savedMsg}</p>
+        <div className="toast-enter pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-4">
+          <div className="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-lg">
+            {savedMsg}
+          </div>
+        </div>
       )}
 
       <button onClick={() => signOut()} className="mt-2 text-sm text-red-400">
