@@ -51,7 +51,10 @@ export default function MyPage() {
       .select('*')
       .eq('user_id', user.id)
       .order('created_at')
-      .then(({ data }) => setPersonas((data as Persona[]) ?? []));
+      .then(({ data }) => {
+        const ps = (data as Persona[]) ?? [];
+        setPersonas(ps.sort((a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0)));
+      });
   }, [user, isGuest]);
 
   useEffect(() => {
@@ -127,7 +130,10 @@ export default function MyPage() {
   async function setDefaultPersona(id: string) {
     await supabase.from('personas').update({ is_default: false }).eq('user_id', user!.id);
     await supabase.from('personas').update({ is_default: true }).eq('id', id);
-    setPersonas((ps) => ps.map((p) => ({ ...p, is_default: p.id === id })));
+    setPersonas((ps) => {
+      const updated = ps.map((p) => ({ ...p, is_default: p.id === id }));
+      return [...updated].sort((a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0));
+    });
     flash('기본 페르소나로 설정했습니다.');
   }
 
@@ -425,18 +431,16 @@ export default function MyPage() {
               </li>
             ) : (
               <li key={p.id} className="flex items-start gap-2 rounded-lg bg-surface p-3">
-                <div className="min-w-0 flex-1">
+                <button
+                  onClick={() => !p.is_default && setDefaultPersona(p.id)}
+                  className={`min-w-0 flex-1 text-left ${!p.is_default ? 'cursor-pointer' : 'cursor-default'}`}
+                >
                   <div className="flex items-center gap-1.5">
                     <p className="font-semibold text-white">{p.name}</p>
                     {p.is_default && <span className="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] text-brand">기본</span>}
                   </div>
                   <p className="mt-0.5 line-clamp-2 text-xs text-slate-400">{p.description}</p>
-                </div>
-                {!p.is_default && (
-                  <button onClick={() => setDefaultPersona(p.id)} title="기본으로 설정" className="shrink-0 px-1 text-slate-600 text-base leading-none">
-                    ☆
-                  </button>
-                )}
+                </button>
                 <button onClick={() => { setEditingPersona(p); setShowAddForm(false); }} className="shrink-0 px-1 text-slate-400">
                   ✏️
                 </button>
