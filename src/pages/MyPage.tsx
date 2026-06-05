@@ -71,6 +71,7 @@ export default function MyPage() {
   useEffect(() => {
     const apiKey = getApiKey('openrouter');
     if (!apiKey) return;
+    // /credits = 계정 실제 잔액 (total_credits - total_usage)
     fetch('https://openrouter.ai/api/v1/credits', {
       headers: { authorization: `Bearer ${apiKey}` },
     })
@@ -219,6 +220,7 @@ export default function MyPage() {
     <div className="flex flex-col gap-6 p-4">
       {/* 프로필 카드 */}
       <section className="flex flex-col items-center gap-3 rounded-xl bg-surface p-5">
+        {/* 아바타 */}
         <button
           type="button"
           className="relative h-20 w-20 shrink-0 rounded-full"
@@ -275,7 +277,13 @@ export default function MyPage() {
           />
           <p className="mt-1 text-xs text-slate-500">{user?.email}</p>
           <p className="mt-1 text-xs text-slate-400">
-            팔로워 {followerCountData ?? 0} · 팔로잉 {followingCountData ?? 0}
+            <button onClick={() => navigate('/follows?tab=followers')} className="hover:underline">
+              팔로워 {followerCountData ?? 0}
+            </button>
+            {' · '}
+            <button onClick={() => navigate('/follows?tab=following')} className="hover:underline">
+              팔로잉 {followingCountData ?? 0}
+            </button>
           </p>
         </div>
       </section>

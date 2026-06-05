@@ -15,6 +15,7 @@ import MyPage from './pages/MyPage';
 import SetupNotice from './components/SetupNotice';
 import FavoritesPage from './pages/FavoritesPage';
 import UserPage from './pages/UserPage';
+import FollowListPage from './pages/FollowListPage';
 
 export default function App() {
   const { user, isGuest, loading } = useAuth();
@@ -50,6 +51,7 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/favorites" element={<FavoritesPage />} />
         <Route path="/users/:userId" element={<UserPage />} />
+        <Route path="/follows" element={<FollowListPage />} />
         <Route path="*" element={<Navigate to="/works" replace />} />
       </Route>
     </Routes>
