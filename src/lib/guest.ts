@@ -3,7 +3,7 @@ import type { Message, Session, Work } from '@/types/db';
 
 const SESSIONS_KEY = 'nekochat.guest.sessions';
 
-export interface GuestMessage extends Pick<Message, 'id' | 'role' | 'content' | 'turn_index' | 'input_tokens' | 'output_tokens' | 'cost' | 'is_hidden' | 'created_at'> {
+export interface GuestMessage extends Pick<Message, 'id' | 'role' | 'content' | 'turn_index' | 'input_tokens' | 'output_tokens' | 'cache_read_tokens' | 'cache_write_tokens' | 'cost' | 'is_hidden' | 'created_at'> {
   session_id: string;
 }
 

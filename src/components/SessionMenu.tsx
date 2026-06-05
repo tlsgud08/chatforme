@@ -38,6 +38,8 @@ interface Props {
   onShowCostToggle: (v: boolean) => void;
   showTokens: boolean;
   onShowTokensToggle: (v: boolean) => void;
+  showCache: boolean;
+  onShowCacheToggle: (v: boolean) => void;
   sessionProvider: Provider;
   sessionModel: string;
   onProviderChange: (p: Provider) => void;
@@ -48,7 +50,7 @@ interface Props {
 
 export default function SessionMenu({
   session, profile, onClose, onUpdate, onPersonaChange,
-  debugMode, onDebugToggle, showCost, onShowCostToggle, showTokens, onShowTokensToggle,
+  debugMode, onDebugToggle, showCost, onShowCostToggle, showTokens, onShowTokensToggle, showCache, onShowCacheToggle,
   sessionProvider, sessionModel, onProviderChange, onModelChange,
   errorLog, onClearErrors,
 }: Props) {
@@ -330,6 +332,22 @@ export default function SessionMenu({
               className={`relative h-6 w-11 rounded-full transition-colors ${showTokens ? 'bg-emerald-500' : 'bg-surface2'}`}
             >
               <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showTokens ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+        </section>
+
+        {/* 캐시 토큰 보기 */}
+        <section>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-300">캐시 토큰 보기</p>
+              <p className="text-xs text-slate-500">캐시 읽기·쓰기 토큰 수 표시</p>
+            </div>
+            <button
+              onClick={() => onShowCacheToggle(!showCache)}
+              className={`relative h-6 w-11 rounded-full transition-colors ${showCache ? 'bg-emerald-500' : 'bg-surface2'}`}
+            >
+              <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showCache ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
             </button>
           </div>
         </section>

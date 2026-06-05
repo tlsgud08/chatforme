@@ -37,7 +37,7 @@ function loadSessionSettings(id: string, profile: Profile | null): SessionSettin
 }
 
 function toMsg(m: GuestMessage): Message {
-  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0 };
+  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cache_read_tokens: m.cache_read_tokens ?? 0, cache_write_tokens: m.cache_write_tokens ?? 0, cost: m.cost ?? 0 };
 }
 
 const mdComponents = {
@@ -107,6 +107,7 @@ export default function ChatPage() {
   const [debugMode, setDebugMode] = useState(() => localStorage.getItem('chatforme.debugMode') === '1');
   const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') === '1');
   const [showTokens, setShowTokens] = useState(() => localStorage.getItem('chatforme.showTokens') === '1');
+  const [showCache, setShowCache] = useState(() => localStorage.getItem('chatforme.showCache') === '1');
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
   const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -273,7 +274,7 @@ export default function ChatPage() {
       if (text) {
         const userMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'user',
-          content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cost: 0,
+          content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost: 0,
           is_hidden: false, created_at: now,
         };
         guestAddMessage(guestSession.id, userMsg);
@@ -296,7 +297,8 @@ export default function ChatPage() {
         const aiMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
           content: result.text, turn_index: turnIndex,
-          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
+          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens,
+          cache_read_tokens: result.usage.cacheReadTokens, cache_write_tokens: result.usage.cacheCreationTokens, cost: result.usage.cost,
           is_hidden: false, created_at: new Date().toISOString(),
         };
         guestAddMessage(guestSession.id, aiMsg);
@@ -311,7 +313,7 @@ export default function ChatPage() {
         if (isAbort && partialText) {
           const aiMsg: GuestMessage = {
             id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
-            content: partialText, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cost: 0,
+            content: partialText, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost: 0,
             is_hidden: false, created_at: new Date().toISOString(),
           };
           guestAddMessage(guestSession.id, aiMsg);
@@ -358,7 +360,8 @@ export default function ChatPage() {
         .from('messages')
         .insert({
           session_id: session.id, role: 'assistant', content: result.text, turn_index: turnIndex,
-          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
+          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens,
+          cache_read_tokens: result.usage.cacheReadTokens, cache_write_tokens: result.usage.cacheCreationTokens, cost: result.usage.cost,
         })
         .select('*').single();
       if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
@@ -492,6 +495,13 @@ export default function ChatPage() {
                       {showTokens && m.role === 'assistant' && m.output_tokens > 0 && (
                         <span className="text-[10px] text-slate-500">{m.output_tokens} 토큰</span>
                       )}
+                      {showCache && m.role === 'assistant' && (m.cache_read_tokens > 0 || m.cache_write_tokens > 0) && (
+                        <span className="text-[10px] text-blue-400/70">
+                          {m.cache_read_tokens > 0 && `캐시읽기 ${m.cache_read_tokens}`}
+                          {m.cache_read_tokens > 0 && m.cache_write_tokens > 0 && ' · '}
+                          {m.cache_write_tokens > 0 && `캐시쓰기 ${m.cache_write_tokens}`}
+                        </span>
+                      )}
                     </div>
                   )}
                 </>
@@ -551,6 +561,8 @@ export default function ChatPage() {
           onShowCostToggle={(v) => { setShowCost(v); localStorage.setItem('chatforme.showCost', v ? '1' : '0'); }}
           showTokens={showTokens}
           onShowTokensToggle={(v) => { setShowTokens(v); localStorage.setItem('chatforme.showTokens', v ? '1' : '0'); }}
+          showCache={showCache}
+          onShowCacheToggle={(v) => { setShowCache(v); localStorage.setItem('chatforme.showCache', v ? '1' : '0'); }}
           sessionProvider={sessionProvider}
           sessionModel={sessionModel || DEFAULT_MODELS[sessionProvider][0]}
           onProviderChange={(p) => {
