@@ -104,8 +104,9 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [debugMode, setDebugMode] = useState(false);
+  const [debugMode, setDebugMode] = useState(() => localStorage.getItem('chatforme.debugMode') === '1');
   const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') === '1');
+  const [showTokens, setShowTokens] = useState(() => localStorage.getItem('chatforme.showTokens') === '1');
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
   const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -488,6 +489,9 @@ export default function ChatPage() {
                       {showCost && m.role === 'assistant' && m.cost > 0 && (
                         <span className="text-[10px] text-slate-500">${m.cost.toFixed(6)}</span>
                       )}
+                      {showTokens && m.role === 'assistant' && m.output_tokens > 0 && (
+                        <span className="text-[10px] text-slate-500">{m.output_tokens} 토큰</span>
+                      )}
                     </div>
                   )}
                 </>
@@ -542,9 +546,11 @@ export default function ChatPage() {
           onUpdate={(patch) => setSession((s) => (s ? { ...s, ...patch } : s))}
           onPersonaChange={(p) => setPersona(p)}
           debugMode={debugMode}
-          onDebugToggle={setDebugMode}
+          onDebugToggle={(v) => { setDebugMode(v); localStorage.setItem('chatforme.debugMode', v ? '1' : '0'); }}
           showCost={showCost}
           onShowCostToggle={(v) => { setShowCost(v); localStorage.setItem('chatforme.showCost', v ? '1' : '0'); }}
+          showTokens={showTokens}
+          onShowTokensToggle={(v) => { setShowTokens(v); localStorage.setItem('chatforme.showTokens', v ? '1' : '0'); }}
           sessionProvider={sessionProvider}
           sessionModel={sessionModel || DEFAULT_MODELS[sessionProvider][0]}
           onProviderChange={(p) => {
