@@ -251,21 +251,19 @@ export default function UserPage() {
         {works.length === 0 ? (
           <p className="p-6 text-center text-sm text-slate-500">공개된 작품이 없습니다.</p>
         ) : (
-          <ul className="divide-y divide-surface2">
+          <div className="grid grid-cols-3 gap-2.5 px-3 pb-4">
             {works.map((w) => (
-              <li key={w.id}>
-                <Link to={`/works/${w.id}`} className="flex gap-3 p-4 active:bg-surface">
-                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-surface2">
-                    {w.thumbnail_url && <img src={w.thumbnail_url} alt="" className="h-full w-full object-cover" />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold text-white">{w.title || '(제목 없음)'}</p>
-                    <p className="mt-0.5 text-xs text-slate-500">플레이하기 →</p>
-                  </div>
-                </Link>
-              </li>
+              <Link key={w.id} to={`/works/${w.id}`} className="flex flex-col active:opacity-70">
+                <div className="aspect-[2/3] overflow-hidden rounded-lg bg-surface2">
+                  {w.thumbnail_url
+                    ? <img src={w.thumbnail_url} alt="" className="h-full w-full object-cover" />
+                    : <div className="flex h-full w-full items-center justify-center text-2xl text-slate-600">📖</div>
+                  }
+                </div>
+                <p className="mt-1.5 text-xs text-white line-clamp-2 leading-snug">{w.title || '(제목 없음)'}</p>
+              </Link>
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </div>

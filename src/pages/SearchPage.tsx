@@ -126,7 +126,7 @@ export default function SearchPage() {
               {works.map((w) => (
                 <li key={w.id}>
                   <Link to={`/works/${w.id}`} className="flex gap-3 p-4 active:bg-surface">
-                    <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-surface2">
+                    <div className="w-11 shrink-0 aspect-[2/3] overflow-hidden rounded-lg bg-surface2">
                       {w.thumbnail_url && <img src={w.thumbnail_url} alt="" className="h-full w-full object-cover" />}
                     </div>
                     <div className="min-w-0">
