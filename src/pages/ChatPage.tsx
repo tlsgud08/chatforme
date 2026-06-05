@@ -495,11 +495,9 @@ export default function ChatPage() {
                       {showTokens && m.role === 'assistant' && m.output_tokens > 0 && (
                         <span className="text-[10px] text-slate-500">{m.output_tokens} 토큰</span>
                       )}
-                      {showCache && m.role === 'assistant' && (m.cache_read_tokens > 0 || m.cache_write_tokens > 0) && (
+                      {showCache && m.role === 'assistant' && (
                         <span className="text-[10px] text-blue-400/70">
-                          {m.cache_read_tokens > 0 && `캐시읽기 ${m.cache_read_tokens}`}
-                          {m.cache_read_tokens > 0 && m.cache_write_tokens > 0 && ' · '}
-                          {m.cache_write_tokens > 0 && `캐시쓰기 ${m.cache_write_tokens}`}
+                          캐시읽기 {m.cache_read_tokens} · 캐시쓰기 {m.cache_write_tokens}
                         </span>
                       )}
                     </div>
