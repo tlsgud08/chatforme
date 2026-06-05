@@ -1,14 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import AvatarCircle from '@/components/AvatarCircle';
 import type { Profile, Work } from '@/types/db';
 
 export default function UserPage() {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
   const { user, isGuest } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [works, setWorks] = useState<Work[]>([]);
@@ -16,6 +16,10 @@ export default function UserPage() {
   const [followingCount, setFollowingCount] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   const isOwnProfile = user?.id === userId;
 
@@ -61,54 +65,180 @@ export default function UserPage() {
     }
   }
 
+  async function saveEdit() {
+    if (!profile || !user) return;
+    const name = editName.trim();
+    const bio = editBio.trim();
+    await supabase.from('profiles').update({ display_name: name, bio }).eq('id', user.id);
+    setProfile({ ...profile, display_name: name, bio });
+    setIsEditing(false);
+  }
+
+  async function uploadAvatar(file: File) {
+    if (!user || !profile) return;
+    if (file.size > 5 * 1024 * 1024) return;
+    setAvatarUploading(true);
+    const { data, error } = await supabase.storage
+      .from('avatars')
+      .upload(`${user.id}/${Date.now()}`, file, { upsert: true, contentType: file.type });
+    if (!error) {
+      const publicUrl = supabase.storage.from('avatars').getPublicUrl(data.path).data.publicUrl;
+      await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id);
+      setProfile({ ...profile, avatar_url: publicUrl });
+    }
+    setAvatarUploading(false);
+  }
+
+  function openEdit() {
+    setEditName(profile?.display_name ?? '');
+    setEditBio(profile?.bio ?? '');
+    setIsEditing(true);
+  }
+
   if (loading) return <p className="p-6 text-slate-400">불러오는 중…</p>;
   if (!profile) return <p className="p-6 text-amber-400">유저를 찾을 수 없습니다.</p>;
 
+  const initial = profile.display_name?.[0]?.toUpperCase() ?? '?';
+
   return (
     <div className="flex flex-col">
-      <div className="flex items-center gap-2 px-4 py-3">
-        <button onClick={() => navigate(-1)} className="text-sm text-slate-400">← 뒤로</button>
+      {/* 헤더 */}
+      <div className="relative flex items-center px-4 py-3">
+        <button onClick={() => navigate(-1)} className="text-slate-400">←</button>
+        {isOwnProfile && (
+          <p className="absolute left-0 right-0 text-center text-base font-semibold text-white pointer-events-none">
+            내 프로필
+          </p>
+        )}
       </div>
 
-      {/* 프로필 헤더 */}
-      <div className="flex flex-col items-center gap-3 px-4 pb-6 pt-2">
-        <AvatarCircle name={profile.display_name} avatarUrl={profile.avatar_url} size="lg" />
-
-        <div className="text-center">
-          <p className="text-lg font-bold text-white">{profile.display_name || '(이름 없음)'}</p>
-          {profile.bio && (
-            <p className="mt-1 max-w-xs whitespace-pre-wrap text-sm text-slate-400">{profile.bio}</p>
+      {/* 프로필 영역 */}
+      <div className="px-4 pt-2 pb-5">
+        {/* 아바타 + 이름 */}
+        <div className="flex items-center gap-4">
+          {isEditing ? (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={avatarUploading}
+              className="relative h-20 w-20 shrink-0 rounded-full"
+            >
+              <div className="h-20 w-20 overflow-hidden rounded-full bg-brand/20">
+                {profile.avatar_url ? (
+                  <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-3xl font-bold text-brand">
+                    {initial}
+                  </div>
+                )}
+              </div>
+              <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50">
+                <span className="text-lg">📷</span>
+              </div>
+              {avatarUploading && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/60">
+                  <span className="text-xs text-white">…</span>
+                </div>
+              )}
+            </button>
+          ) : (
+            <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-brand/20">
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-3xl font-bold text-brand">
+                  {initial}
+                </div>
+              )}
+            </div>
           )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAvatar(f); }}
+          />
+
+          <div className="min-w-0 flex-1">
+            <p className="text-xl font-bold text-white truncate">
+              {profile.display_name || '(이름 없음)'}
+            </p>
+            {profile.bio && !isEditing && (
+              <p className="mt-0.5 text-sm text-slate-400 line-clamp-2">{profile.bio}</p>
+            )}
+          </div>
         </div>
 
-        <div className="flex gap-8 text-center">
-          <div>
-            <p className="font-bold text-white">{followerCount}</p>
-            <p className="text-xs text-slate-400">팔로워</p>
-          </div>
-          <div>
-            <p className="font-bold text-white">{followingCount}</p>
-            <p className="text-xs text-slate-400">팔로잉</p>
-          </div>
+        {/* 팔로워 / 팔로잉 */}
+        <div className="mt-4 flex gap-5">
+          <button
+            onClick={() => isOwnProfile && navigate('/follows?tab=followers')}
+            className={isOwnProfile ? '' : 'cursor-default'}
+          >
+            <span className="font-bold text-white">{followerCount}</span>
+            <span className="ml-1.5 text-sm text-slate-400">팔로워</span>
+          </button>
+          <button
+            onClick={() => isOwnProfile && navigate('/follows?tab=following')}
+            className={isOwnProfile ? '' : 'cursor-default'}
+          >
+            <span className="font-bold text-white">{followingCount}</span>
+            <span className="ml-1.5 text-sm text-slate-400">팔로잉</span>
+          </button>
         </div>
 
-        {!isOwnProfile && !isGuest && user && (
+        {/* 편집 폼 */}
+        {isEditing && (
+          <div className="mt-4 flex flex-col gap-2">
+            <input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="표시 이름"
+              className="w-full rounded-xl bg-surface2 px-4 py-2.5 text-sm text-white outline-none"
+            />
+            <textarea
+              value={editBio}
+              onChange={(e) => setEditBio(e.target.value)}
+              placeholder="자기소개 (500자 이내)"
+              rows={3}
+              maxLength={500}
+              className="w-full resize-none rounded-xl bg-surface2 px-4 py-2.5 text-sm text-slate-300 outline-none"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={saveEdit}
+                className="flex-1 rounded-xl bg-brand py-2.5 text-sm font-semibold text-white"
+              >
+                저장
+              </button>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="rounded-xl bg-surface2 px-5 py-2.5 text-sm text-slate-300"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 프로필 수정 / 팔로우 버튼 */}
+        {!isEditing && isOwnProfile && (
+          <button
+            onClick={openEdit}
+            className="mt-4 w-full rounded-xl bg-surface2 py-2.5 text-sm font-semibold text-white"
+          >
+            프로필 수정
+          </button>
+        )}
+        {!isEditing && !isOwnProfile && !isGuest && user && (
           <button
             onClick={toggleFollow}
-            className={`rounded-xl px-8 py-2 text-sm font-semibold ${
+            className={`mt-4 w-full rounded-xl py-2.5 text-sm font-semibold ${
               isFollowing ? 'bg-surface2 text-slate-300' : 'bg-brand text-white'
             }`}
           >
             {isFollowing ? '팔로잉' : '팔로우'}
-          </button>
-        )}
-
-        {isOwnProfile && (
-          <button
-            onClick={() => navigate('/my')}
-            className="rounded-xl bg-surface2 px-6 py-2 text-sm text-slate-300"
-          >
-            프로필 편집
           </button>
         )}
       </div>
@@ -116,7 +246,7 @@ export default function UserPage() {
       {/* 작품 목록 */}
       <div className="border-t border-surface2">
         <div className="px-4 py-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">작품</h2>
+          <h2 className="text-sm font-semibold text-white">작품</h2>
         </div>
         {works.length === 0 ? (
           <p className="p-6 text-center text-sm text-slate-500">공개된 작품이 없습니다.</p>
