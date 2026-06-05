@@ -345,12 +345,12 @@ export default function MyPage() {
           </li>
           <li>
             <button
-              disabled
-              className="flex w-full items-center gap-3 px-4 py-3.5 text-left opacity-40"
+              onClick={() => navigate('/follows?tab=following')}
+              className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
             >
               <span className="text-xl">👥</span>
-              <span className="flex-1 text-sm text-white">팔로우</span>
-              <span className="text-[10px] text-slate-500">추후 지원 예정</span>
+              <span className="flex-1 text-sm text-white">팔로잉 목록</span>
+              <span className="text-slate-500">›</span>
             </button>
           </li>
         </ul>

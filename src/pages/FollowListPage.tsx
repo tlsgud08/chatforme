@@ -9,7 +9,7 @@ export default function FollowListPage() {
   const { user, isGuest } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = (searchParams.get('tab') ?? 'followers') as 'followers' | 'following';
+  const tab = (searchParams.get('tab') ?? 'following') as 'followers' | 'following';
 
   const [followers, setFollowers] = useState<Profile[]>([]);
   const [following, setFollowing] = useState<Profile[]>([]);
@@ -63,20 +63,20 @@ export default function FollowListPage() {
       {/* 탭 */}
       <div className="flex border-b border-surface2">
         <button
-          onClick={() => setSearchParams({ tab: 'followers' })}
-          className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${
-            tab === 'followers' ? 'border-b-2 border-brand text-white' : 'text-slate-500'
-          }`}
-        >
-          팔로워 {followers.length > 0 && <span className="ml-1 text-xs font-normal opacity-70">{followers.length}</span>}
-        </button>
-        <button
           onClick={() => setSearchParams({ tab: 'following' })}
           className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${
             tab === 'following' ? 'border-b-2 border-brand text-white' : 'text-slate-500'
           }`}
         >
           팔로잉 {following.length > 0 && <span className="ml-1 text-xs font-normal opacity-70">{following.length}</span>}
+        </button>
+        <button
+          onClick={() => setSearchParams({ tab: 'followers' })}
+          className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${
+            tab === 'followers' ? 'border-b-2 border-brand text-white' : 'text-slate-500'
+          }`}
+        >
+          팔로워 {followers.length > 0 && <span className="ml-1 text-xs font-normal opacity-70">{followers.length}</span>}
         </button>
       </div>
 
