@@ -43,7 +43,6 @@ interface Props {
   onShowCacheToggle: (v: boolean) => void;
   showKrw: boolean;
   krwRate: number | null;
-  onShowKrwToggle: (v: boolean) => void;
   sessionProvider: Provider;
   sessionModel: string;
   onProviderChange: (p: Provider) => void;
@@ -54,7 +53,7 @@ interface Props {
 
 export default function SessionMenu({
   session, profile, onClose, onUpdate, onPersonaChange,
-  debugMode, onDebugToggle, showCost, onShowCostToggle, showTokens, onShowTokensToggle, showCache, onShowCacheToggle, showKrw, krwRate, onShowKrwToggle,
+  debugMode, onDebugToggle, showCost, onShowCostToggle, showTokens, onShowTokensToggle, showCache, onShowCacheToggle, showKrw, krwRate,
   sessionProvider, sessionModel, onProviderChange, onModelChange,
   errorLog, onClearErrors,
 }: Props) {
@@ -69,7 +68,6 @@ export default function SessionMenu({
     const apiKey = getApiKey('openrouter');
     if (!apiKey) return;
     setCreditLoading(true);
-    // /credits = 계정 실제 잔액 (total_credits - total_usage)
     fetch('https://openrouter.ai/api/v1/credits', {
       headers: { authorization: `Bearer ${apiKey}` },
     })
@@ -356,22 +354,6 @@ export default function SessionMenu({
               className={`relative h-6 w-11 rounded-full transition-colors ${showCache ? 'bg-emerald-500' : 'bg-surface2'}`}
             >
               <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showCache ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
-            </button>
-          </div>
-        </section>
-
-        {/* 원화(₩) 표시 */}
-        <section>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-300">원화(₩) 표시</p>
-              <p className="text-xs text-slate-500">크레딧 금액을 원화로 함께 표시</p>
-            </div>
-            <button
-              onClick={() => onShowKrwToggle(!showKrw)}
-              className={`relative h-6 w-11 rounded-full transition-colors ${showKrw ? 'bg-emerald-500' : 'bg-surface2'}`}
-            >
-              <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showKrw ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
             </button>
           </div>
         </section>

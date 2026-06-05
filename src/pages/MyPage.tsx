@@ -68,7 +68,6 @@ export default function MyPage() {
   useEffect(() => {
     const apiKey = getApiKey('openrouter');
     if (!apiKey) return;
-    // /credits = 계정 실제 잔액 (total_credits - total_usage)
     fetch('https://openrouter.ai/api/v1/credits', {
       headers: { authorization: `Bearer ${apiKey}` },
     })
@@ -214,7 +213,6 @@ export default function MyPage() {
     <div className="flex flex-col gap-6 p-4">
       {/* 프로필 카드 */}
       <section className="flex flex-col items-center gap-3 rounded-xl bg-surface p-5">
-        {/* 아바타 */}
         <button
           type="button"
           className="relative h-20 w-20 shrink-0 rounded-full"
@@ -283,10 +281,12 @@ export default function MyPage() {
             <p className="text-xs font-semibold text-slate-400">OpenRouter 크레딧</p>
             <button
               onClick={() => toggleKrw(!showKrw)}
-              className={`relative h-5 w-9 rounded-full transition-colors ${showKrw ? 'bg-emerald-500' : 'bg-surface2'}`}
-              title="원화 표시"
+              className="flex items-center gap-1.5"
             >
-              <span className={`absolute left-0 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${showKrw ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+              <span className="text-[10px] text-slate-500">₩ 원화 표시</span>
+              <span className={`relative h-5 w-9 rounded-full transition-colors ${showKrw ? 'bg-emerald-500' : 'bg-surface2'}`}>
+                <span className={`absolute left-0 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${showKrw ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+              </span>
             </button>
           </div>
           {credit.remaining !== null ? (

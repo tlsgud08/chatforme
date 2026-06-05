@@ -109,7 +109,7 @@ export default function ChatPage() {
   const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') === '1');
   const [showTokens, setShowTokens] = useState(() => localStorage.getItem('chatforme.showTokens') === '1');
   const [showCache, setShowCache] = useState(() => localStorage.getItem('chatforme.showCache') === '1');
-  const [showKrw, setShowKrw] = useState(() => localStorage.getItem('chatforme.showKrw') === '1');
+  const [showKrw] = useState(() => localStorage.getItem('chatforme.showKrw') === 'true');
   const [krwRate, setKrwRate] = useState<number | null>(null);
 
   useEffect(() => {
@@ -218,12 +218,10 @@ export default function ChatPage() {
     return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   }
 
-  // 새 메시지 추가 시엔 항상 스크롤
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages]);
 
-  // 스트리밍 중엔 이미 맨 아래 근처일 때만 스크롤
   useEffect(() => {
     if (!streamingContent) return;
     if (isNearBottom()) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -574,7 +572,6 @@ export default function ChatPage() {
           onShowCacheToggle={(v) => { setShowCache(v); localStorage.setItem('chatforme.showCache', v ? '1' : '0'); }}
           showKrw={showKrw}
           krwRate={krwRate}
-          onShowKrwToggle={(v) => { setShowKrw(v); localStorage.setItem('chatforme.showKrw', v ? '1' : '0'); }}
           sessionProvider={sessionProvider}
           sessionModel={sessionModel || DEFAULT_MODELS[sessionProvider][0]}
           onProviderChange={(p) => {
