@@ -8,6 +8,7 @@ import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
 import { assemblePrompt, DEFAULT_LABELS, type PromptLabels } from '@/lib/prompt/assemble';
+import { getUsdToKrw, toKrw } from '@/lib/exchangeRate';
 import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
   type GuestSession, type GuestMessage,
@@ -108,6 +109,13 @@ export default function ChatPage() {
   const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') === '1');
   const [showTokens, setShowTokens] = useState(() => localStorage.getItem('chatforme.showTokens') === '1');
   const [showCache, setShowCache] = useState(() => localStorage.getItem('chatforme.showCache') === '1');
+  const [showKrw, setShowKrw] = useState(() => localStorage.getItem('chatforme.showKrw') === '1');
+  const [krwRate, setKrwRate] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!showKrw) return;
+    getUsdToKrw().then(setKrwRate);
+  }, [showKrw]);
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
   const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -490,7 +498,10 @@ export default function ChatPage() {
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); }} className="text-xs text-slate-500">편집</button>
                       <button onClick={() => deleteMsg(m.id)} className="text-xs text-red-400/60">삭제</button>
                       {showCost && m.role === 'assistant' && m.cost > 0 && (
-                        <span className="text-[10px] text-slate-500">${m.cost.toFixed(6)}</span>
+                        <span className="text-[10px] text-slate-500">
+                          ${m.cost.toFixed(6)}
+                          {showKrw && krwRate && ` (${toKrw(m.cost, krwRate)})`}
+                        </span>
                       )}
                       {showTokens && m.role === 'assistant' && m.output_tokens > 0 && (
                         <span className="text-[10px] text-slate-500">{m.output_tokens} 토큰</span>
@@ -561,6 +572,9 @@ export default function ChatPage() {
           onShowTokensToggle={(v) => { setShowTokens(v); localStorage.setItem('chatforme.showTokens', v ? '1' : '0'); }}
           showCache={showCache}
           onShowCacheToggle={(v) => { setShowCache(v); localStorage.setItem('chatforme.showCache', v ? '1' : '0'); }}
+          showKrw={showKrw}
+          krwRate={krwRate}
+          onShowKrwToggle={(v) => { setShowKrw(v); localStorage.setItem('chatforme.showKrw', v ? '1' : '0'); }}
           sessionProvider={sessionProvider}
           sessionModel={sessionModel || DEFAULT_MODELS[sessionProvider][0]}
           onProviderChange={(p) => {

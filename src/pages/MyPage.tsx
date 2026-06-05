@@ -4,7 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
+import { getUsdToKrw, toKrw } from '@/lib/exchangeRate';
 import type { Persona, Profile } from '@/types/db';
+
+const KRW_KEY = 'chatforme.showKrw';
 
 interface OpenRouterCredit {
   remaining: number | null;
@@ -23,6 +26,8 @@ export default function MyPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [credit, setCredit] = useState<OpenRouterCredit | null>(null);
+  const [showKrw, setShowKrw] = useState(() => localStorage.getItem(KRW_KEY) === 'true');
+  const [krwRate, setKrwRate] = useState<number | null>(null);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
   const [newName, setNewName] = useState('');
@@ -48,6 +53,17 @@ export default function MyPage() {
       .order('created_at')
       .then(({ data }) => setPersonas((data as Persona[]) ?? []));
   }, [user, isGuest]);
+
+  useEffect(() => {
+    if (!showKrw) return;
+    getUsdToKrw().then(setKrwRate);
+  }, [showKrw]);
+
+  function toggleKrw(v: boolean) {
+    setShowKrw(v);
+    localStorage.setItem(KRW_KEY, String(v));
+    if (v) getUsdToKrw().then(setKrwRate);
+  }
 
   useEffect(() => {
     const apiKey = getApiKey('openrouter');
@@ -263,14 +279,29 @@ export default function MyPage() {
       {/* OpenRouter 크레딧 */}
       {credit && (
         <section className="rounded-xl bg-surface p-4">
-          <p className="mb-1 text-xs font-semibold text-slate-400">OpenRouter 크레딧</p>
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold text-slate-400">OpenRouter 크레딧</p>
+            <button
+              onClick={() => toggleKrw(!showKrw)}
+              className={`relative h-5 w-9 rounded-full transition-colors ${showKrw ? 'bg-emerald-500' : 'bg-surface2'}`}
+              title="원화 표시"
+            >
+              <span className={`absolute left-0 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${showKrw ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
           {credit.remaining !== null ? (
             <div>
               <p className="text-lg font-bold text-white">
                 ${credit.remaining.toFixed(3)}
+                {showKrw && krwRate && (
+                  <span className="ml-1 text-sm font-normal text-emerald-400">{toKrw(credit.remaining, krwRate)}</span>
+                )}
                 <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
               </p>
-              <p className="mt-0.5 text-[11px] text-slate-500">총 ${credit.usage.toFixed(4)} 사용</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                총 ${credit.usage.toFixed(4)} 사용
+                {showKrw && krwRate && ` (${toKrw(credit.usage, krwRate)})`}
+              </p>
             </div>
           ) : (
             <div>

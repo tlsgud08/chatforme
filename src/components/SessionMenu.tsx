@@ -5,6 +5,7 @@ import { getApiKey } from '@/lib/apiKeys';
 import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
 import type { Persona, Profile, Provider, Session } from '@/types/db';
 import type { ErrorEntry } from '@/pages/ChatPage';
+import { toKrw } from '@/lib/exchangeRate';
 
 interface OpenRouterCredit {
   usage: number;
@@ -40,6 +41,9 @@ interface Props {
   onShowTokensToggle: (v: boolean) => void;
   showCache: boolean;
   onShowCacheToggle: (v: boolean) => void;
+  showKrw: boolean;
+  krwRate: number | null;
+  onShowKrwToggle: (v: boolean) => void;
   sessionProvider: Provider;
   sessionModel: string;
   onProviderChange: (p: Provider) => void;
@@ -50,7 +54,7 @@ interface Props {
 
 export default function SessionMenu({
   session, profile, onClose, onUpdate, onPersonaChange,
-  debugMode, onDebugToggle, showCost, onShowCostToggle, showTokens, onShowTokensToggle, showCache, onShowCacheToggle,
+  debugMode, onDebugToggle, showCost, onShowCostToggle, showTokens, onShowTokensToggle, showCache, onShowCacheToggle, showKrw, krwRate, onShowKrwToggle,
   sessionProvider, sessionModel, onProviderChange, onModelChange,
   errorLog, onClearErrors,
 }: Props) {
@@ -168,6 +172,9 @@ export default function SessionMenu({
                     {credit.remaining !== null ? (
                       <p className="text-xl font-bold text-white">
                         ${credit.remaining.toFixed(3)}
+                        {showKrw && krwRate && (
+                          <span className="ml-1 text-sm font-normal text-emerald-400">{toKrw(credit.remaining, krwRate)}</span>
+                        )}
                         <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
                       </p>
                     ) : (
@@ -196,6 +203,7 @@ export default function SessionMenu({
               )}
               <p className="mt-2 text-[11px] text-slate-500">
                 이 채팅방 사용: ${session.total_cost.toFixed(6)}
+                {showKrw && krwRate && ` (${toKrw(session.total_cost, krwRate)})`}
               </p>
             </>
           ) : (
@@ -348,6 +356,22 @@ export default function SessionMenu({
               className={`relative h-6 w-11 rounded-full transition-colors ${showCache ? 'bg-emerald-500' : 'bg-surface2'}`}
             >
               <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showCache ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+        </section>
+
+        {/* 원화(₩) 표시 */}
+        <section>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-300">원화(₩) 표시</p>
+              <p className="text-xs text-slate-500">크레딧 금액을 원화로 함께 표시</p>
+            </div>
+            <button
+              onClick={() => onShowKrwToggle(!showKrw)}
+              className={`relative h-6 w-11 rounded-full transition-colors ${showKrw ? 'bg-emerald-500' : 'bg-surface2'}`}
+            >
+              <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showKrw ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
             </button>
           </div>
         </section>
