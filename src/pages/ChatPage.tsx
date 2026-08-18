@@ -205,6 +205,21 @@ export default function ChatPage() {
     return String(error);
   }
 
+  function trackScroll() {
+    const element = scrollRef.current;
+    if (!element) return;
+    shouldAutoScrollRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+  }
+
+  function errorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (error && typeof error === 'object') {
+      const value = error as { message?: string; details?: string; hint?: string; code?: string };
+      return [value.message, value.details, value.hint, value.code].filter(Boolean).join(' · ') || JSON.stringify(error);
+    }
+    return String(error);
+  }
+
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
     const activated: { content: string; recency: number }[] = [];
