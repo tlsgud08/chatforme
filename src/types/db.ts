@@ -12,6 +12,12 @@ export interface Profile {
   default_provider: Provider;
   default_model: string;
   summary_prompt: string | null;
+  summary_model: string | null;
+  summary_interval: number;
+  summary_level: number;
+  summary_allow_omission: boolean;
+  summary_parameters_enabled: boolean;
+  summary_extra_note: string;
   created_at: string;
 }
 
@@ -82,6 +88,11 @@ export interface Session {
   auto_summary_enabled: boolean;
   summary_interval: number;
   summary_last_turn: number;
+  summary_model_override: string | null;
+  summary_interval_override: number | null;
+  summary_level_override: number | null;
+  summary_allow_omission_override: boolean | null;
+  summary_parameters_enabled_override: boolean | null;
   is_archived: boolean;
   created_at: string;
   updated_at: string;

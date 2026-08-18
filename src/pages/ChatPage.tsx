@@ -229,11 +229,17 @@ export default function ChatPage() {
       const previous = session.summary.trim();
       const dialogue = candidates.map((message) => `[${message.is_hidden ? '숨김 시작 설정' : message.role === 'user' ? '사용자' : 'AI'}]\n${message.content}`).join('\n\n');
       const input = `${previous ? `=== 이전 요약 노트 ===\n${previous}\n\n` : ''}=== 새로 요약할 대화 ===\n${dialogue}`;
+      const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
+      const allowOmission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
+      const parametersEnabled = !profile.summary_prompt?.trim() || (session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true);
+      const parameterBlock = parametersEnabled ? `[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = ${summaryLevel}\nALLOW_OMISSION = ${allowOmission ? 'ON' : 'OFF'}` : '';
+      const extraNote = profile.summary_extra_note?.trim() ? `[ADDITIONAL NOTE]\n${profile.summary_extra_note.trim()}` : '';
+      const summaryCore = [profile.summary_prompt?.trim() || DEFAULT_SUMMARY_PROMPT, parameterBlock, extraNote].filter(Boolean).join('\n\n');
       const result = await generate('openrouter', {
         apiKey,
-        model: sessionModel || modelsFor('openrouter')[0],
-        reasoning: sessionReasoning,
-        systemParts: { core: profile.summary_prompt?.trim() || DEFAULT_SUMMARY_PROMPT, persona: '', userNote: '', summary: '', keywords: '' },
+        model: session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
+        reasoning: {},
+        systemParts: { core: summaryCore, persona: '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user', content: input }],
         maxOutputTokens: 4096,
       });
@@ -390,7 +396,7 @@ export default function ChatPage() {
         .eq('id', session.id);
       setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost });
       const unsummarizedTurns = messagesAfterResponse.filter((message) => message.role === 'user' && !message.is_hidden && !message.is_summarized).length;
-      if (session.auto_summary_enabled && unsummarizedTurns >= session.summary_interval) {
+      if (session.auto_summary_enabled && unsummarizedTurns >= (session.summary_interval_override ?? profile?.summary_interval ?? 30)) {
         await generateSummary(messagesAfterResponse);
       }
     } catch (err) {

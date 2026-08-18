@@ -323,6 +323,11 @@ export default function SessionMenu({
         {/* 요약 메모리 */}
         <section className="rounded-xl border border-surface2 p-3">
           <h3 className="text-sm font-semibold text-slate-300">요약 메모리 설정</h3>
+          <div className="mt-3">
+            <p className="mb-1 text-xs text-slate-400">이 채팅방 요약 모델</p>
+            <ModelSelector provider="openrouter" model={session.summary_model_override || profile?.summary_model || profile?.default_model || sessionModel} reasoning={{}} onModelChange={(summary_model_override) => void saveSummarySettings({ summary_model_override })} onReasoningChange={() => {}} favoritesOnly hideReasoning />
+            {session.summary_model_override && <button type="button" onClick={() => void saveSummarySettings({ summary_model_override: null })} className="mt-1 text-xs text-slate-400 underline">전역 모델 사용</button>}
+          </div>
           <div className="mt-3 flex items-center justify-between">
             <div>
               <p className="text-xs text-slate-300">자동 요약</p>
@@ -333,8 +338,13 @@ export default function SessionMenu({
             </button>
           </div>
           <label className="mt-3 block text-xs text-slate-400">자동 생성 간격 (턴)</label>
-          <input type="number" min={5} max={200} value={session.summary_interval} onChange={(event) => void saveSummarySettings({ summary_interval: Math.max(5, Math.min(200, Number(event.target.value) || 30)) })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none" />
-          <p className="mt-1 text-[11px] text-slate-500">기본 30턴 · 현재 마지막 요약: {session.summary_last_turn || 0}턴</p>
+          <input type="number" min={5} max={200} value={session.summary_interval_override ?? profile?.summary_interval ?? 30} onChange={(event) => void saveSummarySettings({ summary_interval_override: Math.max(5, Math.min(200, Number(event.target.value) || 30)) })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none" />
+          <p className="mt-1 text-[11px] text-slate-500">전역 기본 {profile?.summary_interval ?? 30}턴 · 현재 마지막 요약: {session.summary_last_turn || 0}턴</p>
+          <button type="button" onClick={() => void saveSummarySettings({ summary_interval_override: null })} className="mt-1 text-xs text-slate-400 underline">전역 간격 사용</button>
+          <label className="mt-3 block text-xs text-slate-400">Summary level (0~10)</label>
+          <input type="number" min={0} max={10} value={session.summary_level_override ?? profile?.summary_level ?? 5} onChange={(e) => void saveSummarySettings({ summary_level_override: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none" />
+          <label className="mt-3 flex items-center justify-between text-xs text-slate-300"><span>Allow omission</span><input type="checkbox" checked={session.summary_allow_omission_override ?? profile?.summary_allow_omission ?? true} onChange={(e) => void saveSummarySettings({ summary_allow_omission_override: e.target.checked })} /></label>
+          <label className="mt-3 flex items-center justify-between text-xs text-slate-300"><span>요약 파라미터 함께 전송</span><input type="checkbox" disabled={!profile?.summary_prompt?.trim()} checked={session.summary_parameters_enabled_override ?? profile?.summary_parameters_enabled ?? true} onChange={(e) => void saveSummarySettings({ summary_parameters_enabled_override: e.target.checked })} /></label>
           <button type="button" disabled={summaryGenerating} onClick={async () => { await onGenerateSummary(); await loadSummaries(); }} className="mt-3 w-full rounded-lg bg-brand py-2 text-sm font-semibold text-white disabled:opacity-50">
             {summaryGenerating ? '요약 생성 중…' : '지금 요약 노트 생성'}
           </button>

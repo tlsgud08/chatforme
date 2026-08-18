@@ -12,6 +12,7 @@ interface Props {
   onModelChange: (model: string) => void;
   onReasoningChange: (reasoning: ReasoningSelection) => void;
   favoritesOnly?: boolean;
+  hideReasoning?: boolean;
 }
 
 const RELEASE_LABEL = { stable: 'Stable', preview: 'Preview', alias: 'Alias' } as const;
@@ -26,7 +27,7 @@ function vendorOf(modelId: string) {
   return modelId.split('/')[0].replace(/^~+/, '');
 }
 
-export default function ModelSelector({ provider, model, reasoning, onModelChange, onReasoningChange, favoritesOnly = false }: Props) {
+export default function ModelSelector({ provider, model, reasoning, onModelChange, onReasoningChange, favoritesOnly = false, hideReasoning = false }: Props) {
   const [customInput, setCustomInput] = useState('');
   const [search, setSearch] = useState('');
   const [vendor, setVendor] = useState('전체');
@@ -175,7 +176,7 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
       </div>}
       {!favoritesOnly && custom.includes(model) && <button type="button" onClick={() => { removeCustomModel(provider, model); selectModel(modelsFor(provider)[0]); setRevision((value) => value + 1); }} className="self-end text-xs text-red-400">저장한 모델 삭제</button>}
 
-      {capability.supportedEfforts.length > 0 ? (
+      {!hideReasoning && (capability.supportedEfforts.length > 0 ? (
         <>
           <label className="mt-1 text-xs text-slate-400">OpenRouter 추론 수준</label>
           <select value={reasoning.effort ?? ''} onChange={(event) => onReasoningChange({ effort: event.target.value || undefined })} className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none">
@@ -186,7 +187,7 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
         </>
       ) : (
         <p className="text-[11px] text-slate-500">OpenRouter가 이 모델의 reasoning 지원을 보고하지 않았습니다.</p>
-      )}
+      ))}
       {capability.notes?.map((note) => <p key={note} className="text-[11px] text-amber-500">{note}</p>)}
     </div>
   );
