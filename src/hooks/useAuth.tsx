@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 import { supabase, ADMIN_EMAIL } from '@/lib/supabase';
 
-const GUEST_KEY = 'nekochat.guest';
+const GUEST_KEY = 'inuchat.guest';
+const LEGACY_GUEST_KEY = 'nekochat.guest';
 
 interface AuthState {
   user: User | null;
@@ -26,6 +27,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isGuest, setIsGuest] = useState(false);
 
   useEffect(() => {
+    if (localStorage.getItem(GUEST_KEY) === null && localStorage.getItem(LEGACY_GUEST_KEY) !== null) {
+      localStorage.setItem(GUEST_KEY, localStorage.getItem(LEGACY_GUEST_KEY)!);
+    }
     if (localStorage.getItem(GUEST_KEY) === '1') {
       setIsGuest(true);
       setLoading(false);
