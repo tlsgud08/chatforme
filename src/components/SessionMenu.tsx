@@ -235,6 +235,7 @@ export default function SessionMenu({
               reasoning={sessionReasoning}
               onModelChange={onModelChange}
               onReasoningChange={onReasoningChange}
+              favoritesOnly
             />
           </div>
         </section>
