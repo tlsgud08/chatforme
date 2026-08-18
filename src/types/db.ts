@@ -143,6 +143,7 @@ export interface Message {
   reroll_group_id: string | null;
   reroll_index: number;
   is_active_variant: boolean;
+  generation_status: 'streaming' | 'complete' | 'interrupted';
   created_at: string;
 }
 

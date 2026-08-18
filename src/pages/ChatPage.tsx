@@ -45,7 +45,22 @@ function loadSessionSettings(id: string, profile: Profile | null): SessionSettin
 }
 
 function toMsg(m: GuestMessage): Message {
-  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0, reroll_group_id: null, reroll_index: 1, is_active_variant: true };
+  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0, reroll_group_id: null, reroll_index: 1, is_active_variant: true, generation_status: 'complete' };
+}
+
+interface ActiveGeneration {
+  controller: AbortController;
+  content: string;
+  listeners: Set<(content: string | null) => void>;
+}
+const activeGenerations = new Map<string, ActiveGeneration>();
+
+function publishGeneration(id: string, content: string | null) {
+  const active = activeGenerations.get(id);
+  if (!active) return;
+  if (content !== null) active.content = content;
+  active.listeners.forEach((listener) => listener(content));
+  if (content === null) activeGenerations.delete(id);
 }
 
 export interface ErrorEntry {
@@ -78,6 +93,13 @@ function describeUnknownError(error: unknown): string {
 
 function isNearScrollBottom(element: HTMLDivElement): boolean {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+}
+
+function shouldSubmitOnEnter() {
+  if (typeof window === 'undefined') return true;
+  const mobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const touchPhoneLayout = navigator.maxTouchPoints > 0 && window.matchMedia('(max-width: 768px)').matches;
+  return !mobileUserAgent && !touchPhoneLayout;
 }
 
 export default function ChatPage() {
@@ -119,6 +141,22 @@ export default function ChatPage() {
   const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cachedPartsRef = useRef({ core: '', persona: '', userNote: '', summary: '' });
   const shouldAutoScrollRef = useRef(true);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const active = activeGenerations.get(sessionId);
+    if (!active) return;
+    setSending(true);
+    setStreamingContent(active.content);
+    const listener = (content: string | null) => {
+      if (content !== null) { setStreamingContent(content); return; }
+      setSending(false);
+      setStreamingContent('');
+      void supabase.from('messages').select('*').eq('session_id', sessionId).order('created_at').then(({ data }) => setMessages((data as Message[]) ?? []));
+    };
+    active.listeners.add(listener);
+    return () => { active.listeners.delete(listener); };
+  }, [sessionId]);
 
   function showCacheToast(parts: { core: string; persona: string; userNote: string; summary: string }) {
     const labels: string[] = [];
@@ -174,7 +212,14 @@ export default function ChatPage() {
       setWork(w as Work);
       setProfile(p as Profile);
       setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
-      setMessages((msgs as Message[]) ?? []);
+      const loadedMessages = (msgs as Message[]) ?? [];
+      const orphanedIds = !activeGenerations.has(sess.id)
+        ? loadedMessages.filter((message) => message.generation_status === 'streaming').map((message) => message.id)
+        : [];
+      if (orphanedIds.length) {
+        await supabase.from('messages').update({ generation_status: 'interrupted' }).in('id', orphanedIds);
+      }
+      setMessages(loadedMessages.map((message) => orphanedIds.includes(message.id) ? { ...message, generation_status: 'interrupted' } : message));
       setKeywordBooks((kbs as KeywordBook[]) ?? []);
       setStoryNotes((notes as StoryNote[]) ?? []);
 
@@ -320,7 +365,7 @@ export default function ChatPage() {
   }
 
   async function send(options?: { reroll?: boolean }) {
-    if (!work || sending) return;
+    if (!work || sending || (sessionId && activeGenerations.has(sessionId))) return;
 
     const guestSettings = loadGuestSettings();
     const provider: Provider = 'openrouter';
@@ -360,14 +405,24 @@ export default function ChatPage() {
     setStreamingContent('');
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    if (sessionId) activeGenerations.set(sessionId, { controller, content: '', listeners: new Set() });
     const now = new Date().toISOString();
     const turnIndex = baseMessages.filter((m) => !m.is_hidden).length;
     let partialText = '';
     let lastPaint = 0;
+    let draftMessageId: string | null = null;
+    let lastDraftSave = 0;
+    let draftSaveQueue = Promise.resolve();
     const onChunk = (t: string) => {
       partialText = t;
+      if (sessionId) publishGeneration(sessionId, t);
       const nowMs = performance.now();
       if (nowMs - lastPaint >= 50) { lastPaint = nowMs; setStreamingContent(t); }
+      if (!isGuest && draftMessageId && nowMs - lastDraftSave >= 500) {
+        lastDraftSave = nowMs;
+        const id = draftMessageId;
+        draftSaveQueue = draftSaveQueue.then(async () => { await supabase.from('messages').update({ content: t }).eq('id', id); });
+      }
     };
 
     if (isGuest && guestSession) {
@@ -409,8 +464,8 @@ export default function ChatPage() {
         guestUpdateSession(guestSession.id, { total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost });
         setGuestSession((gs) => gs ? { ...gs, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost } : gs);
       } catch (err) {
-        const isAbort = err instanceof DOMException && err.name === 'AbortError';
-        if (isAbort && partialText) {
+        const isAbort = controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError');
+        if (partialText) {
           const aiMsg: GuestMessage = {
             id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
             content: partialText, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cost: 0,
@@ -418,18 +473,27 @@ export default function ChatPage() {
           };
           guestAddMessage(guestSession.id, aiMsg);
           setMessages((m) => [...m, toMsg(aiMsg)]);
-        } else if (!isAbort) {
-          addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
+          if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
+        } else {
+          const interrupted: GuestMessage = {
+            id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
+            content: '응답이 중단되었습니다.', turn_index: turnIndex, input_tokens: 0,
+            output_tokens: 0, cost: 0, is_hidden: false, created_at: new Date().toISOString(),
+          };
+          guestAddMessage(guestSession.id, interrupted);
+          setMessages((current) => [...current, toMsg(interrupted)]);
+          if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
         }
       } finally {
         setSending(false);
         setStreamingContent('');
         abortControllerRef.current = null;
+        if (sessionId) publishGeneration(sessionId, null);
       }
       return;
     }
 
-    if (!session || !profile) { setSending(false); setStreamingContent(''); return; }
+    if (!session || !profile) { setSending(false); setStreamingContent(''); if (sessionId) publishGeneration(sessionId, null); return; }
 
     const historyMsgs = buildHistory([...baseMessages], effectiveSummaryTurn);
     let currentMessages = [...baseMessages];
@@ -453,16 +517,24 @@ export default function ChatPage() {
     });
     const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
     try {
+      const { data: draft, error: draftError } = await supabase.from('messages').insert({
+        session_id: session.id, role: 'assistant', content: '', turn_index: turnIndex,
+        input_tokens: 0, output_tokens: 0, cost: 0, reroll_group_id: rerollGroupId,
+        reroll_index: rerollIndex, is_active_variant: true, generation_status: 'streaming',
+      }).select('id').single();
+      if (draftError || !draft) throw draftError ?? new Error('응답 임시 저장 공간을 만들 수 없습니다.');
+      draftMessageId = draft.id;
       const result = await generate(provider, { apiKey, model, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
       if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
+      await draftSaveQueue;
       const { data: aiMsg } = await supabase
         .from('messages')
-        .insert({
-          session_id: session.id, role: 'assistant', content: result.text, turn_index: turnIndex,
+        .update({
+          content: result.text,
           input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
-          reroll_group_id: rerollGroupId, reroll_index: rerollIndex, is_active_variant: true,
+          generation_status: 'complete',
         })
-        .select('*').single();
+        .eq('id', draftMessageId).select('*').single();
       const messagesAfterResponse = aiMsg ? [...currentMessages, aiMsg as Message] : currentMessages;
       if (aiMsg) {
         if (rerollTarget) await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
@@ -492,20 +564,27 @@ export default function ChatPage() {
         await generateSummary(messagesAfterResponse);
       }
     } catch (err) {
-      const isAbort = err instanceof DOMException && err.name === 'AbortError';
-      if (isAbort && partialText) {
-        const { data: aiMsg } = await supabase
-          .from('messages')
-          .insert({ session_id: session.id, role: 'assistant', content: partialText, turn_index: turnIndex })
-          .select('*').single();
+      const isAbort = controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError');
+      if (partialText) {
+        await draftSaveQueue;
+        const { data: aiMsg } = draftMessageId ? await supabase.from('messages').update({ content: partialText, generation_status: 'complete' }).eq('id', draftMessageId).select('*').single() : { data: null };
+        if (aiMsg && rerollTarget) {
+          await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
+        }
         if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
-      } else if (!isAbort) {
-        addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
+        if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
+      } else {
+        const { data: interrupted } = draftMessageId
+          ? await supabase.from('messages').update({ generation_status: 'interrupted' }).eq('id', draftMessageId).select('*').single()
+          : { data: null };
+        if (interrupted) setMessages((current) => [...current, interrupted as Message]);
+        if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
       }
     } finally {
       setSending(false);
       setStreamingContent('');
       abortControllerRef.current = null;
+      if (sessionId) publishGeneration(sessionId, null);
     }
   }
 
@@ -597,7 +676,7 @@ export default function ChatPage() {
 
   const currentSession = isGuest ? guestSession : session;
 
-  const visibleMessages = messages.filter((m) => m.is_active_variant !== false && (!m.is_hidden || debugMode));
+  const visibleMessages = messages.filter((m) => m.generation_status !== 'streaming' && m.is_active_variant !== false && (!m.is_hidden || debugMode));
 
   if (!currentSession || !work) {
     return <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>;
@@ -662,7 +741,9 @@ export default function ChatPage() {
                       ? 'border border-amber-500/40 bg-surface text-amber-200'
                       : m.role === 'user'
                         ? 'bg-brand text-white'
-                        : 'bg-surface text-slate-100'
+                        : m.generation_status === 'interrupted' && !m.content
+                          ? 'bg-surface text-slate-500'
+                          : 'bg-surface text-slate-100'
                   }`}>
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
@@ -693,7 +774,7 @@ export default function ChatPage() {
                         ),
                       }}
                     >
-                      {m.content}
+                      {m.content || (m.generation_status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
                     </ReactMarkdown>
                   </div>
                   {!m.is_hidden && (
@@ -728,14 +809,14 @@ export default function ChatPage() {
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && shouldSubmitOnEnter()) { e.preventDefault(); void send(); } }}
           rows={1}
           placeholder="메시지 입력…"
           className="max-h-32 flex-1 resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm outline-none"
         />
         {sending ? (
           <button
-            onClick={() => abortControllerRef.current?.abort()}
+            onClick={() => (sessionId ? activeGenerations.get(sessionId)?.controller : abortControllerRef.current)?.abort('사용자가 응답 생성을 중단했습니다.')}
             className="rounded-full bg-red-500 px-4 py-2.5 text-sm font-semibold text-white"
           >
             중단
