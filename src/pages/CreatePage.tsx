@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import type { Work } from '@/types/db';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { showToast } from '@/lib/toast';
 
 export default function CreatePage() {
   const { user, isGuest } = useAuth();
@@ -13,6 +14,12 @@ export default function CreatePage() {
   const [menuId, setMenuId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Work | null>(null);
   const [deleting, setDeleting] = useState(false);
+  useEffect(() => {
+    if (!menuId) return;
+    const close = (event: PointerEvent) => { if (!(event.target as Element).closest('[data-popup-menu]')) setMenuId(null); };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [menuId]);
 
   if (isGuest) {
     return (
@@ -78,6 +85,23 @@ export default function CreatePage() {
       refetch(),
       queryClient.invalidateQueries({ queryKey: ['works-stats'] }),
     ]);
+    showToast('작품을 삭제했습니다.');
+  }
+
+  async function duplicateWork(work: Work) {
+    setMenuId(null);
+    const { id: _id, created_at: _created, updated_at: _updated, ...copy } = work;
+    const { data: created, error } = await supabase.from('works').insert({ ...copy, title: `${work.title || '제목 없음'} (복제본)`, creator_id: user!.id, is_published: false }).select('id').single();
+    if (error || !created) { alert(`복제 실패: ${error?.message ?? '작품을 만들 수 없습니다.'}`); return; }
+    const [{ data: configs }, { data: books }] = await Promise.all([
+      supabase.from('start_configs').select('name,initial_message,initial_context,keep_turns,sort_order,is_default').eq('work_id', work.id),
+      supabase.from('keyword_books').select('name,keywords,content,activation_turns,sort_order').eq('work_id', work.id),
+    ]);
+    if (configs?.length) await supabase.from('start_configs').insert(configs.map((item) => ({ ...item, work_id: created.id })));
+    if (books?.length) await supabase.from('keyword_books').insert(books.map((item) => ({ ...item, work_id: created.id })));
+    await refetch();
+    showToast('작품을 복제했습니다.');
+    navigate(`/create/${created.id}`);
   }
 
   return (
@@ -96,7 +120,7 @@ export default function CreatePage() {
       ) : (
         <ul className="divide-y divide-surface2">
           {data.map((w) => (
-            <li key={w.id} className="relative flex items-center">
+            <li key={w.id} data-popup-menu className="relative flex items-center">
               <Link to={`/create/${w.id}`} className="flex flex-1 gap-3 py-3 active:bg-surface">
                 <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2">
                   {w.thumbnail_url && (
@@ -124,6 +148,7 @@ export default function CreatePage() {
               </button>
               {menuId === w.id && (
                 <div className="absolute right-3 top-12 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">
+                  <button type="button" onClick={() => void duplicateWork(w)} className="w-full px-4 py-3 text-left text-sm text-slate-200 hover:bg-surface2">작품 복제</button>
                   <button
                     type="button"
                     onClick={() => { setDeleteTarget(w); setMenuId(null); }}

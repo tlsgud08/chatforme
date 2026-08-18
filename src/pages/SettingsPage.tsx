@@ -111,6 +111,9 @@ export default function SettingsPage() {
         summary_parameters_enabled: profile.summary_parameters_enabled,
         summary_extra_note: profile.summary_extra_note,
         summary_source_mode: profile.summary_source_mode,
+        summary_cost_enabled: profile.summary_cost_enabled,
+        summary_cost_currency: profile.summary_cost_currency,
+        summary_cost_threshold: profile.summary_cost_threshold,
       })
       .eq('id', profile.id);
     saveDefaultReasoning(defaultReasoning);
@@ -281,6 +284,11 @@ export default function SettingsPage() {
             <label className="text-xs text-slate-400">자동 생성 간격 (턴)
               <input type="number" min={5} max={200} value={profile.summary_interval ?? 30} onChange={(e) => setProfile({ ...profile, summary_interval: Math.max(5, Math.min(200, Number(e.target.value) || 30)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
             </label>
+            <div className="rounded-lg border border-surface2 p-3">
+              <label className="flex items-center justify-between text-xs text-slate-300"><span>최근 응답 가격 조건 사용</span><input type="checkbox" checked={profile.summary_cost_enabled ?? false} onChange={(e) => setProfile({ ...profile, summary_cost_enabled: e.target.checked })} /></label>
+              <p className="mt-1 text-[11px] text-slate-500">턴 조건을 만족하고, 최근 5개 AI 응답 중 3개 이상이 기준 가격을 넘을 때 요약합니다.</p>
+              <div className="mt-2 grid grid-cols-[100px_1fr] gap-2"><select value={profile.summary_cost_currency ?? 'USD'} onChange={(e) => setProfile({ ...profile, summary_cost_currency: e.target.value as 'USD' | 'KRW' })} className="rounded-lg bg-surface2 px-2 py-2 text-xs text-white"><option value="USD">달러 ($)</option><option value="KRW">원화 (₩)</option></select><input type="number" min={0} step="any" value={profile.summary_cost_threshold ?? 0} onChange={(e) => setProfile({ ...profile, summary_cost_threshold: Math.max(0, Number(e.target.value) || 0) })} className="rounded-lg bg-surface2 px-3 py-2 text-xs text-white" /></div>
+            </div>
             <label className="text-xs text-slate-400">요약 입력 범위
               <select value={profile.summary_source_mode ?? 'incremental'} onChange={(e) => setProfile({ ...profile, summary_source_mode: e.target.value as 'incremental' | 'full' })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none">
                 <option value="incremental">이전 요약 + 이후 메시지</option>
