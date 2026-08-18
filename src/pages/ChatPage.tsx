@@ -21,6 +21,8 @@ import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
 import { showToast } from '@/lib/toast';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
+const GENERATION_TIMEOUT_MS = 120_000;
+const DRAFT_SAVE_INTERVAL_MS = 1_000;
 interface GuestSettings { provider: Provider; model: string; outputTokens: number | null; reasoning?: ReasoningSelection; }
 function loadGuestSettings(): GuestSettings {
   try { return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings; }
@@ -401,6 +403,14 @@ export default function ChatPage() {
     setStreamingContent('');
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    let generationTimedOut = false;
+    let generationTimeout: ReturnType<typeof setTimeout> | null = null;
+    const startGenerationTimeout = () => {
+      generationTimeout = setTimeout(() => {
+        generationTimedOut = true;
+        controller.abort('모델 응답이 2분 안에 완료되지 않아 생성을 중단했습니다.');
+      }, GENERATION_TIMEOUT_MS);
+    };
     if (sessionId) activeGenerations.set(sessionId, { controller, content: '', listeners: new Set() });
     const now = new Date().toISOString();
     const turnIndex = baseMessages.filter((m) => !m.is_hidden).length;
@@ -414,10 +424,10 @@ export default function ChatPage() {
       if (sessionId) publishGeneration(sessionId, t);
       const nowMs = performance.now();
       if (nowMs - lastPaint >= 50) { lastPaint = nowMs; setStreamingContent(t); }
-      if (!isGuest && draftMessageId && nowMs - lastDraftSave >= 500) {
+      if (!isGuest && draftMessageId && nowMs - lastDraftSave >= DRAFT_SAVE_INTERVAL_MS) {
         lastDraftSave = nowMs;
         const id = draftMessageId;
-        draftSaveQueue = draftSaveQueue.then(async () => {
+        draftSaveQueue = draftSaveQueue.catch(() => {}).then(async () => {
           const { error } = await supabase.from('messages').update({ content: t }).eq('id', id);
           if (error) throw error;
         });
@@ -447,6 +457,7 @@ export default function ChatPage() {
       });
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
       try {
+        startGenerationTimeout();
         const result = await generate(provider, { apiKey, model, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
         if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
         const aiMsg: GuestMessage = {
@@ -472,7 +483,8 @@ export default function ChatPage() {
           };
           guestAddMessage(guestSession.id, aiMsg);
           setMessages((m) => [...m, toMsg(aiMsg)]);
-          if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
+          if (generationTimedOut) addError('모델 응답이 2분 안에 완료되지 않아 수신한 내용까지만 저장했습니다.');
+          else if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
         } else {
           const interrupted: GuestMessage = {
             id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
@@ -481,9 +493,11 @@ export default function ChatPage() {
           };
           guestAddMessage(guestSession.id, interrupted);
           setMessages((current) => [...current, toMsg(interrupted)]);
-          if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
+          if (generationTimedOut) addError('모델 응답이 2분 안에 완료되지 않아 생성을 중단했습니다.');
+          else if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
         }
       } finally {
+        if (generationTimeout) clearTimeout(generationTimeout);
         setSending(false);
         setStreamingContent('');
         abortControllerRef.current = null;
@@ -530,11 +544,11 @@ export default function ChatPage() {
       }).select('id').single();
       if (draftError || !draft) throw draftError ?? new Error('응답 임시 저장 공간을 만들 수 없습니다.');
       draftMessageId = draft.id;
+      startGenerationTimeout();
       const result = await generate(provider, { apiKey, model, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
       if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
       await draftSaveQueue;
       const { data: aiMsg, error: finalMessageError } = await supabase
-      const { data: aiMsg } = await supabase
         .from('messages')
         .update({
           content: result.text,
@@ -576,20 +590,23 @@ export default function ChatPage() {
       const isAbort = controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError');
       if (partialText) {
         await draftSaveQueue.catch(() => {});
-        const { data: aiMsg } = draftMessageId ? await supabase.from('messages').update({ content: partialText, generation_status: 'complete' }).eq('id', draftMessageId).select('*').single() : { data: null };
+        const { data: aiMsg } = draftMessageId ? await supabase.from('messages').update({ content: partialText, generation_status: 'interrupted' }).eq('id', draftMessageId).select('*').single() : { data: null };
         if (aiMsg && rerollTarget) {
           await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
         }
         if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
-        if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
+        if (generationTimedOut) addError('모델 응답이 2분 안에 완료되지 않아 수신한 내용까지만 저장했습니다.');
+        else if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
       } else {
         const { data: interrupted } = draftMessageId
           ? await supabase.from('messages').update({ generation_status: 'interrupted' }).eq('id', draftMessageId).select('*').single()
           : { data: null };
         if (interrupted) setMessages((current) => [...current, interrupted as Message]);
-        if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
+        if (generationTimedOut) addError('모델 응답이 2분 안에 완료되지 않아 생성을 중단했습니다.');
+        else if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
       }
     } finally {
+      if (generationTimeout) clearTimeout(generationTimeout);
       setSending(false);
       setStreamingContent('');
       abortControllerRef.current = null;
@@ -785,9 +802,11 @@ export default function ChatPage() {
                       }}
                     >
                       {m.content || (m.generation_status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : m.generation_status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
-                      {m.content || (m.generation_status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
                     </ReactMarkdown>
                   </div>
+                  {m.role === 'assistant' && m.generation_status === 'interrupted' && m.content && (
+                    <p className="text-xs text-amber-400">응답이 중간에 중단되어 수신한 내용까지만 저장되었습니다.</p>
+                  )}
                   {!m.is_hidden && (
                     <div className={`flex items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); }} className="text-xs text-slate-500">편집</button>
