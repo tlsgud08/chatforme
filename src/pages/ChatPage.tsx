@@ -763,7 +763,7 @@ export default function ChatPage() {
                 </div>
               ) : (
                 <>
-                  <div className={`w-full min-w-0 overflow-hidden break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                  <div className={`w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                     m.is_hidden
                       ? 'border border-amber-500/40 bg-surface text-amber-200'
                       : m.role === 'user'
@@ -778,21 +778,20 @@ export default function ChatPage() {
                         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                         strong: ({ children }) => <strong className="font-bold">{children}</strong>,
                         em: ({ children }) => <em className="not-italic opacity-50">{children}</em>,
-                        ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
-                        ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
+                        ul: ({ children }) => <ul className="mb-2 list-outside list-disc pl-5">{children}</ul>,
+                        ol: ({ children }) => <ol className="mb-2 list-outside list-decimal pl-5">{children}</ol>,
                         li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                        code: ({ children, className }) =>
-                          className ? (
-                            <code className="block overflow-x-auto rounded-lg bg-surface2 p-3 text-xs font-mono">{children}</code>
-                          ) : (
-                            <code className="rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>
-                          ),
-                        pre: ({ children }) => <pre className="mb-2">{children}</pre>,
+                        code: ({ children }) => <code className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>,
+                        pre: ({ children }) => <pre className="mb-2 max-w-full min-w-0 overflow-x-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-lg bg-surface2 p-3 text-xs [&>code]:block [&>code]:max-w-full [&>code]:bg-transparent [&>code]:p-0">{children}</pre>,
                         blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
                         h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
                         h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
                         h3: ({ children }) => <h3 className="mb-1 text-base font-semibold">{children}</h3>,
                         hr: () => <hr className="my-2 border-slate-600" />,
+                        table: ({ children }) => <div className="mb-2 max-w-full overflow-x-hidden"><table className="w-full table-fixed border-collapse text-left text-xs">{children}</table></div>,
+                        th: ({ children }) => <th className="break-words border border-slate-500/60 bg-surface2 px-2 py-1.5 font-semibold [overflow-wrap:anywhere]">{children}</th>,
+                        td: ({ children }) => <td className="break-words border border-slate-500/60 px-2 py-1.5 align-top [overflow-wrap:anywhere]">{children}</td>,
+                        del: ({ children }) => <del className="opacity-70">{children}</del>,
                         img: ({ src, alt }) => (
                           <img src={src} alt={alt ?? ''} className="my-2 block h-auto max-w-full" loading="lazy" />
                         ),
