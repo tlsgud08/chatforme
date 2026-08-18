@@ -6,6 +6,7 @@ import type { ReasoningSelection } from '@/lib/llm/types';
 import ModelSelector from './ModelSelector';
 import type { Persona, Profile, Session, StoryNote, SummaryVersion } from '@/types/db';
 import type { ErrorEntry } from '@/pages/ChatPage';
+import { formatKrw, type ExchangeRate } from '@/lib/exchangeRate';
 
 interface OpenRouterCredit {
   usage: number;
@@ -36,6 +37,9 @@ interface Props {
   onDebugToggle: (v: boolean) => void;
   showCost: boolean;
   onShowCostToggle: (v: boolean) => void;
+  showCostKrw: boolean;
+  onShowCostKrwToggle: (v: boolean) => void;
+  exchange: ExchangeRate;
   sessionModel: string;
   onModelChange: (m: string) => void;
   sessionReasoning: ReasoningSelection;
@@ -51,7 +55,7 @@ interface Props {
 
 export default function SessionMenu({
   session, profile, onClose, onUpdate, onPersonaChange,
-  debugMode, onDebugToggle, showCost, onShowCostToggle,
+  debugMode, onDebugToggle, showCost, onShowCostToggle, showCostKrw, onShowCostKrwToggle, exchange,
   sessionModel, onModelChange, sessionReasoning, onReasoningChange,
   errorLog, onClearErrors,
   onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange,
@@ -172,7 +176,9 @@ export default function SessionMenu({
   }
 
   async function applySelectedSummaries() {
-    const selected = summaryVersions.filter((version) => selectedSummaryIds.includes(version.id));
+    const selected = summaryVersions
+      .filter((version) => selectedSummaryIds.includes(version.id))
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
     const summary = selected.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
     const { error } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id);
     if (error) { flash(error.message); return; }
@@ -180,7 +186,7 @@ export default function SessionMenu({
       const { error: selectError } = await supabase.from('summary_versions').update({ is_active: true }).in('id', selectedSummaryIds);
       if (selectError) { flash(selectError.message); return; }
     }
-    const newestSelected = [...selected].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+    const newestSelected = selected[selected.length - 1];
     const summaryLastTurn = newestSelected?.summarized_through_turn ?? 0;
     await supabase.from('sessions').update({ summary, summary_last_turn: summaryLastTurn }).eq('id', session.id);
     onUpdate({ summary, summary_last_turn: summaryLastTurn });
@@ -288,6 +294,7 @@ export default function SessionMenu({
               <p className="mt-2 text-[11px] text-slate-500">
                 이 채팅방 사용: ${session.total_cost.toFixed(6)}
               </p>
+              <p className="text-[10px] text-slate-500">약 {formatKrw(session.total_cost, exchange.rate)}{exchange.fallback ? ' · 폴백 환율(1달러=1,400원)' : ''}</p>
             </>
         </section>
 
@@ -403,6 +410,15 @@ export default function SessionMenu({
           <input type="number" min={5} max={200} value={session.summary_interval_override ?? profile?.summary_interval ?? 30} onChange={(event) => void saveSummarySettings({ summary_interval_override: Math.max(5, Math.min(200, Number(event.target.value) || 30)) })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none" />
           <p className="mt-1 text-[11px] text-slate-500">전역 기본 {profile?.summary_interval ?? 30}턴 · 현재 마지막 요약: {session.summary_last_turn || 0}턴</p>
           <button type="button" onClick={() => void saveSummarySettings({ summary_interval_override: null })} className="mt-1 text-xs text-slate-400 underline">전역 간격 사용</button>
+          <div className="mt-3 rounded-lg bg-surface p-3">
+            <label className="flex items-center justify-between text-xs text-slate-300"><span>최근 응답 가격 조건 사용</span><input type="checkbox" checked={session.summary_cost_enabled_override ?? profile?.summary_cost_enabled ?? false} onChange={(e) => void saveSummarySettings({ summary_cost_enabled_override: e.target.checked })} /></label>
+            <p className="mt-1 text-[10px] text-slate-500">최근 5개 AI 응답 중 3개 이상이 기준 가격을 넘을 때만 생성합니다.</p>
+            <div className="mt-2 grid grid-cols-[90px_1fr] gap-2">
+              <select value={session.summary_cost_currency_override ?? profile?.summary_cost_currency ?? 'USD'} onChange={(e) => void saveSummarySettings({ summary_cost_currency_override: e.target.value as 'USD' | 'KRW' })} className="rounded-lg bg-surface2 px-2 py-2 text-xs outline-none"><option value="USD">달러 ($)</option><option value="KRW">원화 (₩)</option></select>
+              <input type="number" min={0} step="any" aria-label="요약 가격 기준" value={session.summary_cost_threshold_override ?? profile?.summary_cost_threshold ?? 0} onChange={(e) => void saveSummarySettings({ summary_cost_threshold_override: Math.max(0, Number(e.target.value) || 0) })} className="rounded-lg bg-surface2 px-3 py-2 text-xs outline-none" />
+            </div>
+            <button type="button" onClick={() => void saveSummarySettings({ summary_cost_enabled_override: null, summary_cost_currency_override: null, summary_cost_threshold_override: null })} className="mt-2 text-[11px] text-slate-400 underline">전역 가격 조건 사용</button>
+          </div>
           <label className="mt-3 block text-xs text-slate-400">요약 입력 범위</label>
           <select value={session.summary_source_mode_override ?? profile?.summary_source_mode ?? 'incremental'} onChange={(e) => void saveSummarySettings({ summary_source_mode_override: e.target.value as 'incremental' | 'full' })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none">
             <option value="incremental">이전 요약 + 이후 메시지</option>
@@ -423,6 +439,13 @@ export default function SessionMenu({
             <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-bg p-4" onClick={(event) => event.stopPropagation()}>
               <div className="flex items-center"><h3 className="font-semibold text-white">요약 노트 기록</h3><button type="button" onClick={() => setSummaryOpen(false)} className="ml-auto text-slate-400">✕</button></div>
               <div className="mt-3 flex flex-col gap-3">
+                <section className="rounded-xl border border-surface2 p-3">
+                  <h4 className="text-sm font-semibold text-slate-200">사용자 스토리 메모</h4>
+                  <p className="mt-1 text-[11px] text-slate-500">정식 요약과 별도로 요약 바로 아래에 항상 전송되며, 메시지 누적 범위에는 영향을 주지 않습니다.</p>
+                  <div className="mt-2 flex flex-col gap-2">{storyNotes.map((note) => <div key={note.id} className="rounded-lg bg-surface p-2"><p className="whitespace-pre-wrap text-xs text-slate-300">{note.content}</p><button type="button" onClick={() => void deleteStoryNote(note.id)} className="mt-1 text-[11px] text-red-400">삭제</button></div>)}</div>
+                  <textarea rows={4} value={storyNoteDraft} onChange={(event) => setStoryNoteDraft(event.target.value)} placeholder="호칭, 디테일 등 계속 전달할 메모" className="mt-2 w-full rounded-lg bg-surface p-2 text-xs outline-none" />
+                  <button type="button" onClick={() => void addStoryNote()} className="mt-2 w-full rounded-lg bg-surface2 py-2 text-xs text-white">스토리 메모 추가</button>
+                </section>
                 {summaryVersions.length > 0 && <div className="rounded-xl bg-surface p-3"><p className="text-xs text-amber-400">복수 노트 반영은 내용 중복이나 지시 충돌이 생길 수 있어 권장하지 않습니다.</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => void applySelectedSummaries()} className="flex-1 rounded-lg bg-surface2 py-2 text-xs text-white">선택 노트 반영</button><button type="button" disabled={selectedSummaryIds.length < 2 || summaryGenerating} onClick={async () => { await onMergeSummaries(summaryVersions.filter((v) => selectedSummaryIds.includes(v.id)).map((v) => v.content)); await loadSummaries(); }} className="flex-1 rounded-lg bg-brand py-2 text-xs text-white disabled:opacity-50">선택 노트 통합 생성</button></div></div>}
                 {summaryVersions.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">생성된 요약이 없습니다.</p> : summaryVersions.map((version) => (
                   <article key={version.id} className={`rounded-xl border p-3 ${version.is_active ? 'border-emerald-500/50' : 'border-surface2 opacity-70'}`}>
@@ -434,14 +457,6 @@ export default function SessionMenu({
             </div>
           </div>
         )}
-
-        <section className="rounded-xl border border-surface2 p-3">
-          <h3 className="text-sm font-semibold text-slate-300">스토리 메모</h3>
-          <p className="mt-1 text-[11px] text-slate-500">요약과 별도로 항상 전송되며 대화 원문 범위에는 영향을 주지 않습니다.</p>
-          <div className="mt-2 flex flex-col gap-2">{storyNotes.map((note) => <div key={note.id} className="rounded-lg bg-surface p-2"><p className="whitespace-pre-wrap text-xs text-slate-300">{note.content}</p><button type="button" onClick={() => void deleteStoryNote(note.id)} className="mt-1 text-[11px] text-red-400">삭제</button></div>)}</div>
-          <textarea rows={4} value={storyNoteDraft} onChange={(event) => setStoryNoteDraft(event.target.value)} placeholder="호칭, 디테일 등 계속 전달할 메모" className="mt-2 w-full rounded-lg bg-surface p-2 text-xs outline-none" />
-          <button type="button" onClick={() => void addStoryNote()} className="mt-2 w-full rounded-lg bg-surface2 py-2 text-xs text-white">스토리 메모 추가</button>
-        </section>
 
         {/* 응답별 크레딧 사용량 */}
         <section>
@@ -456,6 +471,10 @@ export default function SessionMenu({
             >
               <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showCost ? 'translate-x-5' : 'translate-x-0.5'}`} />
             </button>
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t border-surface2 pt-3">
+            <div><p className="text-sm text-slate-300">소비 비용 원화로 표시</p><p className="text-[11px] text-slate-500">모든 채팅방에 적용 · 환율 {exchange.rate.toLocaleString('ko-KR')}</p></div>
+            <button type="button" aria-pressed={showCostKrw} onClick={() => onShowCostKrwToggle(!showCostKrw)} className={`relative h-6 w-11 rounded-full transition-colors ${showCostKrw ? 'bg-emerald-500' : 'bg-surface2'}`}><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showCostKrw ? 'translate-x-5' : 'translate-x-0.5'}`} /></button>
           </div>
         </section>
 

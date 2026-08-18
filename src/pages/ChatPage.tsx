@@ -17,6 +17,8 @@ import {
 } from '@/lib/guest';
 import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
+import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
+import { showToast } from '@/lib/toast';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 interface GuestSettings { provider: Provider; model: string; outputTokens: number | null; reasoning?: ReasoningSelection; }
@@ -97,6 +99,8 @@ export default function ChatPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') !== '0');
+  const [showCostKrw, setShowCostKrw] = useState(() => localStorage.getItem('inuchat.showCostKrw') === '1');
+  const exchange = useUsdKrwRate();
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
   const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -280,6 +284,12 @@ export default function ChatPage() {
       const { error: deactivateError } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id).eq('is_active', true);
       const versionsUnavailableAtUpdate = deactivateError?.code === 'PGRST205' || deactivateError?.message?.includes('summary_versions');
       if (deactivateError && !versionsUnavailableAtUpdate) throw deactivateError;
+      // Regeneration in the same turn replaces that turn's version instead of
+      // leaving multiple, ambiguous checkpoints behind.
+      if (!versionsUnavailableAtUpdate) {
+        const { error: duplicateError } = await supabase.from('summary_versions').delete().eq('session_id', session.id).eq('summarized_through_turn', throughTurn);
+        if (duplicateError) throw duplicateError;
+      }
       const { error: versionError } = await supabase.from('summary_versions').insert({
         session_id: session.id, content: result.text, summarized_through_turn: throughTurn,
         input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
@@ -436,7 +446,7 @@ export default function ChatPage() {
 
     const assembled = assemblePrompt({
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
-      summary: [effectiveSummary, storyNotes.length ? `# 스토리 메모\n${storyNotes.map((note) => note.content).join('\n\n')}` : ''].filter(Boolean).join('\n\n'), persona,
+      summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
       keywordBookContents: getActiveKeywordContents(currentMessages, text),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: text,
@@ -473,7 +483,12 @@ export default function ChatPage() {
         .eq('id', session.id);
       setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn });
       const unsummarizedTurns = messagesAfterSummary(messagesAfterResponse, effectiveSummaryTurn).filter((message) => message.role === 'user' && !message.is_hidden).length;
-      if (!rerollTarget && session.auto_summary_enabled && unsummarizedTurns >= (session.summary_interval_override ?? profile?.summary_interval ?? 30)) {
+      const costGateEnabled = session.summary_cost_enabled_override ?? profile?.summary_cost_enabled ?? false;
+      const costCurrency = session.summary_cost_currency_override ?? profile?.summary_cost_currency ?? 'USD';
+      const costThreshold = session.summary_cost_threshold_override ?? profile?.summary_cost_threshold ?? 0;
+      const recentAssistantCosts = messagesAfterResponse.filter((message) => message.role === 'assistant' && message.is_active_variant !== false).slice(-5).map((message) => costCurrency === 'KRW' ? message.cost * exchange.rate : message.cost);
+      const costGatePassed = !costGateEnabled || recentAssistantCosts.filter((cost) => cost >= costThreshold).length >= 3;
+      if (!rerollTarget && session.auto_summary_enabled && unsummarizedTurns >= (session.summary_interval_override ?? profile?.summary_interval ?? 30) && costGatePassed) {
         await generateSummary(messagesAfterResponse);
       }
     } catch (err) {
@@ -513,6 +528,7 @@ export default function ChatPage() {
       if (replacement) next = next.map((message) => message.id === replacement.id ? { ...message, is_active_variant: true } : message);
     }
     setMessages(next);
+    showToast('메시지를 삭제했습니다.');
     setMessageActionBusy(false);
   }
 
@@ -551,12 +567,16 @@ export default function ChatPage() {
       summary_level_override: session.summary_level_override, summary_allow_omission_override: session.summary_allow_omission_override,
       summary_parameters_enabled_override: session.summary_parameters_enabled_override,
       summary_source_mode_override: session.summary_source_mode_override,
+      summary_cost_enabled_override: session.summary_cost_enabled_override,
+      summary_cost_currency_override: session.summary_cost_currency_override,
+      summary_cost_threshold_override: session.summary_cost_threshold_override,
     }).select('id').single();
     if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); setMessageActionBusy(false); return; }
     const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }));
     if (copiedMessages.length) await supabase.from('messages').insert(copiedMessages);
     if (versions.length) await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost })));
     if (storyNotes.length) await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content })));
+    showToast('새 채팅방으로 분기했습니다.');
     navigate(`/chat/${newSession.id}`);
   }
 
@@ -682,7 +702,7 @@ export default function ChatPage() {
                       <button onClick={() => void branchFrom(m)} className="text-xs text-slate-500">분기</button>
                       <button disabled={messageActionBusy} onClick={() => void deleteMsg(m.id)} className="text-xs text-red-400/60 disabled:opacity-50">삭제</button>
                       {m.role === 'assistant' && <div className="ml-auto flex items-center gap-2">
-                        {showCost && <span className="text-right text-[10px] text-slate-500">${m.cost.toFixed(6)} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
+                        {showCost && <span className="text-right text-[10px] text-slate-500">{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`} {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
                         {variantsFor(m).length > 1 && <select aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
                         {!isGuest && m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성">↻</button>}
                       </div>}
@@ -741,6 +761,9 @@ export default function ChatPage() {
           onDebugToggle={setDebugMode}
           showCost={showCost}
           onShowCostToggle={(v) => { setShowCost(v); localStorage.setItem('chatforme.showCost', v ? '1' : '0'); }}
+          showCostKrw={showCostKrw}
+          onShowCostKrwToggle={(v) => { setShowCostKrw(v); localStorage.setItem('inuchat.showCostKrw', v ? '1' : '0'); }}
+          exchange={exchange}
           sessionModel={sessionModel || modelsFor('openrouter')[0]}
           sessionReasoning={sessionReasoning}
           onModelChange={(m) => {

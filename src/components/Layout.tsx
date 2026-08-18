@@ -14,8 +14,10 @@ export default function Layout() {
   return (
     <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
       <header className="flex items-center gap-2 border-b border-surface2 px-4 py-3">
-        <img src="/IMG_6928.png" alt="logo" className="h-8 w-8 rounded-full object-cover" />
-        <span className="text-lg font-bold text-white">Inuchat</span>
+        <button onClick={() => navigate('/works')} className="flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand" aria-label="Inuchat 홈으로 이동">
+          <img src="/IMG_6928.png" alt="" className="h-8 w-8 rounded-full object-cover" />
+          <span className="text-lg font-bold text-white">Inuchat</span>
+        </button>
         <button
           onClick={() => navigate('/search')}
           className="ml-auto flex-1 rounded-full bg-surface px-4 py-2 text-left text-sm text-slate-400"
