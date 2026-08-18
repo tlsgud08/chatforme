@@ -1,6 +1,6 @@
 import type { Provider } from '@/types/db';
 import { defaultReasoningFor, modelsForProvider } from './llm/modelCapabilities';
-import { loadVerifiedModels } from './llm/modelDiscovery';
+import { loadOpenRouterModels } from './llm/modelDiscovery';
 import type { ReasoningSelection } from './llm/types';
 
 const CUSTOM_MODELS_KEY = 'inuchat.customModels';
@@ -36,7 +36,7 @@ export function loadCustomModels(): CustomModels {
 export function modelsFor(provider: Provider): string[] {
   return [...new Set([
     ...modelsForProvider(provider).map((item) => item.modelId),
-    ...loadVerifiedModels(),
+    ...loadOpenRouterModels().map((model) => model.id),
     ...loadCustomModels()[provider],
   ])];
 }

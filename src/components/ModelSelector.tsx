@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Provider } from '@/types/db';
 import { capabilitiesFor, defaultReasoningFor, EFFORT_LABELS } from '@/lib/llm/modelCapabilities';
-import { isModelVerified } from '@/lib/llm/modelDiscovery';
+import { getOpenRouterModel, isModelVerified } from '@/lib/llm/modelDiscovery';
 import type { ReasoningSelection } from '@/lib/llm/types';
 import { loadCustomModels, modelsFor, removeCustomModel, saveCustomModel } from '@/lib/modelPreferences';
 
@@ -14,10 +14,17 @@ interface Props {
 }
 
 const RELEASE_LABEL = { stable: 'Stable', preview: 'Preview', alias: 'Alias' } as const;
-const AVAILABILITY_LABEL = { verified: 'OpenRouter 계정 확인됨', unverified: 'OpenRouter 접근 미확인', unavailable: '사용 불가' } as const;
+const AVAILABILITY_LABEL = { verified: 'OpenRouter 확인됨', unverified: '접근 미확인', unavailable: '사용 불가' } as const;
+
+function vendorOf(modelId: string) {
+  return modelId.includes('/') ? modelId.split('/')[0] : '기타';
+}
 
 export default function ModelSelector({ provider, model, reasoning, onModelChange, onReasoningChange }: Props) {
   const [customInput, setCustomInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [vendor, setVendor] = useState('전체');
+  const [browserOpen, setBrowserOpen] = useState(false);
   const [revision, setRevision] = useState(0);
   const models = modelsFor(provider);
   const custom = loadCustomModels()[provider];
@@ -25,6 +32,20 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
   const capability = isModelVerified(model)
     ? { ...registeredCapability, availability: 'verified' as const }
     : registeredCapability;
+  const currentCatalog = getOpenRouterModel(model);
+
+  const vendors = useMemo(
+    () => ['전체', ...new Set(models.map(vendorOf).sort((a, b) => a.localeCompare(b)))],
+    [models.join('|')],
+  );
+  const filteredModels = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return models.filter((item) => {
+      if (vendor !== '전체' && vendorOf(item) !== vendor) return false;
+      const info = getOpenRouterModel(item);
+      return !needle || item.toLowerCase().includes(needle) || info?.name.toLowerCase().includes(needle);
+    });
+  }, [models.join('|'), search, vendor]);
 
   useEffect(() => {
     const effortValid = !reasoning.effort || capability.supportedEfforts.includes(reasoning.effort);
@@ -34,6 +55,7 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
   function selectModel(nextModel: string) {
     onModelChange(nextModel);
     onReasoningChange(defaultReasoningFor(provider, nextModel));
+    setBrowserOpen(false);
   }
 
   function addModel() {
@@ -49,13 +71,63 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
   return (
     <div className="flex flex-col gap-2">
       <label className="text-xs text-slate-400">모델</label>
-      <select value={model} onChange={(event) => selectModel(event.target.value)} className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none">
-        {models.map((item) => {
-          const registered = capabilitiesFor(provider, item);
-          const info = isModelVerified(item) ? { ...registered, availability: 'verified' as const } : registered;
-          return <option key={item} value={item}>{info.displayName} · {item}</option>;
-        })}
-      </select>
+      <button
+        type="button"
+        aria-expanded={browserOpen}
+        onClick={() => setBrowserOpen((open) => !open)}
+        className="flex w-full items-center gap-3 rounded-lg bg-surface px-3 py-2.5 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-white">{currentCatalog?.name ?? capability.displayName}</span>
+          <span className="block truncate text-[11px] text-slate-500">{model}</span>
+        </span>
+        <span className="text-xs text-slate-400">{browserOpen ? '닫기 ▲' : '찾기 ▼'}</span>
+      </button>
+
+      {browserOpen && (
+        <div className="rounded-xl border border-surface2 bg-bg p-3">
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="모델 이름 또는 ID 검색"
+            autoFocus
+            className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm outline-none"
+          />
+          <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+            {vendors.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setVendor(item)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-xs ${vendor === item ? 'bg-brand text-white' : 'bg-surface text-slate-400'}`}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">{filteredModels.length}개 모델</p>
+          <div className="mt-1 max-h-72 divide-y divide-surface2 overflow-y-auto rounded-lg bg-surface">
+            {filteredModels.length === 0 ? (
+              <p className="p-4 text-center text-xs text-slate-500">검색 결과가 없습니다.</p>
+            ) : filteredModels.map((item) => {
+              const catalog = getOpenRouterModel(item);
+              const selected = item === model;
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => selectModel(item)}
+                  className={`block w-full px-3 py-2.5 text-left ${selected ? 'bg-brand/20' : ''}`}
+                >
+                  <span className={`block text-sm ${selected ? 'font-semibold text-brand' : 'text-white'}`}>{catalog?.name ?? capabilitiesFor(provider, item).displayName}</span>
+                  <span className="block break-all text-[11px] text-slate-500">{item}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border border-surface2 p-2.5 text-[11px] text-slate-400">
         <div className="flex flex-wrap gap-1.5">
@@ -64,25 +136,26 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
           <span>{capability.profile}</span>
         </div>
         <p className="mt-1 break-all">ID: {capability.modelId}</p>
-        <p>OpenRouter Chat Completions API</p>
+        {currentCatalog?.contextLength && <p>컨텍스트: {currentCatalog.contextLength.toLocaleString()} tokens</p>}
       </div>
 
       <div className="flex gap-2">
-        <input value={customInput} onChange={(event) => setCustomInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addModel(); } }} placeholder="OpenRouter 모델 ID (배급사/모델)" className="min-w-0 flex-1 rounded-lg bg-surface px-3 py-2.5 text-sm outline-none" />
+        <input value={customInput} onChange={(event) => setCustomInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addModel(); } }} placeholder="OpenRouter 모델 ID 직접 입력" className="min-w-0 flex-1 rounded-lg bg-surface px-3 py-2.5 text-sm outline-none" />
         <button type="button" onClick={addModel} className="rounded-lg bg-surface2 px-3 text-xs font-semibold text-white">저장</button>
       </div>
       {custom.includes(model) && <button type="button" onClick={() => { removeCustomModel(provider, model); selectModel(modelsFor(provider)[0]); setRevision((value) => value + 1); }} className="self-end text-xs text-red-400">저장한 모델 삭제</button>}
 
       {capability.supportedEfforts.length > 0 ? (
         <>
-          <label className="mt-1 text-xs text-slate-400">Native 추론 수준</label>
-          <select value={reasoning.effort ?? capability.defaultEffort} onChange={(event) => onReasoningChange({ ...reasoning, effort: event.target.value })} className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none">
+          <label className="mt-1 text-xs text-slate-400">OpenRouter 추론 수준</label>
+          <select value={reasoning.effort ?? ''} onChange={(event) => onReasoningChange({ effort: event.target.value || undefined })} className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none">
+            {!capability.defaultEffort && <option value="">OpenRouter 기본값 (별도 전송 안 함)</option>}
             {capability.supportedEfforts.map((effort) => <option key={effort} value={effort}>{EFFORT_LABELS[effort] ?? effort}{effort === capability.defaultEffort ? ' · 기본값' : ''}</option>)}
           </select>
-          <p className="text-[11px] text-slate-500">OpenRouter 전송값: reasoning.effort={reasoning.effort ?? capability.defaultEffort}</p>
+          <p className="text-[11px] text-slate-500">{reasoning.effort ? `전송값: reasoning.effort=${reasoning.effort}` : '추론 수준을 별도로 전송하지 않습니다.'}</p>
         </>
       ) : (
-        <p className="text-[11px] text-slate-500">이 모델에는 확인되지 않은 추론 옵션을 전송하지 않습니다.</p>
+        <p className="text-[11px] text-slate-500">OpenRouter가 이 모델의 reasoning 지원을 보고하지 않았습니다.</p>
       )}
       {capability.notes?.map((note) => <p key={note} className="text-[11px] text-amber-500">{note}</p>)}
     </div>

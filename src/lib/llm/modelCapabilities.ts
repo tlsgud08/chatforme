@@ -1,5 +1,6 @@
 import type { Provider } from '@/types/db';
 import type { ReasoningSelection } from './types';
+import { getOpenRouterModel } from './modelDiscovery';
 
 export type ModelAvailability = 'verified' | 'unverified' | 'unavailable';
 export type ModelRelease = 'stable' | 'preview' | 'alias';
@@ -43,10 +44,18 @@ export const MODEL_CAPABILITIES: readonly ModelCapabilities[] = [
 ];
 
 export function capabilitiesFor(_provider: Provider, modelId: string): ModelCapabilities {
-  return MODEL_CAPABILITIES.find((item) => item.modelId === modelId) ?? {
+  const registered = MODEL_CAPABILITIES.find((item) => item.modelId === modelId);
+  if (registered) return registered;
+  const discovered = getOpenRouterModel(modelId);
+  const supportsReasoning = discovered?.supportedParameters.includes('reasoning') ?? false;
+  return {
     provider: 'openrouter', modelId, displayName: modelId, availability: 'unverified',
-    release: 'stable', reasoningKind: 'none', supportedEfforts: [], profile: '직접 등록 모델',
-    notes: ['OpenRouter capability가 확인되지 않아 추론 설정을 전송하지 않습니다.'],
+    release: 'stable', reasoningKind: supportsReasoning ? 'openrouter_reasoning' : 'none',
+    supportedEfforts: supportsReasoning ? ['low', 'medium', 'high'] : [],
+    profile: discovered?.name ?? '직접 등록 모델',
+    notes: supportsReasoning
+      ? ['OpenRouter가 reasoning 파라미터 지원을 보고했습니다. 세부 effort 범위는 모델 제공자에 따라 다를 수 있습니다.']
+      : ['OpenRouter capability가 확인되지 않아 추론 설정을 전송하지 않습니다.'],
   };
 }
 
