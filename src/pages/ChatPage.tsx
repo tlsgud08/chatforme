@@ -249,6 +249,7 @@ export default function ChatPage() {
     // Include the hidden initial context in the first archive so important
     // scenario setup is not lost after its short keep_turns window expires.
     const candidates = messagesAfterSummary(sourceMessages);
+    const candidates = sourceMessages.filter((message) => !message.is_summarized);
     if (candidates.length === 0 && archivesToMerge.length === 0) { addError('새로 요약할 대화가 없습니다.'); return; }
     setSummaryGenerating(true);
     try {
