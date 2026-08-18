@@ -11,6 +11,15 @@ export interface Profile {
   default_output_tokens: number | null;
   default_provider: Provider;
   default_model: string;
+  summary_prompt: string | null;
+  summary_model: string | null;
+  summary_reasoning: import('@/lib/llm/types').ReasoningSelection | null;
+  summary_interval: number;
+  summary_level: number;
+  summary_allow_omission: boolean;
+  summary_parameters_enabled: boolean;
+  summary_extra_note: string;
+  favorite_models: string[];
   created_at: string;
 }
 
@@ -78,7 +87,36 @@ export interface Session {
   total_input_tokens: number;
   total_output_tokens: number;
   total_cost: number;
+  auto_summary_enabled: boolean;
+  summary_interval: number;
+  summary_last_turn: number;
+  summary_model_override: string | null;
+  summary_reasoning_override: import('@/lib/llm/types').ReasoningSelection | null;
+  summary_interval_override: number | null;
+  summary_level_override: number | null;
+  summary_allow_omission_override: boolean | null;
+  summary_parameters_enabled_override: boolean | null;
   is_archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SummaryVersion {
+  id: string;
+  session_id: string;
+  content: string;
+  summarized_through_turn: number;
+  is_active: boolean;
+  input_tokens: number;
+  output_tokens: number;
+  cost: number;
+  created_at: string;
+}
+
+export interface StoryNote {
+  id: string;
+  session_id: string;
+  content: string;
   created_at: string;
   updated_at: string;
 }

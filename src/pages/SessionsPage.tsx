@@ -98,7 +98,8 @@ export default function SessionsPage() {
   async function confirmDelete() {
     if (selected.size === 0) return;
     const ids = [...selected];
-    await supabase.from('sessions').delete().in('id', ids);
+    const { error } = await supabase.from('sessions').delete().in('id', ids);
+    if (error) { alert('삭제 실패: ' + error.message); return; }
     queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
     cancelSelect();
   }
