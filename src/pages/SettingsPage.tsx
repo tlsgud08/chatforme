@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { supabase, ADMIN_EMAIL } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { loadApiKeys, saveApiKeys, type ApiKeys } from '@/lib/apiKeys';
-import { PROVIDER_LABELS, type ReasoningEffort } from '@/lib/llm/types';
-import { loadDefaultReasoning, modelsFor, saveDefaultReasoning } from '@/lib/modelPreferences';
+import type { ReasoningSelection } from '@/lib/llm/types';
+import { discoverOpenRouterModels } from '@/lib/llm/modelDiscovery';
+import { loadDefaultReasoning, modelsFor, saveDefaultReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import ModelSelector from '@/components/ModelSelector';
 import { loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import type { Profile, Provider } from '@/types/db';
 
-const PROVIDERS: Provider[] = ['openrouter', 'claude', 'gemini', 'openai'];
 const SLIDER_MAX = 4224;
 
 function tokenLabel(v: number | null) {
@@ -26,10 +26,13 @@ export default function SettingsPage() {
   const [keys, setKeys] = useState<ApiKeys>(loadApiKeys());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
-  const [defaultReasoning, setDefaultReasoning] = useState<ReasoningEffort>(loadDefaultReasoning());
+  const initialProvider: Provider = 'openrouter';
+  const initialModel = modelsFor(initialProvider)[0];
+  const [defaultReasoning, setDefaultReasoning] = useState<ReasoningSelection>(() => loadDefaultReasoning(initialProvider, initialModel));
   const [masterPassword, setMasterPassword] = useState('');
   const [masterPasswordConfirm, setMasterPasswordConfirm] = useState('');
   const [theme, setTheme] = useState<Theme>(loadTheme());
+  const [checkingModels, setCheckingModels] = useState(false);
 
   const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
@@ -43,7 +46,10 @@ export default function SettingsPage() {
       .select('*')
       .eq('id', user.id)
       .single()
-      .then(({ data }) => setProfile(data as Profile));
+      .then(({ data }) => {
+        const loaded = data as Profile;
+        setProfile({ ...loaded, default_provider: 'openrouter', default_model: toOpenRouterModel(loaded.default_provider, loaded.default_model) });
+      });
     if (user.email === ADMIN_EMAIL && ADMIN_EMAIL) {
       supabase
         .from('platform_config')
@@ -57,9 +63,31 @@ export default function SettingsPage() {
     }
   }, [user, isGuest]);
 
+  useEffect(() => {
+    if (!profile) return;
+    const model = profile.default_model || modelsFor(profile.default_provider)[0];
+    setDefaultReasoning(loadDefaultReasoning(profile.default_provider, model));
+  }, [profile?.id]);
+
   function saveKeys() {
     saveApiKeys(keys);
     flash('API 키를 저장했습니다.');
+  }
+
+  async function checkAccessibleModels() {
+    if (!keys.openrouter.trim()) {
+      flash('먼저 OpenRouter API 키를 입력하세요.');
+      return;
+    }
+    setCheckingModels(true);
+    try {
+      const models = await discoverOpenRouterModels(keys.openrouter);
+      flash(`OpenRouter에서 접근 가능한 모델 ${models.length}개를 확인했습니다.`);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : 'OpenRouter 모델 목록 조회에 실패했습니다.');
+    } finally {
+      setCheckingModels(false);
+    }
   }
 
   async function saveProfile() {
@@ -68,7 +96,7 @@ export default function SettingsPage() {
       .from('profiles')
       .update({
         display_name: profile.display_name,
-        default_provider: profile.default_provider,
+        default_provider: 'openrouter',
         default_model: profile.default_model,
         default_output_tokens: profile.default_output_tokens,
       })
@@ -141,17 +169,15 @@ export default function SettingsPage() {
 
       {/* API 키 */}
       <section>
-        <h2 className="mb-1 font-semibold text-white">API 키</h2>
+        <h2 className="mb-1 font-semibold text-white">OpenRouter API 키</h2>
         <p className="mb-3 text-xs text-slate-500">
           키는 이 기기 브라우저에만 저장되며 서버로 전송되지 않습니다.
         </p>
         <div className="flex flex-col gap-3">
-          {PROVIDERS.map((p) =>
-            p === 'openrouter' ? (
-              <div key={p} className="rounded-lg border border-brand/40 bg-brand/5 p-3">
+              <div className="rounded-lg border border-brand/40 bg-brand/5 p-3">
                 <div className="mb-1 flex items-center gap-2">
-                  <label className="text-sm font-semibold text-white">{PROVIDER_LABELS[p]}</label>
-                  <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">추천</span>
+                  <label className="text-sm font-semibold text-white">OpenRouter</label>
+                  <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">전용</span>
                 </div>
                 <p className="mb-2 text-[11px] text-slate-400">
                   키 하나로 Claude·Gemini·GPT 등 모든 모델 사용 가능.{' '}
@@ -166,28 +192,19 @@ export default function SettingsPage() {
                 </p>
                 <input
                   type="password"
-                  value={keys[p]}
-                  onChange={(e) => setKeys((k) => ({ ...k, [p]: e.target.value }))}
+                  value={keys.openrouter}
+                  onChange={(e) => setKeys({ openrouter: e.target.value })}
                   placeholder="OpenRouter API 키 입력"
                   className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
                 />
               </div>
-            ) : (
-              <div key={p}>
-                <label className="mb-1 block text-xs text-slate-400">{PROVIDER_LABELS[p]}</label>
-                <input
-                  type="password"
-                  value={keys[p]}
-                  onChange={(e) => setKeys((k) => ({ ...k, [p]: e.target.value }))}
-                  placeholder="API 키 입력"
-                  className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
-                />
-              </div>
-            ),
-          )}
           <button onClick={saveKeys} className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">
             API 키 저장
           </button>
+          <button type="button" disabled={checkingModels} onClick={() => void checkAccessibleModels()} className="rounded-lg bg-surface2 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+            {checkingModels ? '접근 가능한 모델 확인 중…' : 'API 계정의 모델 접근 확인'}
+          </button>
+          <p className="text-[11px] text-slate-500">키는 로그에 출력하지 않으며 OpenRouter API 요청에만 사용합니다.</p>
         </div>
       </section>
 
@@ -196,23 +213,13 @@ export default function SettingsPage() {
         <section>
           <h2 className="mb-3 font-semibold text-white">기본 출력 설정</h2>
           <div className="flex flex-col gap-3">
-            <div>
-              <label className="mb-1 block text-xs text-slate-400">기본 공급사</label>
-              <select
-                value={profile.default_provider}
-                onChange={(e) =>
-                  setProfile({ ...profile, default_provider: e.target.value as Provider, default_model: modelsFor(e.target.value as Provider)[0] })
-                }
-                className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
-              >
-                {PROVIDERS.map((p) => (
-                  <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
-                ))}
-              </select>
+            <div className="rounded-lg bg-surface px-4 py-3 text-sm">
+              <p className="text-xs text-slate-400">AI 공급사</p>
+              <p className="mt-1 font-semibold text-white">OpenRouter 전용</p>
             </div>
             <ModelSelector
-              provider={profile.default_provider}
-              model={profile.default_model || modelsFor(profile.default_provider)[0]}
+              provider="openrouter"
+              model={profile.default_model || modelsFor('openrouter')[0]}
               reasoning={defaultReasoning}
               onModelChange={(model) => setProfile({ ...profile, default_model: model })}
               onReasoningChange={setDefaultReasoning}

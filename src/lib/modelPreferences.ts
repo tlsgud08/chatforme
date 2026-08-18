@@ -1,23 +1,44 @@
 import type { Provider } from '@/types/db';
-import { DEFAULT_MODELS, type ReasoningEffort } from './llm/types';
+import { defaultReasoningFor, modelsForProvider } from './llm/modelCapabilities';
+import { loadVerifiedModels } from './llm/modelDiscovery';
+import type { ReasoningSelection } from './llm/types';
 
-const CUSTOM_MODELS_KEY = 'chatforme.customModels';
-const DEFAULT_REASONING_KEY = 'chatforme.defaultReasoning';
+const CUSTOM_MODELS_KEY = 'inuchat.customModels';
+const LEGACY_CUSTOM_MODELS_KEY = 'chatforme.customModels';
+const DEFAULT_REASONING_KEY = 'inuchat.defaultReasoning';
+const LEGACY_REASONING_KEY = 'chatforme.defaultReasoning';
 
 export type CustomModels = Record<Provider, string[]>;
+const EMPTY: CustomModels = { openrouter: [] };
 
-const EMPTY: CustomModels = { openrouter: [], claude: [], gemini: [], openai: [] };
+const PROVIDER_PREFIX: Record<string, string> = {
+  openai: 'openai', claude: 'anthropic', gemini: 'google',
+};
+
+/** Convert settings saved before the OpenRouter-only migration. */
+export function toOpenRouterModel(provider: string | undefined, model: string): string {
+  if (!model) return modelsFor('openrouter')[0];
+  if (provider === 'openrouter' || model.includes('/')) return model;
+  const prefix = provider ? PROVIDER_PREFIX[provider] : undefined;
+  return prefix ? `${prefix}/${model}` : model;
+}
 
 export function loadCustomModels(): CustomModels {
   try {
-    return { ...EMPTY, ...JSON.parse(localStorage.getItem(CUSTOM_MODELS_KEY) ?? '{}') };
+    const stored = localStorage.getItem(CUSTOM_MODELS_KEY) ?? localStorage.getItem(LEGACY_CUSTOM_MODELS_KEY);
+    if (stored && !localStorage.getItem(CUSTOM_MODELS_KEY)) localStorage.setItem(CUSTOM_MODELS_KEY, stored);
+    return { ...EMPTY, ...JSON.parse(stored ?? '{}') };
   } catch {
     return { ...EMPTY };
   }
 }
 
 export function modelsFor(provider: Provider): string[] {
-  return [...new Set([...DEFAULT_MODELS[provider], ...loadCustomModels()[provider]])];
+  return [...new Set([
+    ...modelsForProvider(provider).map((item) => item.modelId),
+    ...loadVerifiedModels(),
+    ...loadCustomModels()[provider],
+  ])];
 }
 
 export function saveCustomModel(provider: Provider, model: string): void {
@@ -34,10 +55,31 @@ export function removeCustomModel(provider: Provider, model: string): void {
   localStorage.setItem(CUSTOM_MODELS_KEY, JSON.stringify(all));
 }
 
-export function loadDefaultReasoning(): ReasoningEffort {
-  return (localStorage.getItem(DEFAULT_REASONING_KEY) as ReasoningEffort | null) ?? 'none';
+function migrateReasoning(value: unknown, provider: Provider, model: string): ReasoningSelection {
+  if (value && typeof value === 'object') return value as ReasoningSelection;
+  const defaults = defaultReasoningFor(provider, model);
+  return typeof value === 'string' ? { ...defaults, effort: value } : defaults;
 }
 
-export function saveDefaultReasoning(value: ReasoningEffort): void {
-  localStorage.setItem(DEFAULT_REASONING_KEY, value);
+export function normalizeReasoning(value: unknown, provider: Provider, model: string): ReasoningSelection {
+  const migrated = migrateReasoning(value, provider, model);
+  const capability = modelsForProvider(provider).find((item) => item.modelId === model);
+  if (!capability || (migrated.effort && !capability.supportedEfforts.includes(migrated.effort))) {
+    return defaultReasoningFor(provider, model);
+  }
+  return { effort: migrated.effort };
+}
+
+export function loadDefaultReasoning(provider: Provider, model: string): ReasoningSelection {
+  try {
+    const raw = localStorage.getItem(DEFAULT_REASONING_KEY) ?? localStorage.getItem(LEGACY_REASONING_KEY);
+    return normalizeReasoning(raw ? JSON.parse(raw) : null, provider, model);
+  } catch {
+    const legacy = localStorage.getItem(LEGACY_REASONING_KEY);
+    return normalizeReasoning(legacy, provider, model);
+  }
+}
+
+export function saveDefaultReasoning(value: ReasoningSelection): void {
+  localStorage.setItem(DEFAULT_REASONING_KEY, JSON.stringify(value));
 }

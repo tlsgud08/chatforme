@@ -6,8 +6,9 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
-import { PROVIDER_LABELS, type ReasoningEffort } from '@/lib/llm/types';
-import { loadDefaultReasoning, modelsFor } from '@/lib/modelPreferences';
+import { PROVIDER_LABELS, type ReasoningSelection } from '@/lib/llm/types';
+import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
+import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import { assemblePrompt } from '@/lib/prompt/assemble';
 import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
@@ -17,24 +18,27 @@ import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartCo
 import SessionMenu from '@/components/SessionMenu';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
-interface GuestSettings { provider: Provider; model: string; outputTokens: number | null; reasoning?: ReasoningEffort; }
+interface GuestSettings { provider: Provider; model: string; outputTokens: number | null; reasoning?: ReasoningSelection; }
 function loadGuestSettings(): GuestSettings {
   try { return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings; }
   catch { return { provider: 'openrouter', model: '', outputTokens: 1024 }; }
 }
 
 const sessionSettingsKey = (id: string) => `chatforme.session.${id}.settings`;
-interface SessionSettings { provider: Provider; model: string; reasoning: ReasoningEffort; }
+interface SessionSettings { provider: Provider; model: string; reasoning: ReasoningSelection; }
 function loadSessionSettings(id: string, profile: Profile | null): SessionSettings {
   try {
     const raw = localStorage.getItem(sessionSettingsKey(id));
     if (raw) {
       const parsed = JSON.parse(raw) as SessionSettings;
-      if (parsed.provider && parsed.model) return { ...parsed, reasoning: parsed.reasoning ?? loadDefaultReasoning() };
+      if (parsed.model) {
+        const model = toOpenRouterModel(parsed.provider, parsed.model);
+        return { provider: 'openrouter', model, reasoning: normalizeReasoning(parsed.reasoning, 'openrouter', model) };
+      }
     }
   } catch {}
-  const p = profile?.default_provider ?? 'openrouter';
-  return { provider: p, model: profile?.default_model || modelsFor(p)[0], reasoning: loadDefaultReasoning() };
+  const model = toOpenRouterModel(profile?.default_provider, profile?.default_model || modelsFor('openrouter')[0]);
+  return { provider: 'openrouter', model, reasoning: loadDefaultReasoning('openrouter', model) };
 }
 
 function toMsg(m: GuestMessage): Message {
@@ -83,9 +87,8 @@ export default function ChatPage() {
   const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
-  const [sessionProvider, setSessionProvider] = useState<Provider>('openrouter');
   const [sessionModel, setSessionModel] = useState('');
-  const [sessionReasoning, setSessionReasoning] = useState<ReasoningEffort>('none');
+  const [sessionReasoning, setSessionReasoning] = useState<ReasoningSelection>(() => defaultReasoningFor('openrouter', modelsFor('openrouter')[0]));
 
   const [streamingContent, setStreamingContent] = useState('');
   const [cacheToast, setCacheToast] = useState('');
@@ -165,11 +168,19 @@ export default function ChatPage() {
   useEffect(() => {
     if (!isGuest && profile && sessionId) {
       const s = loadSessionSettings(sessionId, profile);
-      setSessionProvider(s.provider);
       setSessionModel(s.model);
       setSessionReasoning(s.reasoning);
     }
   }, [profile, sessionId, isGuest]);
+
+  useEffect(() => {
+    if (isGuest || !sessionId || !sessionModel) return;
+    localStorage.setItem(sessionSettingsKey(sessionId), JSON.stringify({
+      provider: 'openrouter',
+      model: sessionModel,
+      reasoning: sessionReasoning,
+    }));
+  }, [isGuest, sessionId, sessionModel, sessionReasoning]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -206,9 +217,9 @@ export default function ChatPage() {
     if (!work || sending) return;
 
     const guestSettings = loadGuestSettings();
-    const provider = isGuest ? (guestSettings.provider ?? 'openrouter') : sessionProvider;
-    const model = isGuest ? (guestSettings.model || modelsFor(provider)[0]) : (sessionModel || modelsFor(provider)[0]);
-    const reasoningEffort = isGuest ? (guestSettings.reasoning ?? loadDefaultReasoning()) : sessionReasoning;
+    const provider: Provider = 'openrouter';
+    const model = isGuest ? toOpenRouterModel(guestSettings.provider, guestSettings.model || modelsFor(provider)[0]) : (sessionModel || modelsFor(provider)[0]);
+    const reasoning = isGuest ? normalizeReasoning(guestSettings.reasoning, provider, model) : sessionReasoning;
     const apiKey = getApiKey(provider);
     if (!apiKey) { addError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
 
@@ -246,7 +257,7 @@ export default function ChatPage() {
       });
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
       try {
-        const result = await generate(provider, { apiKey, model, reasoningEffort, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
+        const result = await generate(provider, { apiKey, model, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
         if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
         const aiMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
@@ -306,7 +317,7 @@ export default function ChatPage() {
     });
     const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
     try {
-      const result = await generate(provider, { apiKey, model, reasoningEffort, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
+      const result = await generate(provider, { apiKey, model, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
       if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
       const { data: aiMsg } = await supabase
         .from('messages')
@@ -553,22 +564,13 @@ export default function ChatPage() {
           onDebugToggle={setDebugMode}
           showCost={showCost}
           onShowCostToggle={(v) => { setShowCost(v); localStorage.setItem('chatforme.showCost', v ? '1' : '0'); }}
-          sessionProvider={sessionProvider}
-          sessionModel={sessionModel || modelsFor(sessionProvider)[0]}
+          sessionModel={sessionModel || modelsFor('openrouter')[0]}
           sessionReasoning={sessionReasoning}
-          onProviderChange={(p) => {
-            const m = modelsFor(p)[0];
-            setSessionProvider(p);
-            setSessionModel(m);
-            localStorage.setItem(sessionSettingsKey(sessionId!), JSON.stringify({ provider: p, model: m, reasoning: sessionReasoning }));
-          }}
           onModelChange={(m) => {
             setSessionModel(m);
-            localStorage.setItem(sessionSettingsKey(sessionId!), JSON.stringify({ provider: sessionProvider, model: m, reasoning: sessionReasoning }));
           }}
           onReasoningChange={(reasoning) => {
             setSessionReasoning(reasoning);
-            localStorage.setItem(sessionSettingsKey(sessionId!), JSON.stringify({ provider: sessionProvider, model: sessionModel, reasoning }));
           }}
           errorLog={errorLog}
           onClearErrors={() => setErrorLog([])}
