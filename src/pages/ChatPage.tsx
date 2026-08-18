@@ -804,6 +804,9 @@ export default function ChatPage() {
                       {m.content || (m.generation_status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : m.generation_status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
                     </ReactMarkdown>
                   </div>
+                  {m.role === 'assistant' && m.generation_status === 'interrupted' && m.content && (
+                    <p className="text-xs text-amber-400">응답이 중간에 중단되어 수신한 내용까지만 저장되었습니다.</p>
+                  )}
                   {!m.is_hidden && (
                     <div className={`flex items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); }} className="text-xs text-slate-500">편집</button>
