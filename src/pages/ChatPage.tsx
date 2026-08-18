@@ -10,6 +10,7 @@ import { PROVIDER_LABELS, type ReasoningSelection } from '@/lib/llm/types';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import { assemblePrompt } from '@/lib/prompt/assemble';
+import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
   type GuestSession, type GuestMessage,
@@ -64,6 +65,19 @@ function classifyError(raw: string): string {
   return raw.length <= 80 ? raw : raw.slice(0, 80) + '…';
 }
 
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object') {
+    const value = error as { message?: string; details?: string; hint?: string; code?: string };
+    return [value.message, value.details, value.hint, value.code].filter(Boolean).join(' · ') || JSON.stringify(error);
+  }
+  return String(error);
+}
+
+function isNearScrollBottom(element: HTMLDivElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+}
+
 export default function ChatPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -82,13 +96,14 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
-  const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') === '1');
+  const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') !== '0');
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
   const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
   const [sessionModel, setSessionModel] = useState('');
   const [sessionReasoning, setSessionReasoning] = useState<ReasoningSelection>(() => defaultReasoningFor('openrouter', modelsFor('openrouter')[0]));
+  const [summaryGenerating, setSummaryGenerating] = useState(false);
 
   const [streamingContent, setStreamingContent] = useState('');
   const [cacheToast, setCacheToast] = useState('');
@@ -97,6 +112,7 @@ export default function ChatPage() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cachedPartsRef = useRef({ core: '', persona: '', userNote: '', summary: '' });
+  const shouldAutoScrollRef = useRef(true);
 
   function showCacheToast(parts: { core: string; persona: string; userNote: string; summary: string }) {
     const labels: string[] = [];
@@ -183,8 +199,9 @@ export default function ChatPage() {
   }, [isGuest, sessionId, sessionModel, sessionReasoning]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, sending, streamingContent]);
+    if (!shouldAutoScrollRef.current) return;
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
+  }, [messages, sending]);
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
@@ -207,10 +224,73 @@ export default function ChatPage() {
   function buildHistory(allMsgs: Message[]) {
     const userCount = allMsgs.filter((m) => m.role === 'user' && !m.is_hidden).length;
     return allMsgs.filter((m) => {
+      if (m.is_summarized) return false;
       if (m.is_hidden && startConfig) return userCount < startConfig.keep_turns;
       if (m.is_hidden && !startConfig) return false;
       return true;
     });
+  }
+
+  async function generateSummary(sourceMessages = messages, archivesToMerge: string[] = []) {
+    if (!session || !profile || summaryGenerating) return;
+    const apiKey = getApiKey('openrouter');
+    if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return; }
+    // Include the hidden initial context in the first archive so important
+    // scenario setup is not lost after its short keep_turns window expires.
+    const candidates = sourceMessages.filter((message) => !message.is_summarized);
+    if (candidates.length === 0 && archivesToMerge.length === 0) { addError('새로 요약할 대화가 없습니다.'); return; }
+    setSummaryGenerating(true);
+    try {
+      const previous = archivesToMerge.length > 0 ? archivesToMerge.join('\n\n--- 통합 대상 요약 구분 ---\n\n') : session.summary.trim();
+      const dialogue = candidates.map((message) => `[${message.is_hidden ? '숨김 시작 설정' : message.role === 'user' ? '사용자' : 'AI'}]\n${message.content}`).join('\n\n');
+      const input = `${previous ? `=== 이전 요약 노트${archivesToMerge.length > 1 ? ' (선택한 복수 노트를 하나로 통합)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== 새로 요약할 대화 ===\n${dialogue}` : '=== 요청 ===\n선택한 요약 노트들을 누락과 단절 없이 하나의 최신 요약 노트로 통합하세요.'}`;
+      const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
+      const allowOmission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
+      const parametersEnabled = !profile.summary_prompt?.trim() || (session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true);
+      const parameterBlock = parametersEnabled ? `[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = ${summaryLevel}\nALLOW_OMISSION = ${allowOmission ? 'ON' : 'OFF'}` : '';
+      const extraNote = profile.summary_extra_note?.trim() ? `[ADDITIONAL NOTE]\n${profile.summary_extra_note.trim()}` : '';
+      const summaryCore = [profile.summary_prompt?.trim() || DEFAULT_SUMMARY_PROMPT, parameterBlock, extraNote].filter(Boolean).join('\n\n');
+      const result = await generate('openrouter', {
+        apiKey,
+        model: session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
+        reasoning: normalizeReasoning(session.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
+        systemParts: { core: summaryCore, persona: '', userNote: '', summary: '', keywords: '' },
+        messages: [{ role: 'user', content: input }],
+        maxOutputTokens: 4096,
+      });
+      if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
+      const throughTurn = sourceMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
+      const ids = candidates.map((message) => message.id);
+      const { error: deactivateError } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id).eq('is_active', true);
+      const versionsUnavailableAtUpdate = deactivateError?.code === 'PGRST205' || deactivateError?.message?.includes('summary_versions');
+      if (deactivateError && !versionsUnavailableAtUpdate) throw deactivateError;
+      const { error: versionError } = await supabase.from('summary_versions').insert({
+        session_id: session.id, content: result.text, summarized_through_turn: throughTurn,
+        input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
+      });
+      const versionsUnavailable = versionsUnavailableAtUpdate || versionError?.code === 'PGRST205' || versionError?.message?.includes('summary_versions');
+      if (versionError && !versionsUnavailable) throw versionError;
+      const { error: markError } = await supabase.from('messages').update({ is_summarized: true }).in('id', ids);
+      if (markError) throw markError;
+      const { data: fresh } = await supabase.from('sessions').select('total_input_tokens,total_output_tokens,total_cost').eq('id', session.id).single();
+      const totals = fresh as Pick<Session, 'total_input_tokens' | 'total_output_tokens' | 'total_cost'> | null;
+      const patch = {
+        summary: result.text,
+        summary_last_turn: throughTurn,
+        total_input_tokens: (totals?.total_input_tokens ?? session.total_input_tokens) + result.usage.inputTokens,
+        total_output_tokens: (totals?.total_output_tokens ?? session.total_output_tokens) + result.usage.outputTokens,
+        total_cost: (totals?.total_cost ?? session.total_cost) + result.usage.cost,
+      };
+      const { error: sessionError } = await supabase.from('sessions').update(patch).eq('id', session.id);
+      if (sessionError) throw sessionError;
+      setMessages((current) => current.map((message) => ids.includes(message.id) ? { ...message, is_summarized: true } : message));
+      setSession((current) => current ? { ...current, ...patch } : current);
+      if (versionsUnavailable) addError('요약은 생성되어 채팅에 반영됐지만 요약 기록 테이블이 아직 배포되지 않아 버전 기록은 저장하지 못했습니다. Supabase 마이그레이션 0013~0016을 적용해 주세요.');
+    } catch (error) {
+      addError(`요약 생성 실패: ${describeUnknownError(error)}`);
+    } finally {
+      setSummaryGenerating(false);
+    }
   }
 
   async function send() {
@@ -232,7 +312,12 @@ export default function ChatPage() {
     const now = new Date().toISOString();
     const turnIndex = messages.filter((m) => !m.is_hidden).length;
     let partialText = '';
-    const onChunk = (t: string) => { partialText = t; setStreamingContent(t); };
+    let lastPaint = 0;
+    const onChunk = (t: string) => {
+      partialText = t;
+      const nowMs = performance.now();
+      if (nowMs - lastPaint >= 50) { lastPaint = nowMs; setStreamingContent(t); }
+    };
 
     if (isGuest && guestSession) {
       const historyMsgs = buildHistory([...messages]);
@@ -326,7 +411,8 @@ export default function ChatPage() {
           input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
         })
         .select('*').single();
-      if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
+      const messagesAfterResponse = aiMsg ? [...currentMessages, aiMsg as Message] : currentMessages;
+      if (aiMsg) setMessages(messagesAfterResponse);
 
       const newIn = session.total_input_tokens + result.usage.inputTokens;
       const newOut = session.total_output_tokens + result.usage.outputTokens;
@@ -335,6 +421,10 @@ export default function ChatPage() {
         .update({ total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, updated_at: new Date().toISOString() })
         .eq('id', session.id);
       setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost });
+      const unsummarizedTurns = messagesAfterResponse.filter((message) => message.role === 'user' && !message.is_hidden && !message.is_summarized).length;
+      if (session.auto_summary_enabled && unsummarizedTurns >= (session.summary_interval_override ?? profile?.summary_interval ?? 30)) {
+        await generateSummary(messagesAfterResponse);
+      }
     } catch (err) {
       const isAbort = err instanceof DOMException && err.name === 'AbortError';
       if (isAbort && partialText) {
@@ -383,7 +473,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
+    <div className="mx-auto flex h-full min-h-0 max-w-app flex-col bg-bg">
       <header className="flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
         <button onClick={() => navigate('/sessions')} className="text-slate-400">←</button>
         <button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 flex-1 text-left">
@@ -410,7 +500,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div ref={scrollRef} className="w-full flex-1 overflow-y-auto overflow-x-hidden px-3 py-4">
+      <div ref={scrollRef} onScroll={(event) => { shouldAutoScrollRef.current = isNearScrollBottom(event.currentTarget); }} className="w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
         )}
@@ -479,8 +569,8 @@ export default function ChatPage() {
                     <div className={`flex items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); }} className="text-xs text-slate-500">편집</button>
                       <button onClick={() => deleteMsg(m.id)} className="text-xs text-red-400/60">삭제</button>
-                      {showCost && m.role === 'assistant' && m.cost > 0 && (
-                        <span className="text-[10px] text-slate-500">${m.cost.toFixed(6)}</span>
+                      {showCost && m.role === 'assistant' && (
+                        <span className="text-[10px] text-slate-500">${m.cost.toFixed(6)} · 출력 {m.output_tokens.toLocaleString()} tokens</span>
                       )}
                     </div>
                   )}
@@ -491,34 +581,7 @@ export default function ChatPage() {
           {sending && (
             <div className="self-start max-w-full rounded-2xl bg-surface px-4 py-2.5 text-sm leading-relaxed text-slate-100">
               {streamingContent ? (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                    em: ({ children }) => <em className="not-italic opacity-50">{children}</em>,
-                    ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
-                    ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
-                    li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                    code: ({ children, className }) =>
-                      className ? (
-                        <code className="block overflow-x-auto rounded-lg bg-surface2 p-3 text-xs font-mono">{children}</code>
-                      ) : (
-                        <code className="rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>
-                      ),
-                    pre: ({ children }) => <pre className="mb-2">{children}</pre>,
-                    blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
-                    h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
-                    h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
-                    h3: ({ children }) => <h3 className="mb-1 text-base font-semibold">{children}</h3>,
-                    hr: () => <hr className="my-2 border-slate-600" />,
-                    a: ({ href, children }) => (
-                      <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
-                    ),
-                  }}
-                >
-                  {streamingContent}
-                </ReactMarkdown>
+                <p className="whitespace-pre-wrap break-words">{streamingContent}</p>
               ) : (
                 <span className="text-slate-400">생각 중…</span>
               )}
@@ -527,7 +590,7 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <div className="flex items-end gap-2 border-t border-surface2 p-2">
+      <div className="flex shrink-0 items-end gap-2 border-t border-surface2 p-2">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -574,6 +637,9 @@ export default function ChatPage() {
           }}
           errorLog={errorLog}
           onClearErrors={() => setErrorLog([])}
+          onGenerateSummary={() => generateSummary()}
+          onMergeSummaries={(contents) => generateSummary(messages, contents)}
+          summaryGenerating={summaryGenerating}
         />
       )}
     </div>
