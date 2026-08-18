@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
-import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
-import type { Persona, Profile, Provider, Session } from '@/types/db';
+import type { ReasoningSelection } from '@/lib/llm/types';
+import ModelSelector from './ModelSelector';
+import type { Persona, Profile, Session } from '@/types/db';
 import type { ErrorEntry } from '@/pages/ChatPage';
 
 interface OpenRouterCredit {
@@ -12,7 +13,6 @@ interface OpenRouterCredit {
   remaining: number | null;
 }
 
-const PROVIDERS: Provider[] = ['openrouter', 'claude', 'gemini', 'openai'];
 const MAX_NOTE = 2000;
 const SLIDER_MAX = 4224;
 
@@ -36,10 +36,10 @@ interface Props {
   onDebugToggle: (v: boolean) => void;
   showCost: boolean;
   onShowCostToggle: (v: boolean) => void;
-  sessionProvider: Provider;
   sessionModel: string;
-  onProviderChange: (p: Provider) => void;
   onModelChange: (m: string) => void;
+  sessionReasoning: ReasoningSelection;
+  onReasoningChange: (reasoning: ReasoningSelection) => void;
   errorLog: ErrorEntry[];
   onClearErrors: () => void;
 }
@@ -47,7 +47,7 @@ interface Props {
 export default function SessionMenu({
   session, profile, onClose, onUpdate, onPersonaChange,
   debugMode, onDebugToggle, showCost, onShowCostToggle,
-  sessionProvider, sessionModel, onProviderChange, onModelChange,
+  sessionModel, onModelChange, sessionReasoning, onReasoningChange,
   errorLog, onClearErrors,
 }: Props) {
   const { user } = useAuth();
@@ -57,7 +57,6 @@ export default function SessionMenu({
 
   useEffect(() => {
     setCredit(null);
-    if (sessionProvider !== 'openrouter') return;
     const apiKey = getApiKey('openrouter');
     if (!apiKey) return;
     setCreditLoading(true);
@@ -79,7 +78,7 @@ export default function SessionMenu({
       })
       .catch(() => {})
       .finally(() => setCreditLoading(false));
-  }, [sessionProvider]);
+  }, []);
   const [sliderVal, setSliderVal] = useState(() => tokensToSlider(session.output_tokens_override));
   const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_tokens_override !== null);
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -150,9 +149,8 @@ export default function SessionMenu({
         {/* 크레딧 */}
         <section className="rounded-xl bg-surface p-3">
           <p className="mb-1 text-xs font-semibold text-slate-400">
-            {PROVIDER_LABELS[sessionProvider]} 크레딧
+            OpenRouter 크레딧
           </p>
-          {sessionProvider === 'openrouter' ? (
             <>
               {!getApiKey('openrouter') ? (
                 <p className="text-xs text-slate-500">API 키를 설정하면 잔여 크레딧을 확인할 수 있습니다.</p>
@@ -194,9 +192,6 @@ export default function SessionMenu({
                 이 채팅방 사용: ${session.total_cost.toFixed(6)}
               </p>
             </>
-          ) : (
-            <p className="text-xs text-slate-500">타 API 크레딧 조회는 추후 지원 예정입니다.</p>
-          )}
         </section>
 
         {/* 페르소나 */}
@@ -232,26 +227,15 @@ export default function SessionMenu({
 
         {/* AI 공급사 / 모델 */}
         <section>
-          <h3 className="mb-2 text-sm font-semibold text-slate-300">AI 공급사 / 모델</h3>
+          <h3 className="mb-2 text-sm font-semibold text-slate-300">OpenRouter 모델</h3>
           <div className="flex flex-col gap-2">
-            <select
-              value={sessionProvider}
-              onChange={(e) => onProviderChange(e.target.value as Provider)}
-              className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
-            >
-              {PROVIDERS.map((p) => (
-                <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
-              ))}
-            </select>
-            <select
-              value={sessionModel || DEFAULT_MODELS[sessionProvider][0]}
-              onChange={(e) => onModelChange(e.target.value)}
-              className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
-            >
-              {DEFAULT_MODELS[sessionProvider].map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
+            <ModelSelector
+              provider="openrouter"
+              model={sessionModel}
+              reasoning={sessionReasoning}
+              onModelChange={onModelChange}
+              onReasoningChange={onReasoningChange}
+            />
           </div>
         </section>
 

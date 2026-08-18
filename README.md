@@ -1,10 +1,10 @@
-# ChatForMe — AI 롤플레잉 채팅 플랫폼
+# Inuchat — AI 롤플레잉 채팅 플랫폼
 
-개인/지인용 AI 롤플레잉 채팅 플랫폼. 각자 자신의 API 키(Claude / Gemini / GPT)를 입력해 사용하는 **BYOK** 방식이라 운영 비용이 거의 들지 않습니다.
+개인/지인용 AI 롤플레잉 채팅 플랫폼. OpenRouter API 키 하나를 입력해 사용하는 **BYOK** 방식이라 운영 비용이 거의 들지 않습니다.
 
 - **프론트엔드**: Vite + React + TypeScript + Tailwind (모바일 우선 PWA)
 - **백엔드**: Supabase (Auth · Postgres · Storage) — 무료 티어
-- **AI 호출**: 브라우저에서 각 공급사로 직접 호출 (키는 서버로 전송되지 않음) — **OpenRouter 권장**
+- **AI 호출**: 브라우저에서 OpenRouter로 직접 호출 (키는 서버에 저장되지 않음)
 
 ---
 
@@ -50,7 +50,7 @@ npm run dev
 로그인 후 **설정 탭 → API 키**에 키를 입력하면 채팅이 동작합니다.
 (키는 이 기기 브라우저에만 저장됩니다.)
 
-> **권장: OpenRouter API 사용**
+> **OpenRouter API 전용**
 > [openrouter.ai](https://openrouter.ai) 에서 키 하나를 발급하면 Claude·Gemini·GPT 등 모든 모델을 단일 키로 사용할 수 있습니다.
 > 무료 모델도 제공되므로 처음 사용하기에 가장 편리합니다.
 
@@ -74,7 +74,7 @@ npm run build   # dist/ 생성
 ### Phase 1 ✅
 - Google · 이메일 로그인
 - 작품 목록/상세, 작품 제작·편집(기본정보·메인 프롬프트·썸네일)
-- 채팅 세션 생성, 3사 AI 연동, 메시지 영속화
+- 채팅 세션 생성, OpenRouter AI 연동, 메시지 영속화
 - 세션 누적 토큰 표시
 - 측면 메뉴: 유저 노트 편집, 출력량 조정
 - 설정: API 키, 기본 출력량, 프로필
@@ -96,11 +96,10 @@ npm run build   # dist/ 생성
 - 유저 팔로우 / 팔로워
 - 프로필 사진 · 소개
 - 유저 페이지
-- 작품 탭 랭킹/신작순/장르별 (일간·주간·월간 랭킹, 오늘의 인기 신작)
+- 개인용 최신 작품 목록
 
 ### 예정
 - 요약 메모리 (긴 대화 자동 압축) — 프롬프트 조립부(`src/lib/prompt/assemble.ts`)와 DB 자리는 이미 확보
-- OpenRouter 전용 어댑터
 
 ---
 
@@ -110,7 +109,7 @@ src/
 ├── lib/
 │   ├── supabase.ts        # Supabase 클라이언트
 │   ├── apiKeys.ts         # API 키 localStorage 관리
-│   ├── llm/               # Claude/Gemini/OpenAI 어댑터 (브라우저 직접 호출)
+│   ├── llm/               # OpenRouter 어댑터 (브라우저 직접 호출)
 │   └── prompt/assemble.ts # 프롬프트 조립 단일 진입점
 ├── hooks/useAuth.tsx      # 인증 컨텍스트
 ├── components/            # Layout, SessionMenu 등
