@@ -7,16 +7,30 @@ async function readLines(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  const READ_TIMEOUT_MS = 120_000;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const stalled = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('스트리밍 응답이 120초 동안 도착하지 않았습니다.')), READ_TIMEOUT_MS);
+      });
+      let result: ReadableStreamReadResult<Uint8Array>;
+      try {
+        result = await Promise.race([reader.read(), stalled]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+      const { done, value } = result;
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
       for (const line of lines) onLine(line);
     }
+    buffer += decoder.decode();
+    if (buffer.trim()) onLine(buffer);
   } finally {
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }
@@ -39,14 +53,20 @@ export async function readOpenAIStream(
   let outputTokens = 0;
   let cacheReadTokens = 0;
   let cost = 0;
+  let receivedDone = false;
+  let finishReason: string | null = null;
 
   await readLines(body, (line) => {
     const trimmed = line.trim();
     if (!trimmed.startsWith('data:')) return;
     const data = trimmed.slice(5).trim();
-    if (data === '[DONE]') return;
+    if (data === '[DONE]') { receivedDone = true; return; }
     try {
       const parsed = JSON.parse(data);
+      if (parsed.error) {
+        const message = parsed.error.message ?? parsed.error.code ?? JSON.stringify(parsed.error);
+        throw new Error(`OpenRouter 스트리밍 오류: ${message}`);
+      }
       const delta = parsed.choices?.[0]?.delta?.content;
       if (typeof delta === 'string' && delta) {
         fullText += delta;
@@ -59,8 +79,16 @@ export async function readOpenAIStream(
         cacheReadTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
         cost = usage.cost ?? 0;
       }
-    } catch {}
+      const reason = parsed.choices?.[0]?.finish_reason;
+      if (typeof reason === 'string' && reason) finishReason = reason;
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('OpenRouter 스트리밍 오류:')) throw error;
+      throw new Error(`스트리밍 이벤트를 해석할 수 없습니다: ${error instanceof Error ? error.message : String(error)}`);
+    }
   });
+
+  if (!receivedDone) throw new Error(`스트리밍 연결이 정상 완료 신호 없이 종료되었습니다${finishReason ? ` (finish_reason: ${finishReason})` : ''}.`);
+  if (!fullText.trim()) throw new Error('모델이 빈 응답을 반환했습니다.');
 
   return { text: fullText, inputTokens, outputTokens, cacheCreationTokens: 0, cacheReadTokens, cost };
 }

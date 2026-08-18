@@ -213,13 +213,9 @@ export default function ChatPage() {
       setProfile(p as Profile);
       setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
       const loadedMessages = (msgs as Message[]) ?? [];
-      const orphanedIds = !activeGenerations.has(sess.id)
-        ? loadedMessages.filter((message) => message.generation_status === 'streaming').map((message) => message.id)
-        : [];
-      if (orphanedIds.length) {
-        await supabase.from('messages').update({ generation_status: 'interrupted' }).in('id', orphanedIds);
-      }
-      setMessages(loadedMessages.map((message) => orphanedIds.includes(message.id) ? { ...message, generation_status: 'interrupted' } : message));
+      // A missing in-memory controller does not prove that generation stopped:
+      // another tab may still own it. P1 heartbeat handling will decide staleness.
+      setMessages(loadedMessages);
       setKeywordBooks((kbs as KeywordBook[]) ?? []);
       setStoryNotes((notes as StoryNote[]) ?? []);
 
@@ -421,7 +417,10 @@ export default function ChatPage() {
       if (!isGuest && draftMessageId && nowMs - lastDraftSave >= 500) {
         lastDraftSave = nowMs;
         const id = draftMessageId;
-        draftSaveQueue = draftSaveQueue.then(async () => { await supabase.from('messages').update({ content: t }).eq('id', id); });
+        draftSaveQueue = draftSaveQueue.then(async () => {
+          const { error } = await supabase.from('messages').update({ content: t }).eq('id', id);
+          if (error) throw error;
+        });
       }
     };
 
@@ -498,10 +497,17 @@ export default function ChatPage() {
     const historyMsgs = buildHistory([...baseMessages], effectiveSummaryTurn);
     let currentMessages = [...baseMessages];
     if (text) {
-      const { data: userMsg } = await supabase
+      const { data: userMsg, error: userMessageError } = await supabase
         .from('messages')
         .insert({ session_id: session.id, role: 'user', content: text, turn_index: turnIndex })
         .select('*').single();
+      if (userMessageError) {
+        addError(userMessageError.message);
+        setSending(false);
+        abortControllerRef.current = null;
+        if (sessionId) publishGeneration(sessionId, null);
+        return;
+      }
       if (userMsg) {
         currentMessages = [...baseMessages, userMsg as Message];
         setMessages(currentMessages);
@@ -527,6 +533,7 @@ export default function ChatPage() {
       const result = await generate(provider, { apiKey, model, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
       if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
       await draftSaveQueue;
+      const { data: aiMsg, error: finalMessageError } = await supabase
       const { data: aiMsg } = await supabase
         .from('messages')
         .update({
@@ -535,6 +542,7 @@ export default function ChatPage() {
           generation_status: 'complete',
         })
         .eq('id', draftMessageId).select('*').single();
+      if (finalMessageError || !aiMsg) throw finalMessageError ?? new Error('최종 응답을 저장하지 못했습니다.');
       const messagesAfterResponse = aiMsg ? [...currentMessages, aiMsg as Message] : currentMessages;
       if (aiMsg) {
         if (rerollTarget) await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
@@ -550,9 +558,10 @@ export default function ChatPage() {
       const newIn = session.total_input_tokens + result.usage.inputTokens;
       const newOut = session.total_output_tokens + result.usage.outputTokens;
       const newCost = session.total_cost + result.usage.cost;
-      await supabase.from('sessions')
+      const { error: totalsError } = await supabase.from('sessions')
         .update({ total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn, updated_at: new Date().toISOString() })
         .eq('id', session.id);
+      if (totalsError) throw totalsError;
       setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn });
       const unsummarizedTurns = messagesAfterSummary(messagesAfterResponse, effectiveSummaryTurn).filter((message) => message.role === 'user' && !message.is_hidden).length;
       const costGateEnabled = session.summary_cost_enabled_override ?? profile?.summary_cost_enabled ?? false;
@@ -566,7 +575,7 @@ export default function ChatPage() {
     } catch (err) {
       const isAbort = controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError');
       if (partialText) {
-        await draftSaveQueue;
+        await draftSaveQueue.catch(() => {});
         const { data: aiMsg } = draftMessageId ? await supabase.from('messages').update({ content: partialText, generation_status: 'complete' }).eq('id', draftMessageId).select('*').single() : { data: null };
         if (aiMsg && rerollTarget) {
           await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
@@ -676,7 +685,8 @@ export default function ChatPage() {
 
   const currentSession = isGuest ? guestSession : session;
 
-  const visibleMessages = messages.filter((m) => m.generation_status !== 'streaming' && m.is_active_variant !== false && (!m.is_hidden || debugMode));
+  const hasLocalGeneration = !!sessionId && activeGenerations.has(sessionId);
+  const visibleMessages = messages.filter((m) => !(hasLocalGeneration && m.generation_status === 'streaming') && m.is_active_variant !== false && (!m.is_hidden || debugMode));
 
   if (!currentSession || !work) {
     return <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>;
@@ -774,6 +784,7 @@ export default function ChatPage() {
                         ),
                       }}
                     >
+                      {m.content || (m.generation_status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : m.generation_status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
                       {m.content || (m.generation_status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
                     </ReactMarkdown>
                   </div>
