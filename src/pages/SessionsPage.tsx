@@ -105,10 +105,11 @@ export default function SessionsPage() {
   async function confirmDelete() {
     if (selected.size === 0) return;
     const ids = [...selected];
-    const { error } = await supabase.from('sessions').delete().in('id', ids);
-    if (error) { alert('삭제 실패: ' + error.message); return; }
+    const { data: deleted, error } = await supabase.from('sessions').delete().in('id', ids).select('id');
+    if (error || deleted?.length !== ids.length) { alert('삭제 실패: ' + (error?.message ?? '일부 채팅방이 삭제되지 않았습니다.')); return; }
     queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
     cancelSelect();
+    showToast(`${ids.length}개 채팅방과 연결 데이터를 삭제했습니다.`);
   }
 
   function openRename(target: { id: string; title: string; guest: boolean }) {
@@ -138,8 +139,8 @@ export default function SessionsPage() {
       guestDeleteSession(deleteTarget.id);
       await queryClient.invalidateQueries({ queryKey: ['guest-sessions'] });
     } else {
-      const { error } = await supabase.from('sessions').delete().eq('id', deleteTarget.id);
-      if (error) { setDeleting(false); alert('삭제 실패: ' + error.message); return; }
+      const { data: deleted, error } = await supabase.from('sessions').delete().eq('id', deleteTarget.id).select('id');
+      if (error || !deleted?.length) { setDeleting(false); alert('삭제 실패: ' + (error?.message ?? '채팅방이 삭제되지 않았습니다.')); return; }
       await queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
     }
     setDeleting(false);

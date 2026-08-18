@@ -284,6 +284,12 @@ export default function ChatPage() {
       const { error: deactivateError } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id).eq('is_active', true);
       const versionsUnavailableAtUpdate = deactivateError?.code === 'PGRST205' || deactivateError?.message?.includes('summary_versions');
       if (deactivateError && !versionsUnavailableAtUpdate) throw deactivateError;
+      // Regeneration in the same turn replaces that turn's version instead of
+      // leaving multiple, ambiguous checkpoints behind.
+      if (!versionsUnavailableAtUpdate) {
+        const { error: duplicateError } = await supabase.from('summary_versions').delete().eq('session_id', session.id).eq('summarized_through_turn', throughTurn);
+        if (duplicateError) throw duplicateError;
+      }
       const { error: versionError } = await supabase.from('summary_versions').insert({
         session_id: session.id, content: result.text, summarized_through_turn: throughTurn,
         input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
@@ -440,7 +446,7 @@ export default function ChatPage() {
 
     const assembled = assemblePrompt({
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
-      summary: [effectiveSummary, storyNotes.length ? `# 스토리 메모\n${storyNotes.map((note) => note.content).join('\n\n')}` : ''].filter(Boolean).join('\n\n'), persona,
+      summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
       keywordBookContents: getActiveKeywordContents(currentMessages, text),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: text,

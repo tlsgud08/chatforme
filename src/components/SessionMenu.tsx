@@ -176,7 +176,9 @@ export default function SessionMenu({
   }
 
   async function applySelectedSummaries() {
-    const selected = summaryVersions.filter((version) => selectedSummaryIds.includes(version.id));
+    const selected = summaryVersions
+      .filter((version) => selectedSummaryIds.includes(version.id))
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
     const summary = selected.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
     const { error } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id);
     if (error) { flash(error.message); return; }
@@ -184,7 +186,7 @@ export default function SessionMenu({
       const { error: selectError } = await supabase.from('summary_versions').update({ is_active: true }).in('id', selectedSummaryIds);
       if (selectError) { flash(selectError.message); return; }
     }
-    const newestSelected = [...selected].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+    const newestSelected = selected[selected.length - 1];
     const summaryLastTurn = newestSelected?.summarized_through_turn ?? 0;
     await supabase.from('sessions').update({ summary, summary_last_turn: summaryLastTurn }).eq('id', session.id);
     onUpdate({ summary, summary_last_turn: summaryLastTurn });
@@ -437,6 +439,13 @@ export default function SessionMenu({
             <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-bg p-4" onClick={(event) => event.stopPropagation()}>
               <div className="flex items-center"><h3 className="font-semibold text-white">요약 노트 기록</h3><button type="button" onClick={() => setSummaryOpen(false)} className="ml-auto text-slate-400">✕</button></div>
               <div className="mt-3 flex flex-col gap-3">
+                <section className="rounded-xl border border-surface2 p-3">
+                  <h4 className="text-sm font-semibold text-slate-200">사용자 스토리 메모</h4>
+                  <p className="mt-1 text-[11px] text-slate-500">정식 요약과 별도로 요약 바로 아래에 항상 전송되며, 메시지 누적 범위에는 영향을 주지 않습니다.</p>
+                  <div className="mt-2 flex flex-col gap-2">{storyNotes.map((note) => <div key={note.id} className="rounded-lg bg-surface p-2"><p className="whitespace-pre-wrap text-xs text-slate-300">{note.content}</p><button type="button" onClick={() => void deleteStoryNote(note.id)} className="mt-1 text-[11px] text-red-400">삭제</button></div>)}</div>
+                  <textarea rows={4} value={storyNoteDraft} onChange={(event) => setStoryNoteDraft(event.target.value)} placeholder="호칭, 디테일 등 계속 전달할 메모" className="mt-2 w-full rounded-lg bg-surface p-2 text-xs outline-none" />
+                  <button type="button" onClick={() => void addStoryNote()} className="mt-2 w-full rounded-lg bg-surface2 py-2 text-xs text-white">스토리 메모 추가</button>
+                </section>
                 {summaryVersions.length > 0 && <div className="rounded-xl bg-surface p-3"><p className="text-xs text-amber-400">복수 노트 반영은 내용 중복이나 지시 충돌이 생길 수 있어 권장하지 않습니다.</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => void applySelectedSummaries()} className="flex-1 rounded-lg bg-surface2 py-2 text-xs text-white">선택 노트 반영</button><button type="button" disabled={selectedSummaryIds.length < 2 || summaryGenerating} onClick={async () => { await onMergeSummaries(summaryVersions.filter((v) => selectedSummaryIds.includes(v.id)).map((v) => v.content)); await loadSummaries(); }} className="flex-1 rounded-lg bg-brand py-2 text-xs text-white disabled:opacity-50">선택 노트 통합 생성</button></div></div>}
                 {summaryVersions.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">생성된 요약이 없습니다.</p> : summaryVersions.map((version) => (
                   <article key={version.id} className={`rounded-xl border p-3 ${version.is_active ? 'border-emerald-500/50' : 'border-surface2 opacity-70'}`}>
@@ -448,14 +457,6 @@ export default function SessionMenu({
             </div>
           </div>
         )}
-
-        <section className="rounded-xl border border-surface2 p-3">
-          <h3 className="text-sm font-semibold text-slate-300">스토리 메모</h3>
-          <p className="mt-1 text-[11px] text-slate-500">요약과 별도로 항상 전송되며 대화 원문 범위에는 영향을 주지 않습니다.</p>
-          <div className="mt-2 flex flex-col gap-2">{storyNotes.map((note) => <div key={note.id} className="rounded-lg bg-surface p-2"><p className="whitespace-pre-wrap text-xs text-slate-300">{note.content}</p><button type="button" onClick={() => void deleteStoryNote(note.id)} className="mt-1 text-[11px] text-red-400">삭제</button></div>)}</div>
-          <textarea rows={4} value={storyNoteDraft} onChange={(event) => setStoryNoteDraft(event.target.value)} placeholder="호칭, 디테일 등 계속 전달할 메모" className="mt-2 w-full rounded-lg bg-surface p-2 text-xs outline-none" />
-          <button type="button" onClick={() => void addStoryNote()} className="mt-2 w-full rounded-lg bg-surface2 py-2 text-xs text-white">스토리 메모 추가</button>
-        </section>
 
         {/* 응답별 크레딧 사용량 */}
         <section>
