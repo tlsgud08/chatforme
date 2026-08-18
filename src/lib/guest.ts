@@ -1,7 +1,8 @@
 // 비회원 모드: 세션과 메시지를 localStorage 에만 저장
 import type { Message, Session, Work } from '@/types/db';
 
-const SESSIONS_KEY = 'nekochat.guest.sessions';
+const SESSIONS_KEY = 'inuchat.guest.sessions';
+const LEGACY_SESSIONS_KEY = 'nekochat.guest.sessions';
 
 export interface GuestMessage extends Pick<Message, 'id' | 'role' | 'content' | 'turn_index' | 'input_tokens' | 'output_tokens' | 'cost' | 'is_hidden' | 'created_at'> {
   session_id: string;
@@ -13,7 +14,9 @@ export interface GuestSession extends Pick<Session, 'id' | 'work_id' | 'title' |
 
 function load(): GuestSession[] {
   try {
-    return JSON.parse(localStorage.getItem(SESSIONS_KEY) ?? '[]') as GuestSession[];
+    const stored = localStorage.getItem(SESSIONS_KEY) ?? localStorage.getItem(LEGACY_SESSIONS_KEY);
+    if (stored && localStorage.getItem(SESSIONS_KEY) === null) localStorage.setItem(SESSIONS_KEY, stored);
+    return JSON.parse(stored ?? '[]') as GuestSession[];
   } catch {
     return [];
   }
@@ -68,6 +71,10 @@ export function guestUpdateSession(sessionId: string, patch: Partial<GuestSessio
   if (idx === -1) return;
   sessions[idx] = { ...sessions[idx], ...patch, updated_at: new Date().toISOString() };
   save(sessions);
+}
+
+export function guestDeleteSession(sessionId: string): void {
+  save(load().filter((session) => session.id !== sessionId));
 }
 
 export function guestUpdateMessage(sessionId: string, messageId: string, content: string): void {

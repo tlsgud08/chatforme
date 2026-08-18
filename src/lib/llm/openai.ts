@@ -32,6 +32,7 @@ export const openaiAdapter: LLMAdapter = {
         stream: streaming,
         ...(streaming && { stream_options: { include_usage: true } }),
         ...(opts.maxOutputTokens !== null && { max_tokens: opts.maxOutputTokens }),
+        ...(opts.reasoningEffort !== 'none' && { reasoning_effort: opts.reasoningEffort }),
         messages,
       }),
     });

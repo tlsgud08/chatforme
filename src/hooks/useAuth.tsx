@@ -2,20 +2,15 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 import { supabase, ADMIN_EMAIL } from '@/lib/supabase';
 
-const GUEST_KEY = 'nekochat.guest';
-
 interface AuthState {
   user: User | null;
   session: AuthSession | null;
   loading: boolean;
   isAdmin: boolean;
   isGuest: boolean;
-  signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  signUpWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string, masterPassword: string) => Promise<void>;
   signOut: () => Promise<void>;
-  enterGuest: () => void;
-  exitGuest: () => void;
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -23,14 +18,9 @@ const AuthContext = createContext<AuthState | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isGuest, setIsGuest] = useState(false);
+  const isGuest = false;
 
   useEffect(() => {
-    if (localStorage.getItem(GUEST_KEY) === '1') {
-      setIsGuest(true);
-      setLoading(false);
-      return;
-    }
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setLoading(false);
@@ -50,33 +40,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     isAdmin,
     isGuest,
-    enterGuest() {
-      localStorage.setItem(GUEST_KEY, '1');
-      setIsGuest(true);
-    },
-    exitGuest() {
-      localStorage.removeItem(GUEST_KEY);
-      setIsGuest(false);
-    },
-    async signInWithGoogle() {
-      await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: { redirectTo: window.location.origin },
-      });
-    },
     async signInWithEmail(email, password) {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
     },
-    async signUpWithEmail(email, password) {
+    async signUpWithEmail(email, password, masterPassword) {
+      const { data: allowed, error: verifyError } = await supabase.rpc('verify_signup_master_password', {
+        candidate: masterPassword,
+      });
+      if (verifyError) throw verifyError;
+      if (!allowed) throw new Error('마스터 비밀번호가 올바르지 않습니다.');
       const { error } = await supabase.auth.signUp({ email, password });
       if (error) throw error;
     },
     async signOut() {
-      if (isGuest) {
-        value.exitGuest();
-        return;
-      }
       await supabase.auth.signOut();
     },
   };
