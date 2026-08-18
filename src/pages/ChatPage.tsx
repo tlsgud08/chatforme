@@ -10,6 +10,7 @@ import { PROVIDER_LABELS, type ReasoningSelection } from '@/lib/llm/types';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import { assemblePrompt } from '@/lib/prompt/assemble';
+import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
   type GuestSession, type GuestMessage,
@@ -89,6 +90,7 @@ export default function ChatPage() {
   const [editingContent, setEditingContent] = useState('');
   const [sessionModel, setSessionModel] = useState('');
   const [sessionReasoning, setSessionReasoning] = useState<ReasoningSelection>(() => defaultReasoningFor('openrouter', modelsFor('openrouter')[0]));
+  const [summaryGenerating, setSummaryGenerating] = useState(false);
 
   const [streamingContent, setStreamingContent] = useState('');
   const [cacheToast, setCacheToast] = useState('');
@@ -207,10 +209,61 @@ export default function ChatPage() {
   function buildHistory(allMsgs: Message[]) {
     const userCount = allMsgs.filter((m) => m.role === 'user' && !m.is_hidden).length;
     return allMsgs.filter((m) => {
+      if (m.is_summarized) return false;
       if (m.is_hidden && startConfig) return userCount < startConfig.keep_turns;
       if (m.is_hidden && !startConfig) return false;
       return true;
     });
+  }
+
+  async function generateSummary(sourceMessages = messages) {
+    if (!session || !profile || summaryGenerating) return;
+    const apiKey = getApiKey('openrouter');
+    if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return; }
+    // Include the hidden initial context in the first archive so important
+    // scenario setup is not lost after its short keep_turns window expires.
+    const candidates = sourceMessages.filter((message) => !message.is_summarized);
+    if (candidates.length === 0) { addError('새로 요약할 대화가 없습니다.'); return; }
+    setSummaryGenerating(true);
+    try {
+      const previous = session.summary.trim();
+      const dialogue = candidates.map((message) => `[${message.is_hidden ? '숨김 시작 설정' : message.role === 'user' ? '사용자' : 'AI'}]\n${message.content}`).join('\n\n');
+      const input = `${previous ? `=== 이전 요약 노트 ===\n${previous}\n\n` : ''}=== 새로 요약할 대화 ===\n${dialogue}`;
+      const result = await generate('openrouter', {
+        apiKey,
+        model: sessionModel || modelsFor('openrouter')[0],
+        reasoning: sessionReasoning,
+        systemParts: { core: profile.summary_prompt?.trim() || DEFAULT_SUMMARY_PROMPT, persona: '', userNote: '', summary: '', keywords: '' },
+        messages: [{ role: 'user', content: input }],
+        maxOutputTokens: 4096,
+      });
+      if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
+      const throughTurn = sourceMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
+      const ids = candidates.map((message) => message.id);
+      await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id).eq('is_active', true);
+      const { error: versionError } = await supabase.from('summary_versions').insert({
+        session_id: session.id, content: result.text, summarized_through_turn: throughTurn,
+        input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
+      });
+      if (versionError) throw versionError;
+      await supabase.from('messages').update({ is_summarized: true }).in('id', ids);
+      const { data: fresh } = await supabase.from('sessions').select('total_input_tokens,total_output_tokens,total_cost').eq('id', session.id).single();
+      const totals = fresh as Pick<Session, 'total_input_tokens' | 'total_output_tokens' | 'total_cost'> | null;
+      const patch = {
+        summary: result.text,
+        summary_last_turn: throughTurn,
+        total_input_tokens: (totals?.total_input_tokens ?? session.total_input_tokens) + result.usage.inputTokens,
+        total_output_tokens: (totals?.total_output_tokens ?? session.total_output_tokens) + result.usage.outputTokens,
+        total_cost: (totals?.total_cost ?? session.total_cost) + result.usage.cost,
+      };
+      await supabase.from('sessions').update(patch).eq('id', session.id);
+      setMessages((current) => current.map((message) => ids.includes(message.id) ? { ...message, is_summarized: true } : message));
+      setSession((current) => current ? { ...current, ...patch } : current);
+    } catch (error) {
+      addError(error instanceof Error ? `요약 생성 실패: ${error.message}` : '요약 생성에 실패했습니다.');
+    } finally {
+      setSummaryGenerating(false);
+    }
   }
 
   async function send() {
@@ -326,7 +379,8 @@ export default function ChatPage() {
           input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
         })
         .select('*').single();
-      if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
+      const messagesAfterResponse = aiMsg ? [...currentMessages, aiMsg as Message] : currentMessages;
+      if (aiMsg) setMessages(messagesAfterResponse);
 
       const newIn = session.total_input_tokens + result.usage.inputTokens;
       const newOut = session.total_output_tokens + result.usage.outputTokens;
@@ -335,6 +389,10 @@ export default function ChatPage() {
         .update({ total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, updated_at: new Date().toISOString() })
         .eq('id', session.id);
       setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost });
+      const unsummarizedTurns = messagesAfterResponse.filter((message) => message.role === 'user' && !message.is_hidden && !message.is_summarized).length;
+      if (session.auto_summary_enabled && unsummarizedTurns >= session.summary_interval) {
+        await generateSummary(messagesAfterResponse);
+      }
     } catch (err) {
       const isAbort = err instanceof DOMException && err.name === 'AbortError';
       if (isAbort && partialText) {
@@ -574,6 +632,8 @@ export default function ChatPage() {
           }}
           errorLog={errorLog}
           onClearErrors={() => setErrorLog([])}
+          onGenerateSummary={() => generateSummary()}
+          summaryGenerating={summaryGenerating}
         />
       )}
     </div>

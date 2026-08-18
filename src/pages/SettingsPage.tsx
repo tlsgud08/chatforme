@@ -8,6 +8,7 @@ import { loadDefaultReasoning, modelsFor, saveDefaultReasoning, toOpenRouterMode
 import ModelSelector from '@/components/ModelSelector';
 import { loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import type { Profile, Provider } from '@/types/db';
+import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 
 const SLIDER_MAX = 4224;
 
@@ -99,6 +100,7 @@ export default function SettingsPage() {
         default_provider: 'openrouter',
         default_model: profile.default_model,
         default_output_tokens: profile.default_output_tokens,
+        summary_prompt: profile.summary_prompt,
       })
       .eq('id', profile.id);
     saveDefaultReasoning(defaultReasoning);
@@ -243,6 +245,23 @@ export default function SettingsPage() {
             <button onClick={saveProfile} className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">
               저장
             </button>
+          </div>
+        </section>
+      )}
+
+      {!isGuest && profile && (
+        <section>
+          <h2 className="mb-1 font-semibold text-white">요약 메모리 프롬프트</h2>
+          <p className="mb-3 text-xs text-slate-500">모든 채팅방의 요약 노트 생성에 사용됩니다. 비워 저장하면 기본 프롬프트를 사용합니다.</p>
+          <textarea
+            rows={18}
+            value={profile.summary_prompt ?? DEFAULT_SUMMARY_PROMPT}
+            onChange={(event) => setProfile({ ...profile, summary_prompt: event.target.value })}
+            className="w-full rounded-xl bg-surface p-3 font-mono text-xs leading-relaxed text-slate-200 outline-none"
+          />
+          <div className="mt-2 flex gap-2">
+            <button type="button" onClick={() => setProfile({ ...profile, summary_prompt: null })} className="flex-1 rounded-lg bg-surface2 py-2.5 text-sm text-slate-200">기본 프롬프트로 복귀</button>
+            <button type="button" onClick={() => void saveProfile()} className="flex-1 rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">요약 프롬프트 저장</button>
           </div>
         </section>
       )}

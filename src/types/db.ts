@@ -11,6 +11,7 @@ export interface Profile {
   default_output_tokens: number | null;
   default_provider: Provider;
   default_model: string;
+  summary_prompt: string | null;
   created_at: string;
 }
 
@@ -78,9 +79,24 @@ export interface Session {
   total_input_tokens: number;
   total_output_tokens: number;
   total_cost: number;
+  auto_summary_enabled: boolean;
+  summary_interval: number;
+  summary_last_turn: number;
   is_archived: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface SummaryVersion {
+  id: string;
+  session_id: string;
+  content: string;
+  summarized_through_turn: number;
+  is_active: boolean;
+  input_tokens: number;
+  output_tokens: number;
+  cost: number;
+  created_at: string;
 }
 
 export interface Message {
