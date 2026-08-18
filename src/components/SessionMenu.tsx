@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
-import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
+import { PROVIDER_LABELS, type ReasoningEffort } from '@/lib/llm/types';
+import ModelSelector from './ModelSelector';
 import type { Persona, Profile, Provider, Session } from '@/types/db';
 import type { ErrorEntry } from '@/pages/ChatPage';
 
@@ -40,6 +41,8 @@ interface Props {
   sessionModel: string;
   onProviderChange: (p: Provider) => void;
   onModelChange: (m: string) => void;
+  sessionReasoning: ReasoningEffort;
+  onReasoningChange: (reasoning: ReasoningEffort) => void;
   errorLog: ErrorEntry[];
   onClearErrors: () => void;
 }
@@ -47,7 +50,7 @@ interface Props {
 export default function SessionMenu({
   session, profile, onClose, onUpdate, onPersonaChange,
   debugMode, onDebugToggle, showCost, onShowCostToggle,
-  sessionProvider, sessionModel, onProviderChange, onModelChange,
+  sessionProvider, sessionModel, onProviderChange, onModelChange, sessionReasoning, onReasoningChange,
   errorLog, onClearErrors,
 }: Props) {
   const { user } = useAuth();
@@ -243,15 +246,13 @@ export default function SessionMenu({
                 <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
               ))}
             </select>
-            <select
-              value={sessionModel || DEFAULT_MODELS[sessionProvider][0]}
-              onChange={(e) => onModelChange(e.target.value)}
-              className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
-            >
-              {DEFAULT_MODELS[sessionProvider].map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
+            <ModelSelector
+              provider={sessionProvider}
+              model={sessionModel}
+              reasoning={sessionReasoning}
+              onModelChange={onModelChange}
+              onReasoningChange={onReasoningChange}
+            />
           </div>
         </section>
 

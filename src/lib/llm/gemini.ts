@@ -32,7 +32,10 @@ export const geminiAdapter: LLMAdapter = {
       body: JSON.stringify({
         systemInstruction: system ? { parts: [{ text: system }] } : undefined,
         contents,
-        generationConfig: opts.maxOutputTokens !== null ? { maxOutputTokens: opts.maxOutputTokens } : {},
+        generationConfig: {
+          ...(opts.maxOutputTokens !== null && { maxOutputTokens: opts.maxOutputTokens }),
+          ...(opts.reasoningEffort !== 'none' && { thinkingConfig: { thinkingLevel: opts.reasoningEffort.toUpperCase() } }),
+        },
       }),
     });
 

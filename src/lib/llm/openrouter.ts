@@ -35,6 +35,7 @@ export const openrouterAdapter: LLMAdapter = {
         usage: { include: true }, // 응답에 실제 청구 비용(cost) 포함
         ...(streaming && { stream_options: { include_usage: true } }),
         ...(opts.maxOutputTokens !== null && { max_tokens: opts.maxOutputTokens }),
+        ...(opts.reasoningEffort !== 'none' && { reasoning: { effort: opts.reasoningEffort } }),
         messages,
       }),
     });

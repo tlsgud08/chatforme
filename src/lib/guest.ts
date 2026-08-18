@@ -70,6 +70,10 @@ export function guestUpdateSession(sessionId: string, patch: Partial<GuestSessio
   save(sessions);
 }
 
+export function guestDeleteSession(sessionId: string): void {
+  save(load().filter((session) => session.id !== sessionId));
+}
+
 export function guestUpdateMessage(sessionId: string, messageId: string, content: string): void {
   const sessions = load();
   const s = sessions.find((s) => s.id === sessionId);
