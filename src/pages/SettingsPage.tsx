@@ -110,6 +110,7 @@ export default function SettingsPage() {
         summary_allow_omission: profile.summary_allow_omission,
         summary_parameters_enabled: profile.summary_parameters_enabled,
         summary_extra_note: profile.summary_extra_note,
+        summary_source_mode: profile.summary_source_mode,
       })
       .eq('id', profile.id);
     saveDefaultReasoning(defaultReasoning);
@@ -279,6 +280,12 @@ export default function SettingsPage() {
             />
             <label className="text-xs text-slate-400">자동 생성 간격 (턴)
               <input type="number" min={5} max={200} value={profile.summary_interval ?? 30} onChange={(e) => setProfile({ ...profile, summary_interval: Math.max(5, Math.min(200, Number(e.target.value) || 30)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
+            </label>
+            <label className="text-xs text-slate-400">요약 입력 범위
+              <select value={profile.summary_source_mode ?? 'incremental'} onChange={(e) => setProfile({ ...profile, summary_source_mode: e.target.value as 'incremental' | 'full' })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none">
+                <option value="incremental">이전 요약 + 이후 메시지</option>
+                <option value="full">이전 요약 제외 + 세션 전체 메시지</option>
+              </select>
             </label>
             <label className="text-xs text-slate-400">Summary level (0~10)
               <input type="number" min={0} max={10} value={profile.summary_level ?? 5} onChange={(e) => setProfile({ ...profile, summary_level: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />

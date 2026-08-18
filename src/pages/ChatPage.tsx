@@ -43,7 +43,7 @@ function loadSessionSettings(id: string, profile: Profile | null): SessionSettin
 }
 
 function toMsg(m: GuestMessage): Message {
-  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0 };
+  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0, reroll_group_id: null, reroll_index: 1, is_active_variant: true };
 }
 
 export interface ErrorEntry {
@@ -105,6 +105,7 @@ export default function ChatPage() {
   const [sessionReasoning, setSessionReasoning] = useState<ReasoningSelection>(() => defaultReasoningFor('openrouter', modelsFor('openrouter')[0]));
   const [summaryGenerating, setSummaryGenerating] = useState(false);
   const [storyNotes, setStoryNotes] = useState<StoryNote[]>([]);
+  const [messageActionBusy, setMessageActionBusy] = useState(false);
 
   const [streamingContent, setStreamingContent] = useState('');
   const [cacheToast, setCacheToast] = useState('');
@@ -248,11 +249,15 @@ export default function ChatPage() {
     if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return; }
     // Include the hidden initial context in the first archive so important
     // scenario setup is not lost after its short keep_turns window expires.
-    const candidates = messagesAfterSummary(sourceMessages);
+    const sourceMode = session.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
+    const activeSourceMessages = sourceMessages.filter((message) => message.is_active_variant !== false);
+    const candidates = sourceMode === 'full' ? activeSourceMessages : messagesAfterSummary(activeSourceMessages);
     if (candidates.length === 0 && archivesToMerge.length === 0) { addError('새로 요약할 대화가 없습니다.'); return; }
     setSummaryGenerating(true);
     try {
-      const previous = archivesToMerge.length > 0 ? archivesToMerge.join('\n\n--- 통합 대상 요약 구분 ---\n\n') : session.summary.trim();
+      const previous = archivesToMerge.length > 0
+        ? archivesToMerge.join('\n\n--- 통합 대상 요약 구분 ---\n\n')
+        : sourceMode === 'incremental' ? session.summary.trim() : '';
       const dialogue = candidates.map((message) => `[${message.is_hidden ? '숨김 시작 설정' : message.role === 'user' ? '사용자' : 'AI'}]\n${message.content}`).join('\n\n');
       const input = `${previous ? `=== 이전 요약 노트${archivesToMerge.length > 1 ? ' (선택한 복수 노트를 하나로 통합)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== 새로 요약할 대화 ===\n${dialogue}` : '=== 요청 ===\n선택한 요약 노트들을 누락과 단절 없이 하나의 최신 요약 노트로 통합하세요.'}`;
       const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
@@ -314,11 +319,14 @@ export default function ChatPage() {
     const apiKey = getApiKey(provider);
     if (!apiKey) { addError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
 
-    const rerollTarget = options?.reroll ? [...messages].reverse().find((message) => message.role === 'assistant' && !message.is_hidden) ?? null : null;
-    const baseMessages = rerollTarget ? messages.filter((message) => message.id !== rerollTarget.id) : messages;
+    const activeMessages = messages.filter((message) => message.is_active_variant !== false);
+    const rerollTarget = options?.reroll ? [...activeMessages].reverse().find((message) => message.role === 'assistant' && !message.is_hidden) ?? null : null;
+    const baseMessages = rerollTarget ? activeMessages.filter((message) => message.id !== rerollTarget.id) : activeMessages;
     let effectiveSummary = session?.summary ?? '';
     let effectiveSummaryTurn = session?.summary_last_turn ?? 0;
     let rerollVersionIds: string[] | null = null;
+    let rerollIndex = 1;
+    let rerollGroupId: string | null = null;
     if (rerollTarget && session) {
       const currentTurns = baseMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
       if (effectiveSummaryTurn >= currentTurns) {
@@ -330,6 +338,11 @@ export default function ChatPage() {
         effectiveSummaryTurn = restored.reduce((latest, version) => Math.max(latest, version.summarized_through_turn), 0);
         rerollVersionIds = restored.map((version) => version.id);
       }
+    }
+    if (rerollTarget) {
+      rerollGroupId = rerollTarget.reroll_group_id ?? rerollTarget.id;
+      const variants = messages.filter((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === rerollGroupId);
+      rerollIndex = Math.max(0, ...variants.map((message) => message.reroll_index ?? 1)) + 1;
     }
     const text = options?.reroll ? '' : input.trim();
     if (!options?.reroll) setInput('');
@@ -437,16 +450,19 @@ export default function ChatPage() {
         .insert({
           session_id: session.id, role: 'assistant', content: result.text, turn_index: turnIndex,
           input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
+          reroll_group_id: rerollGroupId, reroll_index: rerollIndex, is_active_variant: true,
         })
         .select('*').single();
       const messagesAfterResponse = aiMsg ? [...currentMessages, aiMsg as Message] : currentMessages;
       if (aiMsg) {
-        if (rerollTarget) await supabase.from('messages').delete().eq('id', rerollTarget.id);
+        if (rerollTarget) await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
         if (rerollVersionIds) {
           await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id);
           if (rerollVersionIds.length) await supabase.from('summary_versions').update({ is_active: true }).in('id', rerollVersionIds);
         }
-        setMessages(messagesAfterResponse);
+        setMessages((current) => rerollTarget
+          ? [...current.map((message) => message.id === rerollTarget.id ? { ...message, is_active_variant: false, reroll_group_id: rerollGroupId } : message), aiMsg as Message]
+          : messagesAfterResponse);
       }
 
       const newIn = session.total_input_tokens + result.usage.inputTokens;
@@ -479,12 +495,25 @@ export default function ChatPage() {
   }
 
   async function deleteMsg(msgId: string) {
+    if (!window.confirm('이 메시지를 삭제할까요?')) return;
+    if (messageActionBusy) return;
+    setMessageActionBusy(true);
+    const target = messages.find((message) => message.id === msgId);
     if (isGuest && guestSession) {
       guestDeleteMessage(guestSession.id, msgId);
     } else {
-      await supabase.from('messages').delete().eq('id', msgId);
+      const { error } = await supabase.from('messages').delete().eq('id', msgId);
+      if (error) { addError(error.message); setMessageActionBusy(false); return; }
     }
-    setMessages((m) => m.filter((msg) => msg.id !== msgId));
+    let next = messages.filter((msg) => msg.id !== msgId);
+    if (target?.role === 'assistant' && target.is_active_variant !== false) {
+      const groupId = target.reroll_group_id ?? target.id;
+      const replacement = [...next].reverse().find((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === groupId);
+      if (replacement && !isGuest) await supabase.from('messages').update({ is_active_variant: true }).eq('id', replacement.id);
+      if (replacement) next = next.map((message) => message.id === replacement.id ? { ...message, is_active_variant: true } : message);
+    }
+    setMessages(next);
+    setMessageActionBusy(false);
   }
 
   async function saveEdit(msgId: string) {
@@ -501,12 +530,15 @@ export default function ChatPage() {
 
   async function branchFrom(message: Message) {
     if (!session || !user) return;
-    const messageIndex = messages.findIndex((item) => item.id === message.id);
-    if (messageIndex < 0) return;
-    const branchMessages = messages.slice(0, messageIndex + 1);
+    if (!window.confirm('이 메시지 시점에서 새 채팅방으로 분기할까요?') || messageActionBusy) return;
+    setMessageActionBusy(true);
+    const branchSource = messages.filter((item) => item.is_active_variant !== false);
+    const messageIndex = branchSource.findIndex((item) => item.id === message.id);
+    if (messageIndex < 0) { setMessageActionBusy(false); return; }
+    const branchMessages = branchSource.slice(0, messageIndex + 1);
     const branchTurns = branchMessages.filter((item) => item.role === 'user' && !item.is_hidden).length;
     const { data: versionsData, error: versionsError } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).eq('is_active', true).lte('summarized_through_turn', branchTurns).order('created_at');
-    if (versionsError && versionsError.code !== 'PGRST205') { addError(versionsError.message); return; }
+    if (versionsError && versionsError.code !== 'PGRST205') { addError(versionsError.message); setMessageActionBusy(false); return; }
     const versions = (versionsData as SummaryVersion[] | null) ?? [];
     const branchSummary = versions.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
     const branchSummaryTurn = versions.length ? versions[versions.length - 1].summarized_through_turn : 0;
@@ -518,8 +550,9 @@ export default function ChatPage() {
       summary_reasoning_override: session.summary_reasoning_override, summary_interval_override: session.summary_interval_override,
       summary_level_override: session.summary_level_override, summary_allow_omission_override: session.summary_allow_omission_override,
       summary_parameters_enabled_override: session.summary_parameters_enabled_override,
+      summary_source_mode_override: session.summary_source_mode_override,
     }).select('id').single();
-    if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); return; }
+    if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); setMessageActionBusy(false); return; }
     const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }));
     if (copiedMessages.length) await supabase.from('messages').insert(copiedMessages);
     if (versions.length) await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost })));
@@ -527,9 +560,24 @@ export default function ChatPage() {
     navigate(`/chat/${newSession.id}`);
   }
 
+  async function selectVariant(message: Message, id: string) {
+    const groupId = message.reroll_group_id ?? message.id;
+    const group = messages.filter((item) => item.role === 'assistant' && (item.reroll_group_id ?? item.id) === groupId);
+    await supabase.from('messages').update({ is_active_variant: false }).in('id', group.map((item) => item.id));
+    await supabase.from('messages').update({ is_active_variant: true }).eq('id', id);
+    setMessages((current) => current.map((item) => group.some((variant) => variant.id === item.id) ? { ...item, is_active_variant: item.id === id } : item));
+  }
+
+  function variantsFor(message: Message) {
+    const groupId = message.reroll_group_id ?? message.id;
+    return messages
+      .filter((item) => item.role === 'assistant' && (item.reroll_group_id ?? item.id) === groupId)
+      .sort((a, b) => (a.reroll_index ?? 1) - (b.reroll_index ?? 1));
+  }
+
   const currentSession = isGuest ? guestSession : session;
 
-  const visibleMessages = messages.filter((m) => !m.is_hidden || debugMode);
+  const visibleMessages = messages.filter((m) => m.is_active_variant !== false && (!m.is_hidden || debugMode));
 
   if (!currentSession || !work) {
     return <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>;
@@ -578,9 +626,9 @@ export default function ChatPage() {
                   <textarea
                     value={editingContent}
                     onChange={(e) => setEditingContent(e.target.value)}
-                    rows={3}
+                    rows={Math.max(3, editingContent.split('\n').reduce((rows, line) => rows + Math.max(1, Math.ceil(line.length / 36)), 0))}
                     autoFocus
-                    className="w-full resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-100 outline-none"
+                    className="w-full resize-none overflow-hidden rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-100 outline-none"
                   />
                   <div className="flex justify-end gap-2">
                     <button onClick={() => setEditingId(null)} className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300">취소</button>
@@ -632,11 +680,12 @@ export default function ChatPage() {
                     <div className={`flex items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); }} className="text-xs text-slate-500">편집</button>
                       <button onClick={() => void branchFrom(m)} className="text-xs text-slate-500">분기</button>
-                      <button onClick={() => deleteMsg(m.id)} className="text-xs text-red-400/60">삭제</button>
-                      {!isGuest && m.role === 'assistant' && m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="ml-auto text-xs text-brand disabled:opacity-50">다시 생성</button>}
-                      {showCost && m.role === 'assistant' && (
-                        <span className="text-[10px] text-slate-500">${m.cost.toFixed(6)} · 출력 {m.output_tokens.toLocaleString()} tokens</span>
-                      )}
+                      <button disabled={messageActionBusy} onClick={() => void deleteMsg(m.id)} className="text-xs text-red-400/60 disabled:opacity-50">삭제</button>
+                      {m.role === 'assistant' && <div className="ml-auto flex items-center gap-2">
+                        {showCost && <span className="text-right text-[10px] text-slate-500">${m.cost.toFixed(6)} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
+                        {variantsFor(m).length > 1 && <select aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
+                        {!isGuest && m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성">↻</button>}
+                      </div>}
                     </div>
                   )}
                 </>

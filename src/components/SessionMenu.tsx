@@ -403,6 +403,11 @@ export default function SessionMenu({
           <input type="number" min={5} max={200} value={session.summary_interval_override ?? profile?.summary_interval ?? 30} onChange={(event) => void saveSummarySettings({ summary_interval_override: Math.max(5, Math.min(200, Number(event.target.value) || 30)) })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none" />
           <p className="mt-1 text-[11px] text-slate-500">전역 기본 {profile?.summary_interval ?? 30}턴 · 현재 마지막 요약: {session.summary_last_turn || 0}턴</p>
           <button type="button" onClick={() => void saveSummarySettings({ summary_interval_override: null })} className="mt-1 text-xs text-slate-400 underline">전역 간격 사용</button>
+          <label className="mt-3 block text-xs text-slate-400">요약 입력 범위</label>
+          <select value={session.summary_source_mode_override ?? profile?.summary_source_mode ?? 'incremental'} onChange={(e) => void saveSummarySettings({ summary_source_mode_override: e.target.value as 'incremental' | 'full' })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none">
+            <option value="incremental">이전 요약 + 이후 메시지</option>
+            <option value="full">이전 요약 제외 + 세션 전체 메시지</option>
+          </select>
           <label className="mt-3 block text-xs text-slate-400">Summary level (0~10)</label>
           <input type="number" min={0} max={10} value={session.summary_level_override ?? profile?.summary_level ?? 5} onChange={(e) => void saveSummarySettings({ summary_level_override: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none" />
           <label className="mt-3 flex items-center justify-between text-xs text-slate-300"><span>Allow omission</span><input type="checkbox" checked={session.summary_allow_omission_override ?? profile?.summary_allow_omission ?? true} onChange={(e) => void saveSummarySettings({ summary_allow_omission_override: e.target.checked })} /></label>

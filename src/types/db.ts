@@ -19,6 +19,7 @@ export interface Profile {
   summary_allow_omission: boolean;
   summary_parameters_enabled: boolean;
   summary_extra_note: string;
+  summary_source_mode: 'incremental' | 'full';
   favorite_models: string[];
   created_at: string;
 }
@@ -132,6 +133,9 @@ export interface Message {
   cost: number;
   is_hidden: boolean;
   is_summarized: boolean;
+  reroll_group_id: string | null;
+  reroll_index: number;
+  is_active_variant: boolean;
   created_at: string;
 }
 
