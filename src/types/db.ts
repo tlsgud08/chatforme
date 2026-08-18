@@ -113,6 +113,14 @@ export interface SummaryVersion {
   created_at: string;
 }
 
+export interface StoryNote {
+  id: string;
+  session_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Message {
   id: string;
   session_id: string;

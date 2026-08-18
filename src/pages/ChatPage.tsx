@@ -15,7 +15,7 @@ import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
   type GuestSession, type GuestMessage,
 } from '@/lib/guest';
-import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, Work } from '@/types/db';
+import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
@@ -104,6 +104,7 @@ export default function ChatPage() {
   const [sessionModel, setSessionModel] = useState('');
   const [sessionReasoning, setSessionReasoning] = useState<ReasoningSelection>(() => defaultReasoningFor('openrouter', modelsFor('openrouter')[0]));
   const [summaryGenerating, setSummaryGenerating] = useState(false);
+  const [storyNotes, setStoryNotes] = useState<StoryNote[]>([]);
 
   const [streamingContent, setStreamingContent] = useState('');
   const [cacheToast, setCacheToast] = useState('');
@@ -157,18 +158,20 @@ export default function ChatPage() {
       const sess = s as Session;
       setSession(sess);
 
-      const [{ data: w }, { data: p }, { data: cfg }, { data: msgs }, { data: kbs }] = await Promise.all([
+      const [{ data: w }, { data: p }, { data: cfg }, { data: msgs }, { data: kbs }, { data: notes }] = await Promise.all([
         supabase.from('works').select('*').eq('id', sess.work_id).single(),
         supabase.from('profiles').select('*').eq('id', user!.id).single(),
         supabase.from('platform_config').select('system_prompt').eq('id', 1).single(),
         supabase.from('messages').select('*').eq('session_id', sessionId).order('created_at', { ascending: true }),
         supabase.from('keyword_books').select('*').eq('work_id', sess.work_id).order('sort_order'),
+        supabase.from('story_notes').select('*').eq('session_id', sess.id).order('created_at'),
       ]);
       setWork(w as Work);
       setProfile(p as Profile);
       setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
       setMessages((msgs as Message[]) ?? []);
       setKeywordBooks((kbs as KeywordBook[]) ?? []);
+      setStoryNotes((notes as StoryNote[]) ?? []);
 
       if (sess.persona_id) {
         const { data: pn } = await supabase.from('personas').select('*').eq('id', sess.persona_id).single();
@@ -221,10 +224,18 @@ export default function ChatPage() {
     return activated.sort((a, b) => a.recency - b.recency).slice(0, 3).map((a) => a.content);
   }
 
-  function buildHistory(allMsgs: Message[]) {
+  function messagesAfterSummary(allMsgs: Message[], cutoff = session?.summary_last_turn ?? 0) {
+    if (isGuest || cutoff <= 0) return allMsgs;
+    let seenUserTurns = 0;
+    return allMsgs.filter((message) => {
+      if (message.role === 'user' && !message.is_hidden) seenUserTurns += 1;
+      return seenUserTurns > cutoff;
+    });
+  }
+
+  function buildHistory(allMsgs: Message[], cutoff = session?.summary_last_turn ?? 0) {
     const userCount = allMsgs.filter((m) => m.role === 'user' && !m.is_hidden).length;
-    return allMsgs.filter((m) => {
-      if (m.is_summarized) return false;
+    return messagesAfterSummary(allMsgs, cutoff).filter((m) => {
       if (m.is_hidden && startConfig) return userCount < startConfig.keep_turns;
       if (m.is_hidden && !startConfig) return false;
       return true;
@@ -237,6 +248,7 @@ export default function ChatPage() {
     if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return; }
     // Include the hidden initial context in the first archive so important
     // scenario setup is not lost after its short keep_turns window expires.
+    const candidates = messagesAfterSummary(sourceMessages);
     const candidates = sourceMessages.filter((message) => !message.is_summarized);
     if (candidates.length === 0 && archivesToMerge.length === 0) { addError('새로 요약할 대화가 없습니다.'); return; }
     setSummaryGenerating(true);
@@ -293,7 +305,7 @@ export default function ChatPage() {
     }
   }
 
-  async function send() {
+  async function send(options?: { reroll?: boolean }) {
     if (!work || sending) return;
 
     const guestSettings = loadGuestSettings();
@@ -303,14 +315,31 @@ export default function ChatPage() {
     const apiKey = getApiKey(provider);
     if (!apiKey) { addError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
 
-    const text = input.trim();
-    setInput('');
+    const rerollTarget = options?.reroll ? [...messages].reverse().find((message) => message.role === 'assistant' && !message.is_hidden) ?? null : null;
+    const baseMessages = rerollTarget ? messages.filter((message) => message.id !== rerollTarget.id) : messages;
+    let effectiveSummary = session?.summary ?? '';
+    let effectiveSummaryTurn = session?.summary_last_turn ?? 0;
+    let rerollVersionIds: string[] | null = null;
+    if (rerollTarget && session) {
+      const currentTurns = baseMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
+      if (effectiveSummaryTurn >= currentTurns) {
+        const { data } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).lt('summarized_through_turn', currentTurns).order('created_at', { ascending: false });
+        const prior = (data as SummaryVersion[] | null) ?? [];
+        const selectedPrior = prior.filter((version) => version.is_active);
+        const restored = selectedPrior.length ? selectedPrior : prior.slice(0, 1);
+        effectiveSummary = restored.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
+        effectiveSummaryTurn = restored.reduce((latest, version) => Math.max(latest, version.summarized_through_turn), 0);
+        rerollVersionIds = restored.map((version) => version.id);
+      }
+    }
+    const text = options?.reroll ? '' : input.trim();
+    if (!options?.reroll) setInput('');
     setSending(true);
     setStreamingContent('');
     const controller = new AbortController();
     abortControllerRef.current = controller;
     const now = new Date().toISOString();
-    const turnIndex = messages.filter((m) => !m.is_hidden).length;
+    const turnIndex = baseMessages.filter((m) => !m.is_hidden).length;
     let partialText = '';
     let lastPaint = 0;
     const onChunk = (t: string) => {
@@ -380,22 +409,22 @@ export default function ChatPage() {
 
     if (!session || !profile) { setSending(false); setStreamingContent(''); return; }
 
-    const historyMsgs = buildHistory([...messages]);
-    let currentMessages = [...messages];
+    const historyMsgs = buildHistory([...baseMessages], effectiveSummaryTurn);
+    let currentMessages = [...baseMessages];
     if (text) {
       const { data: userMsg } = await supabase
         .from('messages')
         .insert({ session_id: session.id, role: 'user', content: text, turn_index: turnIndex })
         .select('*').single();
       if (userMsg) {
-        currentMessages = [...messages, userMsg as Message];
+        currentMessages = [...baseMessages, userMsg as Message];
         setMessages(currentMessages);
       }
     }
 
     const assembled = assemblePrompt({
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
-      summary: session.summary, persona,
+      summary: [effectiveSummary, storyNotes.length ? `# 스토리 메모\n${storyNotes.map((note) => note.content).join('\n\n')}` : ''].filter(Boolean).join('\n\n'), persona,
       keywordBookContents: getActiveKeywordContents(currentMessages, text),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: text,
@@ -412,17 +441,24 @@ export default function ChatPage() {
         })
         .select('*').single();
       const messagesAfterResponse = aiMsg ? [...currentMessages, aiMsg as Message] : currentMessages;
-      if (aiMsg) setMessages(messagesAfterResponse);
+      if (aiMsg) {
+        if (rerollTarget) await supabase.from('messages').delete().eq('id', rerollTarget.id);
+        if (rerollVersionIds) {
+          await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id);
+          if (rerollVersionIds.length) await supabase.from('summary_versions').update({ is_active: true }).in('id', rerollVersionIds);
+        }
+        setMessages(messagesAfterResponse);
+      }
 
       const newIn = session.total_input_tokens + result.usage.inputTokens;
       const newOut = session.total_output_tokens + result.usage.outputTokens;
       const newCost = session.total_cost + result.usage.cost;
       await supabase.from('sessions')
-        .update({ total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, updated_at: new Date().toISOString() })
+        .update({ total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn, updated_at: new Date().toISOString() })
         .eq('id', session.id);
-      setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost });
-      const unsummarizedTurns = messagesAfterResponse.filter((message) => message.role === 'user' && !message.is_hidden && !message.is_summarized).length;
-      if (session.auto_summary_enabled && unsummarizedTurns >= (session.summary_interval_override ?? profile?.summary_interval ?? 30)) {
+      setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn });
+      const unsummarizedTurns = messagesAfterSummary(messagesAfterResponse, effectiveSummaryTurn).filter((message) => message.role === 'user' && !message.is_hidden).length;
+      if (!rerollTarget && session.auto_summary_enabled && unsummarizedTurns >= (session.summary_interval_override ?? profile?.summary_interval ?? 30)) {
         await generateSummary(messagesAfterResponse);
       }
     } catch (err) {
@@ -462,6 +498,34 @@ export default function ChatPage() {
     }
     setMessages((m) => m.map((msg) => msg.id === msgId ? { ...msg, content } : msg));
     setEditingId(null);
+  }
+
+  async function branchFrom(message: Message) {
+    if (!session || !user) return;
+    const messageIndex = messages.findIndex((item) => item.id === message.id);
+    if (messageIndex < 0) return;
+    const branchMessages = messages.slice(0, messageIndex + 1);
+    const branchTurns = branchMessages.filter((item) => item.role === 'user' && !item.is_hidden).length;
+    const { data: versionsData, error: versionsError } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).eq('is_active', true).lte('summarized_through_turn', branchTurns).order('created_at');
+    if (versionsError && versionsError.code !== 'PGRST205') { addError(versionsError.message); return; }
+    const versions = (versionsData as SummaryVersion[] | null) ?? [];
+    const branchSummary = versions.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
+    const branchSummaryTurn = versions.length ? versions[versions.length - 1].summarized_through_turn : 0;
+    const { data: newSession, error } = await supabase.from('sessions').insert({
+      user_id: user.id, work_id: session.work_id, title: `${session.title} (분기)`, persona_id: session.persona_id,
+      start_config_id: session.start_config_id, user_note: session.user_note, output_tokens_override: session.output_tokens_override,
+      summary: branchSummary, auto_summary_enabled: session.auto_summary_enabled, summary_interval: session.summary_interval,
+      summary_last_turn: branchSummaryTurn, summary_model_override: session.summary_model_override,
+      summary_reasoning_override: session.summary_reasoning_override, summary_interval_override: session.summary_interval_override,
+      summary_level_override: session.summary_level_override, summary_allow_omission_override: session.summary_allow_omission_override,
+      summary_parameters_enabled_override: session.summary_parameters_enabled_override,
+    }).select('id').single();
+    if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); return; }
+    const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }));
+    if (copiedMessages.length) await supabase.from('messages').insert(copiedMessages);
+    if (versions.length) await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost })));
+    if (storyNotes.length) await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content })));
+    navigate(`/chat/${newSession.id}`);
   }
 
   const currentSession = isGuest ? guestSession : session;
@@ -568,7 +632,9 @@ export default function ChatPage() {
                   {!m.is_hidden && (
                     <div className={`flex items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); }} className="text-xs text-slate-500">편집</button>
+                      <button onClick={() => void branchFrom(m)} className="text-xs text-slate-500">분기</button>
                       <button onClick={() => deleteMsg(m.id)} className="text-xs text-red-400/60">삭제</button>
+                      {!isGuest && m.role === 'assistant' && m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="ml-auto text-xs text-brand disabled:opacity-50">다시 생성</button>}
                       {showCost && m.role === 'assistant' && (
                         <span className="text-[10px] text-slate-500">${m.cost.toFixed(6)} · 출력 {m.output_tokens.toLocaleString()} tokens</span>
                       )}
@@ -608,7 +674,7 @@ export default function ChatPage() {
           </button>
         ) : (
           <button
-            onClick={send}
+          onClick={() => void send()}
             className="rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white"
           >
             전송
@@ -640,6 +706,8 @@ export default function ChatPage() {
           onGenerateSummary={() => generateSummary()}
           onMergeSummaries={(contents) => generateSummary(messages, contents)}
           summaryGenerating={summaryGenerating}
+          storyNotes={storyNotes}
+          onStoryNotesChange={setStoryNotes}
         />
       )}
     </div>

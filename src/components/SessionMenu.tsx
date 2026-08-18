@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
 import type { ReasoningSelection } from '@/lib/llm/types';
 import ModelSelector from './ModelSelector';
-import type { Persona, Profile, Session, SummaryVersion } from '@/types/db';
+import type { Persona, Profile, Session, StoryNote, SummaryVersion } from '@/types/db';
 import type { ErrorEntry } from '@/pages/ChatPage';
 
 interface OpenRouterCredit {
@@ -45,6 +45,8 @@ interface Props {
   onGenerateSummary: () => Promise<void>;
   onMergeSummaries: (contents: string[]) => Promise<void>;
   summaryGenerating: boolean;
+  storyNotes: StoryNote[];
+  onStoryNotesChange: (notes: StoryNote[]) => void;
 }
 
 export default function SessionMenu({
@@ -52,7 +54,7 @@ export default function SessionMenu({
   debugMode, onDebugToggle, showCost, onShowCostToggle,
   sessionModel, onModelChange, sessionReasoning, onReasoningChange,
   errorLog, onClearErrors,
-  onGenerateSummary, onMergeSummaries, summaryGenerating,
+  onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange,
 }: Props) {
   const { user } = useAuth();
   const [note, setNote] = useState(session.user_note);
@@ -93,6 +95,7 @@ export default function SessionMenu({
   const [editingSummary, setEditingSummary] = useState<string | null>(null);
   const [summaryDraft, setSummaryDraft] = useState('');
   const [selectedSummaryIds, setSelectedSummaryIds] = useState<string[]>([]);
+  const [storyNoteDraft, setStoryNoteDraft] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -177,10 +180,46 @@ export default function SessionMenu({
       const { error: selectError } = await supabase.from('summary_versions').update({ is_active: true }).in('id', selectedSummaryIds);
       if (selectError) { flash(selectError.message); return; }
     }
-    await supabase.from('sessions').update({ summary }).eq('id', session.id);
-    onUpdate({ summary });
+    const newestSelected = [...selected].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+    const summaryLastTurn = newestSelected?.summarized_through_turn ?? 0;
+    await supabase.from('sessions').update({ summary, summary_last_turn: summaryLastTurn }).eq('id', session.id);
+    onUpdate({ summary, summary_last_turn: summaryLastTurn });
     await loadSummaries();
     flash('선택한 요약 노트를 채팅에 반영했습니다.');
+  }
+
+  async function deleteSummary(version: SummaryVersion) {
+    if (!window.confirm('이 요약 노트를 삭제할까요?')) return;
+    const { error } = await supabase.from('summary_versions').delete().eq('id', version.id);
+    if (error) { flash(error.message); return; }
+    const remaining = summaryVersions.filter((item) => item.id !== version.id);
+    let active = remaining.filter((item) => selectedSummaryIds.includes(item.id));
+    if (version.is_active && active.length === 0 && remaining.length > 0) {
+      active = [remaining[0]];
+      await supabase.from('summary_versions').update({ is_active: true }).eq('id', remaining[0].id);
+    }
+    const summary = active.map((item) => item.content).join('\n\n--- 추가 요약 노트 ---\n\n');
+    const newestActive = [...active].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+    const summaryLastTurn = newestActive?.summarized_through_turn ?? 0;
+    await supabase.from('sessions').update({ summary, summary_last_turn: summaryLastTurn }).eq('id', session.id);
+    onUpdate({ summary, summary_last_turn: summaryLastTurn });
+    await loadSummaries();
+    flash('요약 노트를 삭제했습니다.');
+  }
+
+  async function addStoryNote() {
+    const content = storyNoteDraft.trim();
+    if (!content) return;
+    const { data, error } = await supabase.from('story_notes').insert({ session_id: session.id, content }).select('*').single();
+    if (error) { flash(error.message); return; }
+    onStoryNotesChange([...storyNotes, data as StoryNote]);
+    setStoryNoteDraft('');
+  }
+
+  async function deleteStoryNote(id: string) {
+    const { error } = await supabase.from('story_notes').delete().eq('id', id);
+    if (error) { flash(error.message); return; }
+    onStoryNotesChange(storyNotes.filter((note) => note.id !== id));
   }
 
   function flash(m: string) {
@@ -383,13 +422,21 @@ export default function SessionMenu({
                 {summaryVersions.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">생성된 요약이 없습니다.</p> : summaryVersions.map((version) => (
                   <article key={version.id} className={`rounded-xl border p-3 ${version.is_active ? 'border-emerald-500/50' : 'border-surface2 opacity-70'}`}>
                     <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-500"><input type="checkbox" checked={selectedSummaryIds.includes(version.id)} onChange={(e) => setSelectedSummaryIds((ids) => e.target.checked ? [...ids, version.id] : ids.filter((id) => id !== version.id))} /><span>{new Date(version.created_at).toLocaleString('ko-KR')}</span><span>{version.summarized_through_turn}턴까지</span>{version.is_active && <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-emerald-400">전송 중</span>}</div>
-                    {editingSummary === version.id ? <><textarea rows={14} value={summaryDraft} onChange={(event) => setSummaryDraft(event.target.value)} className="w-full rounded-lg bg-surface p-3 text-xs outline-none"/><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={() => setEditingSummary(null)} className="text-xs text-slate-400">취소</button><button type="button" onClick={() => void saveSummary(version)} className="rounded bg-brand px-3 py-1.5 text-xs text-white">저장</button></div></> : <><pre className="whitespace-pre-wrap break-words text-xs text-slate-300">{version.content}</pre><button type="button" onClick={() => { setEditingSummary(version.id); setSummaryDraft(version.content); }} className="mt-2 text-xs text-brand">편집</button></>}
+                    {editingSummary === version.id ? <><textarea rows={14} value={summaryDraft} onChange={(event) => setSummaryDraft(event.target.value)} className="w-full rounded-lg bg-surface p-3 text-xs outline-none"/><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={() => setEditingSummary(null)} className="text-xs text-slate-400">취소</button><button type="button" onClick={() => void saveSummary(version)} className="rounded bg-brand px-3 py-1.5 text-xs text-white">저장</button></div></> : <><pre className="whitespace-pre-wrap break-words text-xs text-slate-300">{version.content}</pre><div className="mt-2 flex gap-3"><button type="button" onClick={() => { setEditingSummary(version.id); setSummaryDraft(version.content); }} className="text-xs text-brand">편집</button><button type="button" onClick={() => void deleteSummary(version)} className="text-xs text-red-400">삭제</button></div></>}
                   </article>
                 ))}
               </div>
             </div>
           </div>
         )}
+
+        <section className="rounded-xl border border-surface2 p-3">
+          <h3 className="text-sm font-semibold text-slate-300">스토리 메모</h3>
+          <p className="mt-1 text-[11px] text-slate-500">요약과 별도로 항상 전송되며 대화 원문 범위에는 영향을 주지 않습니다.</p>
+          <div className="mt-2 flex flex-col gap-2">{storyNotes.map((note) => <div key={note.id} className="rounded-lg bg-surface p-2"><p className="whitespace-pre-wrap text-xs text-slate-300">{note.content}</p><button type="button" onClick={() => void deleteStoryNote(note.id)} className="mt-1 text-[11px] text-red-400">삭제</button></div>)}</div>
+          <textarea rows={4} value={storyNoteDraft} onChange={(event) => setStoryNoteDraft(event.target.value)} placeholder="호칭, 디테일 등 계속 전달할 메모" className="mt-2 w-full rounded-lg bg-surface p-2 text-xs outline-none" />
+          <button type="button" onClick={() => void addStoryNote()} className="mt-2 w-full rounded-lg bg-surface2 py-2 text-xs text-white">스토리 메모 추가</button>
+        </section>
 
         {/* 응답별 크레딧 사용량 */}
         <section>
