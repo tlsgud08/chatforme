@@ -3,7 +3,6 @@ name: Build
 on:
   pull_request:
   push:
-    branches: [claude/ai-roleplay-chat-platform-Tdu74]
 
 jobs:
   build:
