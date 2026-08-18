@@ -4,6 +4,20 @@
 
 :root {
   color-scheme: dark;
+  --color-bg: 15 23 42;
+  --color-surface: 30 41 59;
+  --color-surface2: 51 65 85;
+  --page-bg: #020617;
+  --page-text: #e2e8f0;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-bg: 248 250 252;
+  --color-surface: 241 245 249;
+  --color-surface2: 203 213 225;
+  --page-bg: #e2e8f0;
+  --page-text: #0f172a;
 }
 
 html,
@@ -14,11 +28,34 @@ body,
 
 body {
   margin: 0;
-  background: #020617;
-  color: #e2e8f0;
+  background: var(--page-bg);
+  color: var(--page-text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Apple SD Gothic Neo',
     'Noto Sans KR', sans-serif;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* 기존 다크 테마용 글자 유틸리티를 라이트 테마에서도 읽기 쉽게 조정합니다. */
+:root[data-theme='light'] .text-white {
+  color: #0f172a;
+}
+:root[data-theme='light'] [class*='bg-brand'].text-white,
+:root[data-theme='light'] [class*='bg-red-'].text-white,
+:root[data-theme='light'] [class*='bg-yellow-'].text-white,
+:root[data-theme='light'] [class*='bg-black'].text-white {
+  color: #fff;
+}
+:root[data-theme='light'] .text-slate-100,
+:root[data-theme='light'] .text-slate-200,
+:root[data-theme='light'] .text-slate-300 {
+  color: #1e293b;
+}
+:root[data-theme='light'] .text-slate-400 {
+  color: #475569;
+}
+:root[data-theme='light'] .text-slate-500,
+:root[data-theme='light'] .text-slate-600 {
+  color: #64748b;
 }
 
 * {

@@ -5,6 +5,7 @@ import { loadApiKeys, saveApiKeys, type ApiKeys } from '@/lib/apiKeys';
 import { PROVIDER_LABELS, type ReasoningEffort } from '@/lib/llm/types';
 import { loadDefaultReasoning, modelsFor, saveDefaultReasoning } from '@/lib/modelPreferences';
 import ModelSelector from '@/components/ModelSelector';
+import { loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import type { Profile, Provider } from '@/types/db';
 
 const PROVIDERS: Provider[] = ['openrouter', 'claude', 'gemini', 'openai'];
@@ -28,6 +29,7 @@ export default function SettingsPage() {
   const [defaultReasoning, setDefaultReasoning] = useState<ReasoningEffort>(loadDefaultReasoning());
   const [masterPassword, setMasterPassword] = useState('');
   const [masterPasswordConfirm, setMasterPasswordConfirm] = useState('');
+  const [theme, setTheme] = useState<Theme>(loadTheme());
 
   const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
@@ -107,8 +109,36 @@ export default function SettingsPage() {
     setTimeout(() => setSavedMsg(''), 2000);
   }
 
+  function changeTheme(nextTheme: Theme) {
+    setTheme(nextTheme);
+    saveTheme(nextTheme);
+  }
+
   return (
     <div className="flex flex-col gap-6 p-4">
+      {/* 화면 테마 */}
+      <section>
+        <h2 className="mb-1 font-semibold text-white">화면 테마</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          선택한 테마는 이 기기에 저장됩니다.
+        </p>
+        <div className="grid grid-cols-2 gap-2 rounded-xl bg-surface p-1.5" role="group" aria-label="화면 테마 선택">
+          {(['dark', 'light'] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={theme === option}
+              onClick={() => changeTheme(option)}
+              className={`rounded-lg px-3 py-2.5 text-sm font-semibold ${
+                theme === option ? 'bg-brand text-white shadow-sm' : 'text-slate-400'
+              }`}
+            >
+              {option === 'dark' ? '🌙 다크' : '☀️ 라이트'}
+            </button>
+          ))}
+        </div>
+      </section>
+
       {/* API 키 */}
       <section>
         <h2 className="mb-1 font-semibold text-white">API 키</h2>
