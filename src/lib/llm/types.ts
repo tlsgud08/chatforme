@@ -19,9 +19,12 @@ export interface GenerateOptions {
   systemParts: SystemParts;
   messages: ChatMessage[];
   maxOutputTokens: number | null;
+  reasoningEffort: ReasoningEffort;
   onChunk?: (text: string) => void;
   signal?: AbortSignal;
 }
+
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface Usage {
   inputTokens: number;
@@ -43,22 +46,37 @@ export interface LLMAdapter {
 
 export const DEFAULT_MODELS: Record<Provider, string[]> = {
   openrouter: [
-    'anthropic/claude-opus-4-8',
-    'anthropic/claude-opus-4-7',
-    'anthropic/claude-sonnet-4-6',
-    'anthropic/claude-sonnet-4.5',
-    'anthropic/claude-3.5-haiku',
+    'openai/gpt-5.6-sol',
+    'openai/gpt-5.6-terra',
+    'openai/gpt-5.6-luna',
+    'openai/gpt-5.5',
+    'openai/gpt-5.5-pro',
+    'openai/gpt-5.5-mini',
+    'anthropic/claude-opus-4.8',
+    'anthropic/claude-sonnet-4.6',
+    'anthropic/claude-haiku-4.5',
     'google/gemini-3.1-pro-preview',
+    'google/gemini-3-flash-preview',
     'google/gemini-2.5-pro',
     'google/gemini-2.5-flash',
-    'openai/gpt-4o-mini',
-    'openai/gpt-4o',
-    'deepseek/deepseek-r1:free',
   ],
-  claude: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-8'],
-  gemini: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
-  openai: ['gpt-4o-mini', 'gpt-4o'],
+  claude: ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-opus-4-6', 'claude-sonnet-4-5-20250929'],
+  gemini: ['gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+  openai: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.5-pro', 'gpt-5.5-mini'],
 };
+
+export const REASONING_LABELS: Record<ReasoningEffort, string> = {
+  none: '사용 안 함', low: '낮음', medium: '보통', high: '높음', xhigh: '최고',
+};
+
+export function reasoningOptions(provider: Provider, model: string): ReasoningEffort[] {
+  const id = model.toLowerCase();
+  if (provider === 'claude' || id.includes('anthropic/claude')) return ['none', 'low', 'medium', 'high'];
+  if (provider === 'gemini' || id.includes('google/gemini')) return ['none', 'low', 'medium', 'high'];
+  if (provider === 'openai' || id.includes('openai/gpt-5')) return ['none', 'low', 'medium', 'high', 'xhigh'];
+  if (provider === 'openrouter') return ['none', 'low', 'medium', 'high'];
+  return ['none'];
+}
 
 export const PROVIDER_LABELS: Record<Provider, string> = {
   openrouter: 'OpenRouter (통합)',
@@ -66,4 +84,3 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   gemini: 'Gemini (Google)',
   openai: 'GPT (OpenAI)',
 };
-

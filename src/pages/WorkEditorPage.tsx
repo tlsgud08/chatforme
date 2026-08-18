@@ -205,7 +205,7 @@ export default function WorkEditorPage() {
             <div>
               <label className="mb-1 block text-xs text-slate-400">썸네일 (5MB 이하)</label>
               <div className="flex items-center gap-3">
-                <div className="h-20 w-20 overflow-hidden rounded-lg bg-surface2">
+                <div className="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-lg bg-surface2">
                   {work.thumbnail_url && <img src={work.thumbnail_url} alt="" className="h-full w-full object-cover" />}
                 </div>
                 <label className="cursor-pointer rounded-lg bg-surface px-3 py-2 text-sm text-slate-200">
