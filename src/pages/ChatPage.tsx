@@ -534,6 +534,7 @@ export default function ChatPage() {
       if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
       await draftSaveQueue;
       const { data: aiMsg, error: finalMessageError } = await supabase
+      const { data: aiMsg } = await supabase
         .from('messages')
         .update({
           content: result.text,
@@ -784,6 +785,7 @@ export default function ChatPage() {
                       }}
                     >
                       {m.content || (m.generation_status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : m.generation_status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
+                      {m.content || (m.generation_status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
                     </ReactMarkdown>
                   </div>
                   {!m.is_hidden && (
