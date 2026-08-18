@@ -23,12 +23,13 @@ export const SECTION_TITLES: Record<SectionId, string> = {
 const DAY = 24 * 60 * 60 * 1000;
 
 /** 공개 작품 + 제작자 이름 + 일/주/월 플레이 수 집계 */
-export async function fetchWorksWithStats(): Promise<WorkStat[]> {
-  const { data: works, error } = await supabase
+export async function fetchWorksWithStats(includePrivate = false): Promise<WorkStat[]> {
+  let query = supabase
     .from('works')
     .select('*')
-    .eq('visibility', 'public')
     .order('created_at', { ascending: false });
+  if (!includePrivate) query = query.eq('visibility', 'public');
+  const { data: works, error } = await query;
   if (error) throw error;
 
   const list = (works as Work[]) ?? [];

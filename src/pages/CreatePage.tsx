@@ -1,12 +1,18 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import type { Work } from '@/types/db';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 export default function CreatePage() {
   const { user, isGuest } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [menuId, setMenuId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Work | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   if (isGuest) {
     return (
@@ -50,6 +56,30 @@ export default function CreatePage() {
     navigate(`/create/${data.id}`);
   }
 
+  async function deleteWork() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const { data: deleted, error } = await supabase
+      .from('works').delete()
+      .eq('id', deleteTarget.id)
+      .eq('creator_id', user!.id)
+      .select('id');
+    setDeleting(false);
+    if (error || !deleted?.length) {
+      alert('삭제 실패: ' + (error?.message ?? '삭제 권한을 확인해주세요.'));
+      return;
+    }
+    setDeleteTarget(null);
+    setMenuId(null);
+    queryClient.setQueriesData({ queryKey: ['works-stats'] }, (old: unknown) =>
+      Array.isArray(old) ? old.filter((item: Work) => item.id !== deleteTarget.id) : old,
+    );
+    await Promise.all([
+      refetch(),
+      queryClient.invalidateQueries({ queryKey: ['works-stats'] }),
+    ]);
+  }
+
   return (
     <div className="p-4">
       <button
@@ -66,7 +96,7 @@ export default function CreatePage() {
       ) : (
         <ul className="divide-y divide-surface2">
           {data.map((w) => (
-            <li key={w.id} className="flex items-center">
+            <li key={w.id} className="relative flex items-center">
               <Link to={`/create/${w.id}`} className="flex flex-1 gap-3 py-3 active:bg-surface">
                 <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2">
                   {w.thumbnail_url && (
@@ -83,9 +113,38 @@ export default function CreatePage() {
               <Link to={`/works/${w.id}`} className="px-3 py-3 text-slate-500 active:text-white">
                 ↗
               </Link>
+              <button
+                type="button"
+                aria-label={`${w.title || '작품'} 메뉴`}
+                aria-expanded={menuId === w.id}
+                onClick={() => setMenuId((id) => id === w.id ? null : w.id)}
+                className="px-3 py-3 text-xl leading-none text-slate-400 active:text-white"
+              >
+                ⋯
+              </button>
+              {menuId === w.id && (
+                <div className="absolute right-3 top-12 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">
+                  <button
+                    type="button"
+                    onClick={() => { setDeleteTarget(w); setMenuId(null); }}
+                    className="w-full px-4 py-3 text-left text-sm text-red-400 active:bg-surface2"
+                  >
+                    작품 삭제
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          title="작품을 삭제할까요?"
+          description={`‘${deleteTarget.title || '제목 없음'}’ 작품과 연결된 채팅 및 설정이 모두 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.`}
+          busy={deleting}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => void deleteWork()}
+        />
       )}
     </div>
   );

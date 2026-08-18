@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { supabase, ADMIN_EMAIL } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { loadApiKeys, saveApiKeys, type ApiKeys } from '@/lib/apiKeys';
-import { DEFAULT_MODELS, PROVIDER_LABELS } from '@/lib/llm/types';
+import { PROVIDER_LABELS, type ReasoningEffort } from '@/lib/llm/types';
+import { loadDefaultReasoning, modelsFor, saveDefaultReasoning } from '@/lib/modelPreferences';
+import ModelSelector from '@/components/ModelSelector';
 import type { Profile, Provider } from '@/types/db';
 
 const PROVIDERS: Provider[] = ['openrouter', 'claude', 'gemini', 'openai'];
@@ -23,6 +25,9 @@ export default function SettingsPage() {
   const [keys, setKeys] = useState<ApiKeys>(loadApiKeys());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
+  const [defaultReasoning, setDefaultReasoning] = useState<ReasoningEffort>(loadDefaultReasoning());
+  const [masterPassword, setMasterPassword] = useState('');
+  const [masterPasswordConfirm, setMasterPasswordConfirm] = useState('');
 
   const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
@@ -66,6 +71,7 @@ export default function SettingsPage() {
         default_output_tokens: profile.default_output_tokens,
       })
       .eq('id', profile.id);
+    saveDefaultReasoning(defaultReasoning);
     flash('프로필을 저장했습니다.');
   }
 
@@ -76,6 +82,24 @@ export default function SettingsPage() {
       .eq('id', 1);
     if (error) { flash('저장 실패: ' + error.message); return; }
     flash('전역 시스템 프롬프트를 저장했습니다.');
+  }
+
+  async function saveMasterPassword() {
+    if (masterPassword.length < 8) {
+      flash('마스터 비밀번호는 8자 이상이어야 합니다.');
+      return;
+    }
+    if (masterPassword !== masterPasswordConfirm) {
+      flash('마스터 비밀번호 확인이 일치하지 않습니다.');
+      return;
+    }
+    const { error } = await supabase.rpc('set_signup_master_password', {
+      new_password: masterPassword,
+    });
+    if (error) { flash('저장 실패: ' + error.message); return; }
+    setMasterPassword('');
+    setMasterPasswordConfirm('');
+    flash('회원가입 마스터 비밀번호를 변경했습니다.');
   }
 
   function flash(msg: string) {
@@ -147,7 +171,7 @@ export default function SettingsPage() {
               <select
                 value={profile.default_provider}
                 onChange={(e) =>
-                  setProfile({ ...profile, default_provider: e.target.value as Provider, default_model: '' })
+                  setProfile({ ...profile, default_provider: e.target.value as Provider, default_model: modelsFor(e.target.value as Provider)[0] })
                 }
                 className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
               >
@@ -156,18 +180,13 @@ export default function SettingsPage() {
                 ))}
               </select>
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-slate-400">기본 모델</label>
-              <select
-                value={profile.default_model || DEFAULT_MODELS[profile.default_provider][0]}
-                onChange={(e) => setProfile({ ...profile, default_model: e.target.value })}
-                className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none"
-              >
-                {DEFAULT_MODELS[profile.default_provider].map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </div>
+            <ModelSelector
+              provider={profile.default_provider}
+              model={profile.default_model || modelsFor(profile.default_provider)[0]}
+              reasoning={defaultReasoning}
+              onModelChange={(model) => setProfile({ ...profile, default_model: model })}
+              onReasoningChange={setDefaultReasoning}
+            />
             <div>
               <label className="mb-1 block text-xs text-slate-400">
                 기본 출력량: {tokenLabel(profile.default_output_tokens)}
@@ -186,6 +205,39 @@ export default function SettingsPage() {
             </div>
             <button onClick={saveProfile} className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">
               저장
+            </button>
+          </div>
+        </section>
+      )}
+
+      {isAdmin && (
+        <section className="rounded-lg border border-brand/30 bg-brand/5 p-4">
+          <h2 className="mb-1 font-semibold text-brand">관리자 — 회원가입 마스터 비밀번호</h2>
+          <p className="mb-3 text-xs text-slate-400">
+            새로운 회원은 회원가입할 때 이 비밀번호를 입력해야 합니다. 기존 회원의 로그인에는 영향을 주지 않습니다.
+          </p>
+          <div className="flex flex-col gap-2">
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={masterPassword}
+              onChange={(e) => setMasterPassword(e.target.value)}
+              placeholder="새 마스터 비밀번호 (8자 이상)"
+              className="rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
+            />
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={masterPasswordConfirm}
+              onChange={(e) => setMasterPasswordConfirm(e.target.value)}
+              placeholder="새 마스터 비밀번호 확인"
+              className="rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
+            />
+            <button
+              onClick={() => void saveMasterPassword()}
+              className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white"
+            >
+              마스터 비밀번호 저장
             </button>
           </div>
         </section>
@@ -229,7 +281,7 @@ export default function SettingsPage() {
         {isGuest ? '비회원 모드 종료' : '로그아웃'}
       </button>
 
-      <p className="pb-2 text-center text-[11px] text-slate-600">v0.1.0</p>
+      <p className="pb-2 text-center text-[11px] text-slate-600">v0.2.0</p>
     </div>
   );
 }

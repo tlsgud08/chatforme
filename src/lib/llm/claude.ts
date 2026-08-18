@@ -35,6 +35,10 @@ export const claudeAdapter: LLMAdapter = {
       body: JSON.stringify({
         model: opts.model,
         max_tokens: opts.maxOutputTokens ?? 8192,
+        ...(opts.reasoningEffort !== 'none' && {
+          thinking: { type: 'adaptive' },
+          output_config: { effort: opts.reasoningEffort },
+        }),
         stream: streaming,
         system: systemBlocks.length > 0 ? systemBlocks : undefined,
         messages: opts.messages.map((m) => ({ role: m.role, content: m.content })),
