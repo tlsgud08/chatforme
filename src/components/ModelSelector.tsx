@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import type { Provider } from '@/types/db';
 import { capabilitiesFor, defaultReasoningFor, EFFORT_LABELS } from '@/lib/llm/modelCapabilities';
 import { getOpenRouterModel, isModelVerified } from '@/lib/llm/modelDiscovery';
 import type { ReasoningSelection } from '@/lib/llm/types';
-import { loadCustomModels, loadFavoriteModels, modelsFor, removeCustomModel, saveCustomModel, toggleFavoriteModel } from '@/lib/modelPreferences';
+import { cacheFavoriteModels, loadCustomModels, loadFavoriteModels, modelsFor, removeCustomModel, saveCustomModel, toggleFavoriteModel } from '@/lib/modelPreferences';
 
 interface Props {
   provider: Provider;
@@ -34,6 +36,7 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
   const [browserOpen, setBrowserOpen] = useState(false);
   const [revision, setRevision] = useState(0);
   const [favorites, setFavorites] = useState(loadFavoriteModels);
+  const { user, isGuest } = useAuth();
   const models = modelsFor(provider);
   const custom = loadCustomModels()[provider];
   const registeredCapability = capabilitiesFor(provider, model);
@@ -67,6 +70,19 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
       return aName.localeCompare(bName);
     });
   }, [models.join('|'), favorites.join('|'), favoritesOnly, provider, search, vendor]);
+
+  useEffect(() => {
+    if (!user || isGuest) return;
+    supabase.from('profiles').select('favorite_models').eq('id', user.id).single().then(({ data }) => {
+      if (Array.isArray(data?.favorite_models)) setFavorites(cacheFavoriteModels(data.favorite_models));
+    });
+  }, [user?.id, isGuest]);
+
+  async function toggleFavorite(modelId: string) {
+    const next = toggleFavoriteModel(modelId);
+    setFavorites(next);
+    if (user && !isGuest) await supabase.from('profiles').update({ favorite_models: next }).eq('id', user.id);
+  }
 
   useEffect(() => {
     const effortValid = !reasoning.effort || capability.supportedEfforts.includes(reasoning.effort);
@@ -147,7 +163,7 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
                     <button
                       type="button"
                       aria-label={favorites.includes(item) ? `${item} 즐겨찾기 해제` : `${item} 즐겨찾기 추가`}
-                      onClick={() => setFavorites(toggleFavoriteModel(item))}
+                      onClick={() => void toggleFavorite(item)}
                       className={`self-stretch px-3 text-xl ${favorites.includes(item) ? 'text-amber-400' : 'text-slate-600'}`}
                     >
                       {favorites.includes(item) ? '★' : '☆'}

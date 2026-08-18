@@ -74,6 +74,12 @@ export function toggleFavoriteModel(model: string): string[] {
   return next;
 }
 
+export function cacheFavoriteModels(models: string[]): string[] {
+  const next = [...new Set(models.filter(Boolean))];
+  localStorage.setItem(FAVORITE_MODELS_KEY, JSON.stringify(next));
+  return next;
+}
+
 function migrateReasoning(value: unknown, provider: Provider, model: string): ReasoningSelection {
   if (value && typeof value === 'object') return value as ReasoningSelection;
   const defaults = defaultReasoningFor(provider, model);

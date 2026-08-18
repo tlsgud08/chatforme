@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { loadApiKeys, saveApiKeys, type ApiKeys } from '@/lib/apiKeys';
 import type { ReasoningSelection } from '@/lib/llm/types';
 import { discoverOpenRouterModels } from '@/lib/llm/modelDiscovery';
-import { loadDefaultReasoning, modelsFor, saveDefaultReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
+import { loadDefaultReasoning, modelsFor, normalizeReasoning, saveDefaultReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import ModelSelector from '@/components/ModelSelector';
 import { loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import type { Profile, Provider } from '@/types/db';
@@ -30,6 +30,7 @@ export default function SettingsPage() {
   const initialProvider: Provider = 'openrouter';
   const initialModel = modelsFor(initialProvider)[0];
   const [defaultReasoning, setDefaultReasoning] = useState<ReasoningSelection>(() => loadDefaultReasoning(initialProvider, initialModel));
+  const [summaryReasoning, setSummaryReasoning] = useState<ReasoningSelection>({});
   const [masterPassword, setMasterPassword] = useState('');
   const [masterPasswordConfirm, setMasterPasswordConfirm] = useState('');
   const [theme, setTheme] = useState<Theme>(loadTheme());
@@ -68,6 +69,7 @@ export default function SettingsPage() {
     if (!profile) return;
     const model = profile.default_model || modelsFor(profile.default_provider)[0];
     setDefaultReasoning(loadDefaultReasoning(profile.default_provider, model));
+    setSummaryReasoning(normalizeReasoning(profile.summary_reasoning, 'openrouter', profile.summary_model || model));
   }, [profile?.id]);
 
   function saveKeys() {
@@ -102,6 +104,7 @@ export default function SettingsPage() {
         default_output_tokens: profile.default_output_tokens,
         summary_prompt: profile.summary_prompt,
         summary_model: profile.summary_model,
+        summary_reasoning: summaryReasoning,
         summary_interval: profile.summary_interval,
         summary_level: profile.summary_level,
         summary_allow_omission: profile.summary_allow_omission,
@@ -270,11 +273,9 @@ export default function SettingsPage() {
             <ModelSelector
               provider="openrouter"
               model={profile.summary_model || profile.default_model || modelsFor('openrouter')[0]}
-              reasoning={{}}
+              reasoning={summaryReasoning}
               onModelChange={(summary_model) => setProfile({ ...profile, summary_model })}
-              onReasoningChange={() => {}}
-              favoritesOnly
-              hideReasoning
+              onReasoningChange={setSummaryReasoning}
             />
             <label className="text-xs text-slate-400">자동 생성 간격 (턴)
               <input type="number" min={5} max={200} value={profile.summary_interval ?? 30} onChange={(e) => setProfile({ ...profile, summary_interval: Math.max(5, Math.min(200, Number(e.target.value) || 30)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />

@@ -99,6 +99,7 @@ export default function ChatPage() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cachedPartsRef = useRef({ core: '', persona: '', userNote: '', summary: '' });
+  const shouldAutoScrollRef = useRef(true);
 
   function showCacheToast(parts: { core: string; persona: string; userNote: string; summary: string }) {
     const labels: string[] = [];
@@ -185,8 +186,24 @@ export default function ChatPage() {
   }, [isGuest, sessionId, sessionModel, sessionReasoning]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    if (!shouldAutoScrollRef.current) return;
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
   }, [messages, sending, streamingContent]);
+
+  function trackScroll() {
+    const element = scrollRef.current;
+    if (!element) return;
+    shouldAutoScrollRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+  }
+
+  function errorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (error && typeof error === 'object') {
+      const value = error as { message?: string; details?: string; hint?: string; code?: string };
+      return [value.message, value.details, value.hint, value.code].filter(Boolean).join(' · ') || JSON.stringify(error);
+    }
+    return String(error);
+  }
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
@@ -238,7 +255,7 @@ export default function ChatPage() {
       const result = await generate('openrouter', {
         apiKey,
         model: session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
-        reasoning: {},
+        reasoning: normalizeReasoning(session.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
         systemParts: { core: summaryCore, persona: '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user', content: input }],
         maxOutputTokens: 4096,
@@ -246,13 +263,15 @@ export default function ChatPage() {
       if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
       const throughTurn = sourceMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
       const ids = candidates.map((message) => message.id);
-      await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id).eq('is_active', true);
+      const { error: deactivateError } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id).eq('is_active', true);
+      if (deactivateError) throw deactivateError;
       const { error: versionError } = await supabase.from('summary_versions').insert({
         session_id: session.id, content: result.text, summarized_through_turn: throughTurn,
         input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
       });
       if (versionError) throw versionError;
-      await supabase.from('messages').update({ is_summarized: true }).in('id', ids);
+      const { error: markError } = await supabase.from('messages').update({ is_summarized: true }).in('id', ids);
+      if (markError) throw markError;
       const { data: fresh } = await supabase.from('sessions').select('total_input_tokens,total_output_tokens,total_cost').eq('id', session.id).single();
       const totals = fresh as Pick<Session, 'total_input_tokens' | 'total_output_tokens' | 'total_cost'> | null;
       const patch = {
@@ -262,11 +281,12 @@ export default function ChatPage() {
         total_output_tokens: (totals?.total_output_tokens ?? session.total_output_tokens) + result.usage.outputTokens,
         total_cost: (totals?.total_cost ?? session.total_cost) + result.usage.cost,
       };
-      await supabase.from('sessions').update(patch).eq('id', session.id);
+      const { error: sessionError } = await supabase.from('sessions').update(patch).eq('id', session.id);
+      if (sessionError) throw sessionError;
       setMessages((current) => current.map((message) => ids.includes(message.id) ? { ...message, is_summarized: true } : message));
       setSession((current) => current ? { ...current, ...patch } : current);
     } catch (error) {
-      addError(error instanceof Error ? `요약 생성 실패: ${error.message}` : '요약 생성에 실패했습니다.');
+      addError(`요약 생성 실패: ${errorMessage(error)}`);
     } finally {
       setSummaryGenerating(false);
     }
@@ -447,7 +467,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
+    <div className="mx-auto flex h-full min-h-0 max-w-app flex-col bg-bg">
       <header className="flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
         <button onClick={() => navigate('/sessions')} className="text-slate-400">←</button>
         <button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 flex-1 text-left">
@@ -474,7 +494,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div ref={scrollRef} className="w-full flex-1 overflow-y-auto overflow-x-hidden px-3 py-4">
+      <div ref={scrollRef} onScroll={trackScroll} className="w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
         )}
@@ -591,7 +611,7 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <div className="flex items-end gap-2 border-t border-surface2 p-2">
+      <div className="flex shrink-0 items-end gap-2 border-t border-surface2 p-2">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}

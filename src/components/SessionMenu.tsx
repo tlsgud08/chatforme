@@ -325,7 +325,7 @@ export default function SessionMenu({
           <h3 className="text-sm font-semibold text-slate-300">요약 메모리 설정</h3>
           <div className="mt-3">
             <p className="mb-1 text-xs text-slate-400">이 채팅방 요약 모델</p>
-            <ModelSelector provider="openrouter" model={session.summary_model_override || profile?.summary_model || profile?.default_model || sessionModel} reasoning={{}} onModelChange={(summary_model_override) => void saveSummarySettings({ summary_model_override })} onReasoningChange={() => {}} favoritesOnly hideReasoning />
+            <ModelSelector provider="openrouter" model={session.summary_model_override || profile?.summary_model || profile?.default_model || sessionModel} reasoning={session.summary_reasoning_override ?? profile?.summary_reasoning ?? {}} onModelChange={(summary_model_override) => void saveSummarySettings({ summary_model_override })} onReasoningChange={(summary_reasoning_override) => void saveSummarySettings({ summary_reasoning_override })} favoritesOnly />
             {session.summary_model_override && <button type="button" onClick={() => void saveSummarySettings({ summary_model_override: null })} className="mt-1 text-xs text-slate-400 underline">전역 모델 사용</button>}
           </div>
           <div className="mt-3 flex items-center justify-between">
