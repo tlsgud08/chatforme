@@ -65,6 +65,19 @@ function classifyError(raw: string): string {
   return raw.length <= 80 ? raw : raw.slice(0, 80) + '…';
 }
 
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object') {
+    const value = error as { message?: string; details?: string; hint?: string; code?: string };
+    return [value.message, value.details, value.hint, value.code].filter(Boolean).join(' · ') || JSON.stringify(error);
+  }
+  return String(error);
+}
+
+function isNearScrollBottom(element: HTMLDivElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+}
+
 export default function ChatPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -190,36 +203,6 @@ export default function ChatPage() {
     requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
   }, [messages, sending]);
 
-  function trackScroll() {
-    const element = scrollRef.current;
-    if (!element) return;
-    shouldAutoScrollRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
-  }
-
-  function errorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    if (error && typeof error === 'object') {
-      const value = error as { message?: string; details?: string; hint?: string; code?: string };
-      return [value.message, value.details, value.hint, value.code].filter(Boolean).join(' · ') || JSON.stringify(error);
-    }
-    return String(error);
-  }
-
-  function trackScroll() {
-    const element = scrollRef.current;
-    if (!element) return;
-    shouldAutoScrollRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
-  }
-
-  function errorMessage(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    if (error && typeof error === 'object') {
-      const value = error as { message?: string; details?: string; hint?: string; code?: string };
-      return [value.message, value.details, value.hint, value.code].filter(Boolean).join(' · ') || JSON.stringify(error);
-    }
-    return String(error);
-  }
-
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
     const activated: { content: string; recency: number }[] = [];
@@ -304,7 +287,7 @@ export default function ChatPage() {
       setSession((current) => current ? { ...current, ...patch } : current);
       if (versionsUnavailable) addError('요약은 생성되어 채팅에 반영됐지만 요약 기록 테이블이 아직 배포되지 않아 버전 기록은 저장하지 못했습니다. Supabase 마이그레이션 0013~0016을 적용해 주세요.');
     } catch (error) {
-      addError(`요약 생성 실패: ${errorMessage(error)}`);
+      addError(`요약 생성 실패: ${describeUnknownError(error)}`);
     } finally {
       setSummaryGenerating(false);
     }
@@ -517,7 +500,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div ref={scrollRef} onScroll={trackScroll} className="w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
+      <div ref={scrollRef} onScroll={(event) => { shouldAutoScrollRef.current = isNearScrollBottom(event.currentTarget); }} className="w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
         )}
