@@ -7,6 +7,7 @@ import { guestCreateSession, guestAddMessage } from '@/lib/guest';
 import { formatCount } from '@/lib/works';
 import type { Persona, Profile, StartConfig, Work } from '@/types/db';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { showToast } from '@/lib/toast';
 
 export default function WorkDetailPage() {
   const { workId } = useParams();
@@ -19,6 +20,12 @@ export default function WorkDetailPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: PointerEvent) => { if (!(event.target as Element).closest('[data-popup-menu]')) setMenuOpen(false); };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [menuOpen]);
 
   const { data: work, isLoading } = useQuery({
     queryKey: ['work', workId],
@@ -161,7 +168,10 @@ export default function WorkDetailPage() {
         summary_allow_omission_override: profile?.summary_allow_omission ?? true,
         summary_parameters_enabled_override: profile?.summary_parameters_enabled ?? true,
         summary_source_mode_override: profile?.summary_source_mode ?? 'incremental',
-        auto_summary_enabled: true,
+        auto_summary_enabled: false,
+        summary_cost_enabled_override: profile?.summary_cost_enabled ?? false,
+        summary_cost_currency_override: profile?.summary_cost_currency ?? 'USD',
+        summary_cost_threshold_override: profile?.summary_cost_threshold ?? 0,
       })
       .select('id').single();
 
@@ -212,6 +222,7 @@ export default function WorkDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['works-stats'] }),
       queryClient.invalidateQueries({ queryKey: ['my-works', user.id] }),
     ]);
+    showToast('작품을 삭제했습니다.');
     navigate('/works', { replace: true });
   }
 
@@ -239,7 +250,7 @@ export default function WorkDetailPage() {
       <div className="relative mt-4 flex items-start gap-2">
         <h1 className="flex-1 text-xl font-bold text-white">{work.title || '(제목 없음)'}</h1>
         {(isCreator || isAdmin) && (
-          <div className="relative shrink-0">
+          <div data-popup-menu className="relative shrink-0">
             <button
               type="button"
               aria-label="작품 관리 메뉴"
