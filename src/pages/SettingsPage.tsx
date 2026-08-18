@@ -26,6 +26,8 @@ export default function SettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
   const [defaultReasoning, setDefaultReasoning] = useState<ReasoningEffort>(loadDefaultReasoning());
+  const [masterPassword, setMasterPassword] = useState('');
+  const [masterPasswordConfirm, setMasterPasswordConfirm] = useState('');
 
   const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
@@ -80,6 +82,24 @@ export default function SettingsPage() {
       .eq('id', 1);
     if (error) { flash('저장 실패: ' + error.message); return; }
     flash('전역 시스템 프롬프트를 저장했습니다.');
+  }
+
+  async function saveMasterPassword() {
+    if (masterPassword.length < 8) {
+      flash('마스터 비밀번호는 8자 이상이어야 합니다.');
+      return;
+    }
+    if (masterPassword !== masterPasswordConfirm) {
+      flash('마스터 비밀번호 확인이 일치하지 않습니다.');
+      return;
+    }
+    const { error } = await supabase.rpc('set_signup_master_password', {
+      new_password: masterPassword,
+    });
+    if (error) { flash('저장 실패: ' + error.message); return; }
+    setMasterPassword('');
+    setMasterPasswordConfirm('');
+    flash('회원가입 마스터 비밀번호를 변경했습니다.');
   }
 
   function flash(msg: string) {
@@ -185,6 +205,39 @@ export default function SettingsPage() {
             </div>
             <button onClick={saveProfile} className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">
               저장
+            </button>
+          </div>
+        </section>
+      )}
+
+      {isAdmin && (
+        <section className="rounded-lg border border-brand/30 bg-brand/5 p-4">
+          <h2 className="mb-1 font-semibold text-brand">관리자 — 회원가입 마스터 비밀번호</h2>
+          <p className="mb-3 text-xs text-slate-400">
+            새로운 회원은 회원가입할 때 이 비밀번호를 입력해야 합니다. 기존 회원의 로그인에는 영향을 주지 않습니다.
+          </p>
+          <div className="flex flex-col gap-2">
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={masterPassword}
+              onChange={(e) => setMasterPassword(e.target.value)}
+              placeholder="새 마스터 비밀번호 (8자 이상)"
+              className="rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
+            />
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={masterPasswordConfirm}
+              onChange={(e) => setMasterPasswordConfirm(e.target.value)}
+              placeholder="새 마스터 비밀번호 확인"
+              className="rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
+            />
+            <button
+              onClick={() => void saveMasterPassword()}
+              className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white"
+            >
+              마스터 비밀번호 저장
             </button>
           </div>
         </section>
