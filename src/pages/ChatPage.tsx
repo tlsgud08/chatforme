@@ -22,6 +22,7 @@ import { showToast } from '@/lib/toast';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 const GENERATION_TIMEOUT_MS = 120_000;
+const DRAFT_SAVE_INTERVAL_MS = 1_000;
 interface GuestSettings { provider: Provider; model: string; outputTokens: number | null; reasoning?: ReasoningSelection; }
 function loadGuestSettings(): GuestSettings {
   try { return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings; }
@@ -423,7 +424,7 @@ export default function ChatPage() {
       if (sessionId) publishGeneration(sessionId, t);
       const nowMs = performance.now();
       if (nowMs - lastPaint >= 50) { lastPaint = nowMs; setStreamingContent(t); }
-      if (!isGuest && draftMessageId && nowMs - lastDraftSave >= 500) {
+      if (!isGuest && draftMessageId && nowMs - lastDraftSave >= DRAFT_SAVE_INTERVAL_MS) {
         lastDraftSave = nowMs;
         const id = draftMessageId;
         draftSaveQueue = draftSaveQueue.catch(() => {}).then(async () => {
