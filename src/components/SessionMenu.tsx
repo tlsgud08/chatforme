@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
 import type { ReasoningSelection } from '@/lib/llm/types';
 import ModelSelector from './ModelSelector';
-import type { Persona, Profile, Session } from '@/types/db';
+import type { Persona, Profile, Session, SummaryVersion } from '@/types/db';
 import type { ErrorEntry } from '@/pages/ChatPage';
 
 interface OpenRouterCredit {
@@ -42,6 +42,8 @@ interface Props {
   onReasoningChange: (reasoning: ReasoningSelection) => void;
   errorLog: ErrorEntry[];
   onClearErrors: () => void;
+  onGenerateSummary: () => Promise<void>;
+  summaryGenerating: boolean;
 }
 
 export default function SessionMenu({
@@ -49,6 +51,7 @@ export default function SessionMenu({
   debugMode, onDebugToggle, showCost, onShowCostToggle,
   sessionModel, onModelChange, sessionReasoning, onReasoningChange,
   errorLog, onClearErrors,
+  onGenerateSummary, summaryGenerating,
 }: Props) {
   const { user } = useAuth();
   const [note, setNote] = useState(session.user_note);
@@ -84,6 +87,10 @@ export default function SessionMenu({
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [savedMsg, setSavedMsg] = useState('');
   const [logOpen, setLogOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryVersions, setSummaryVersions] = useState<SummaryVersion[]>([]);
+  const [editingSummary, setEditingSummary] = useState<string | null>(null);
+  const [summaryDraft, setSummaryDraft] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -123,6 +130,34 @@ export default function SessionMenu({
     await supabase.from('sessions').update({ persona_id: pid }).eq('id', session.id);
     onUpdate({ persona_id: pid });
     onPersonaChange(persona);
+  }
+
+  async function loadSummaries() {
+    const { data } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).order('created_at', { ascending: false });
+    setSummaryVersions((data as SummaryVersion[]) ?? []);
+  }
+
+  async function openSummaries() {
+    await loadSummaries();
+    setSummaryOpen(true);
+  }
+
+  async function saveSummary(version: SummaryVersion) {
+    const content = summaryDraft.trim();
+    if (!content) return;
+    await supabase.from('summary_versions').update({ content }).eq('id', version.id);
+    if (version.is_active) {
+      await supabase.from('sessions').update({ summary: content }).eq('id', session.id);
+      onUpdate({ summary: content });
+    }
+    setEditingSummary(null);
+    await loadSummaries();
+    flash('요약 노트를 수정했습니다.');
+  }
+
+  async function saveSummarySettings(patch: Partial<Session>) {
+    await supabase.from('sessions').update(patch).eq('id', session.id);
+    onUpdate(patch);
   }
 
   function flash(m: string) {
@@ -235,6 +270,7 @@ export default function SessionMenu({
               reasoning={sessionReasoning}
               onModelChange={onModelChange}
               onReasoningChange={onReasoningChange}
+              favoritesOnly
             />
           </div>
         </section>
@@ -283,6 +319,43 @@ export default function SessionMenu({
             유저 노트 저장
           </button>
         </section>
+
+        {/* 요약 메모리 */}
+        <section className="rounded-xl border border-surface2 p-3">
+          <h3 className="text-sm font-semibold text-slate-300">요약 메모리 설정</h3>
+          <div className="mt-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-300">자동 요약</p>
+              <p className="text-[11px] text-slate-500">마지막 요약 이후 대화 턴 기준</p>
+            </div>
+            <button type="button" aria-pressed={session.auto_summary_enabled} onClick={() => void saveSummarySettings({ auto_summary_enabled: !session.auto_summary_enabled })} className={`relative h-6 w-11 rounded-full ${session.auto_summary_enabled ? 'bg-emerald-500' : 'bg-surface2'}`}>
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${session.auto_summary_enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+          <label className="mt-3 block text-xs text-slate-400">자동 생성 간격 (턴)</label>
+          <input type="number" min={5} max={200} value={session.summary_interval} onChange={(event) => void saveSummarySettings({ summary_interval: Math.max(5, Math.min(200, Number(event.target.value) || 30)) })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none" />
+          <p className="mt-1 text-[11px] text-slate-500">기본 30턴 · 현재 마지막 요약: {session.summary_last_turn || 0}턴</p>
+          <button type="button" disabled={summaryGenerating} onClick={async () => { await onGenerateSummary(); await loadSummaries(); }} className="mt-3 w-full rounded-lg bg-brand py-2 text-sm font-semibold text-white disabled:opacity-50">
+            {summaryGenerating ? '요약 생성 중…' : '지금 요약 노트 생성'}
+          </button>
+          <button type="button" onClick={() => void openSummaries()} className="mt-2 w-full rounded-lg bg-surface2 py-2 text-sm text-slate-200">요약 노트 보기</button>
+        </section>
+
+        {summaryOpen && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4" onClick={() => setSummaryOpen(false)}>
+            <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-bg p-4" onClick={(event) => event.stopPropagation()}>
+              <div className="flex items-center"><h3 className="font-semibold text-white">요약 노트 기록</h3><button type="button" onClick={() => setSummaryOpen(false)} className="ml-auto text-slate-400">✕</button></div>
+              <div className="mt-3 flex flex-col gap-3">
+                {summaryVersions.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">생성된 요약이 없습니다.</p> : summaryVersions.map((version) => (
+                  <article key={version.id} className={`rounded-xl border p-3 ${version.is_active ? 'border-emerald-500/50' : 'border-surface2 opacity-70'}`}>
+                    <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-500"><span>{new Date(version.created_at).toLocaleString('ko-KR')}</span><span>{version.summarized_through_turn}턴까지</span>{version.is_active && <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-emerald-400">사용 중</span>}</div>
+                    {editingSummary === version.id ? <><textarea rows={14} value={summaryDraft} onChange={(event) => setSummaryDraft(event.target.value)} className="w-full rounded-lg bg-surface p-3 text-xs outline-none"/><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={() => setEditingSummary(null)} className="text-xs text-slate-400">취소</button><button type="button" onClick={() => void saveSummary(version)} className="rounded bg-brand px-3 py-1.5 text-xs text-white">저장</button></div></> : <><pre className="whitespace-pre-wrap break-words text-xs text-slate-300">{version.content}</pre><button type="button" onClick={() => { setEditingSummary(version.id); setSummaryDraft(version.content); }} className="mt-2 text-xs text-brand">편집</button></>}
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 응답별 크레딧 사용량 */}
         <section>
