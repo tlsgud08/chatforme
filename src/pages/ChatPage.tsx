@@ -16,7 +16,7 @@ import {
 import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
 
-const GUEST_SETTINGS_KEY = 'nekochat.guest.settings';
+const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 interface GuestSettings { provider: Provider; model: string; outputTokens: number | null; reasoning?: ReasoningEffort; }
 function loadGuestSettings(): GuestSettings {
   try { return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings; }

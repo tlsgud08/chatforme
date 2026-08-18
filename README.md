@@ -1,4 +1,4 @@
-# ChatForMe — AI 롤플레잉 채팅 플랫폼
+# Inuchat — AI 롤플레잉 채팅 플랫폼
 
 개인/지인용 AI 롤플레잉 채팅 플랫폼. 각자 자신의 API 키(Claude / Gemini / GPT)를 입력해 사용하는 **BYOK** 방식이라 운영 비용이 거의 들지 않습니다.
 

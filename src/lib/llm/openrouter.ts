@@ -27,7 +27,7 @@ export const openrouterAdapter: LLMAdapter = {
         'content-type': 'application/json',
         authorization: `Bearer ${opts.apiKey}`,
         'HTTP-Referer': window.location.origin,
-        'X-Title': 'ChatForMe',
+        'X-Title': 'Inuchat',
       },
       body: JSON.stringify({
         model: opts.model,

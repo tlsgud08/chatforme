@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -9,6 +9,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 export default function CreatePage() {
   const { user, isGuest } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [menuId, setMenuId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Work | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -58,15 +59,25 @@ export default function CreatePage() {
   async function deleteWork() {
     if (!deleteTarget) return;
     setDeleting(true);
-    const { error } = await supabase.from('works').delete().eq('id', deleteTarget.id);
+    const { data: deleted, error } = await supabase
+      .from('works').delete()
+      .eq('id', deleteTarget.id)
+      .eq('creator_id', user!.id)
+      .select('id');
     setDeleting(false);
-    if (error) {
-      alert('삭제 실패: ' + error.message);
+    if (error || !deleted?.length) {
+      alert('삭제 실패: ' + (error?.message ?? '삭제 권한을 확인해주세요.'));
       return;
     }
     setDeleteTarget(null);
     setMenuId(null);
-    await refetch();
+    queryClient.setQueriesData({ queryKey: ['works-stats'] }, (old: unknown) =>
+      Array.isArray(old) ? old.filter((item: Work) => item.id !== deleteTarget.id) : old,
+    );
+    await Promise.all([
+      refetch(),
+      queryClient.invalidateQueries({ queryKey: ['works-stats'] }),
+    ]);
   }
 
   return (
