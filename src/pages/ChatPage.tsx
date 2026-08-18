@@ -22,7 +22,7 @@ import { showToast } from '@/lib/toast';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 const GENERATION_TIMEOUT_MS = 120_000;
-const DRAFT_SAVE_INTERVAL_MS = 1_000;
+const DRAFT_SAVE_INTERVAL_MS = 500;
 interface GuestSettings { provider: Provider; model: string; outputTokens: number | null; reasoning?: ReasoningSelection; }
 function loadGuestSettings(): GuestSettings {
   try { return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings; }
