@@ -20,6 +20,9 @@ export interface Profile {
   summary_parameters_enabled: boolean;
   summary_extra_note: string;
   summary_source_mode: 'incremental' | 'full';
+  summary_cost_enabled: boolean;
+  summary_cost_currency: 'USD' | 'KRW';
+  summary_cost_threshold: number;
   favorite_models: string[];
   created_at: string;
 }
@@ -98,6 +101,9 @@ export interface Session {
   summary_allow_omission_override: boolean | null;
   summary_parameters_enabled_override: boolean | null;
   summary_source_mode_override: 'incremental' | 'full' | null;
+  summary_cost_enabled_override: boolean | null;
+  summary_cost_currency_override: 'USD' | 'KRW' | null;
+  summary_cost_threshold_override: number | null;
   is_archived: boolean;
   created_at: string;
   updated_at: string;
@@ -137,6 +143,7 @@ export interface Message {
   reroll_group_id: string | null;
   reroll_index: number;
   is_active_variant: boolean;
+  generation_status: 'streaming' | 'complete' | 'interrupted';
   created_at: string;
 }
 

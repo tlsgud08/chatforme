@@ -2,7 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+:root,
+:root[data-theme='dark'] {
   color-scheme: dark;
   --color-bg: 15 23 42;
   --color-surface: 30 41 59;
@@ -69,8 +70,12 @@ input {
 
 /* 모든 버튼 누르기 효과 */
 button {
-  transition: transform 0.1s ease, opacity 0.1s ease;
+  transition: transform 0.1s ease, opacity 0.1s ease, background-color 0.15s ease, color 0.15s ease;
+  cursor: pointer;
 }
+button:hover:not(:disabled), a:hover { filter: brightness(1.08); }
+button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid rgb(99 102 241); outline-offset: 2px; }
+button:disabled { cursor: not-allowed; }
 button:active {
   transform: scale(0.93);
   opacity: 0.75;

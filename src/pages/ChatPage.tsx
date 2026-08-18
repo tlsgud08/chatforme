@@ -17,6 +17,8 @@ import {
 } from '@/lib/guest';
 import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
+import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
+import { showToast } from '@/lib/toast';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 interface GuestSettings { provider: Provider; model: string; outputTokens: number | null; reasoning?: ReasoningSelection; }
@@ -43,7 +45,22 @@ function loadSessionSettings(id: string, profile: Profile | null): SessionSettin
 }
 
 function toMsg(m: GuestMessage): Message {
-  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0, reroll_group_id: null, reroll_index: 1, is_active_variant: true };
+  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0, reroll_group_id: null, reroll_index: 1, is_active_variant: true, generation_status: 'complete' };
+}
+
+interface ActiveGeneration {
+  controller: AbortController;
+  content: string;
+  listeners: Set<(content: string | null) => void>;
+}
+const activeGenerations = new Map<string, ActiveGeneration>();
+
+function publishGeneration(id: string, content: string | null) {
+  const active = activeGenerations.get(id);
+  if (!active) return;
+  if (content !== null) active.content = content;
+  active.listeners.forEach((listener) => listener(content));
+  if (content === null) activeGenerations.delete(id);
 }
 
 export interface ErrorEntry {
@@ -78,6 +95,13 @@ function isNearScrollBottom(element: HTMLDivElement): boolean {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
 }
 
+function shouldSubmitOnEnter() {
+  if (typeof window === 'undefined') return true;
+  const mobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const touchPhoneLayout = navigator.maxTouchPoints > 0 && window.matchMedia('(max-width: 768px)').matches;
+  return !mobileUserAgent && !touchPhoneLayout;
+}
+
 export default function ChatPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -97,6 +121,8 @@ export default function ChatPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') !== '0');
+  const [showCostKrw, setShowCostKrw] = useState(() => localStorage.getItem('inuchat.showCostKrw') === '1');
+  const exchange = useUsdKrwRate();
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
   const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -115,6 +141,22 @@ export default function ChatPage() {
   const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cachedPartsRef = useRef({ core: '', persona: '', userNote: '', summary: '' });
   const shouldAutoScrollRef = useRef(true);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const active = activeGenerations.get(sessionId);
+    if (!active) return;
+    setSending(true);
+    setStreamingContent(active.content);
+    const listener = (content: string | null) => {
+      if (content !== null) { setStreamingContent(content); return; }
+      setSending(false);
+      setStreamingContent('');
+      void supabase.from('messages').select('*').eq('session_id', sessionId).order('created_at').then(({ data }) => setMessages((data as Message[]) ?? []));
+    };
+    active.listeners.add(listener);
+    return () => { active.listeners.delete(listener); };
+  }, [sessionId]);
 
   function showCacheToast(parts: { core: string; persona: string; userNote: string; summary: string }) {
     const labels: string[] = [];
@@ -170,7 +212,10 @@ export default function ChatPage() {
       setWork(w as Work);
       setProfile(p as Profile);
       setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
-      setMessages((msgs as Message[]) ?? []);
+      const loadedMessages = (msgs as Message[]) ?? [];
+      // A missing in-memory controller does not prove that generation stopped:
+      // another tab may still own it. P1 heartbeat handling will decide staleness.
+      setMessages(loadedMessages);
       setKeywordBooks((kbs as KeywordBook[]) ?? []);
       setStoryNotes((notes as StoryNote[]) ?? []);
 
@@ -280,6 +325,12 @@ export default function ChatPage() {
       const { error: deactivateError } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id).eq('is_active', true);
       const versionsUnavailableAtUpdate = deactivateError?.code === 'PGRST205' || deactivateError?.message?.includes('summary_versions');
       if (deactivateError && !versionsUnavailableAtUpdate) throw deactivateError;
+      // Regeneration in the same turn replaces that turn's version instead of
+      // leaving multiple, ambiguous checkpoints behind.
+      if (!versionsUnavailableAtUpdate) {
+        const { error: duplicateError } = await supabase.from('summary_versions').delete().eq('session_id', session.id).eq('summarized_through_turn', throughTurn);
+        if (duplicateError) throw duplicateError;
+      }
       const { error: versionError } = await supabase.from('summary_versions').insert({
         session_id: session.id, content: result.text, summarized_through_turn: throughTurn,
         input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
@@ -310,7 +361,7 @@ export default function ChatPage() {
   }
 
   async function send(options?: { reroll?: boolean }) {
-    if (!work || sending) return;
+    if (!work || sending || (sessionId && activeGenerations.has(sessionId))) return;
 
     const guestSettings = loadGuestSettings();
     const provider: Provider = 'openrouter';
@@ -350,14 +401,27 @@ export default function ChatPage() {
     setStreamingContent('');
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    if (sessionId) activeGenerations.set(sessionId, { controller, content: '', listeners: new Set() });
     const now = new Date().toISOString();
     const turnIndex = baseMessages.filter((m) => !m.is_hidden).length;
     let partialText = '';
     let lastPaint = 0;
+    let draftMessageId: string | null = null;
+    let lastDraftSave = 0;
+    let draftSaveQueue = Promise.resolve();
     const onChunk = (t: string) => {
       partialText = t;
+      if (sessionId) publishGeneration(sessionId, t);
       const nowMs = performance.now();
       if (nowMs - lastPaint >= 50) { lastPaint = nowMs; setStreamingContent(t); }
+      if (!isGuest && draftMessageId && nowMs - lastDraftSave >= 500) {
+        lastDraftSave = nowMs;
+        const id = draftMessageId;
+        draftSaveQueue = draftSaveQueue.then(async () => {
+          const { error } = await supabase.from('messages').update({ content: t }).eq('id', id);
+          if (error) throw error;
+        });
+      }
     };
 
     if (isGuest && guestSession) {
@@ -399,8 +463,8 @@ export default function ChatPage() {
         guestUpdateSession(guestSession.id, { total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost });
         setGuestSession((gs) => gs ? { ...gs, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost } : gs);
       } catch (err) {
-        const isAbort = err instanceof DOMException && err.name === 'AbortError';
-        if (isAbort && partialText) {
+        const isAbort = controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError');
+        if (partialText) {
           const aiMsg: GuestMessage = {
             id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
             content: partialText, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cost: 0,
@@ -408,26 +472,42 @@ export default function ChatPage() {
           };
           guestAddMessage(guestSession.id, aiMsg);
           setMessages((m) => [...m, toMsg(aiMsg)]);
-        } else if (!isAbort) {
-          addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
+          if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
+        } else {
+          const interrupted: GuestMessage = {
+            id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
+            content: '응답이 중단되었습니다.', turn_index: turnIndex, input_tokens: 0,
+            output_tokens: 0, cost: 0, is_hidden: false, created_at: new Date().toISOString(),
+          };
+          guestAddMessage(guestSession.id, interrupted);
+          setMessages((current) => [...current, toMsg(interrupted)]);
+          if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
         }
       } finally {
         setSending(false);
         setStreamingContent('');
         abortControllerRef.current = null;
+        if (sessionId) publishGeneration(sessionId, null);
       }
       return;
     }
 
-    if (!session || !profile) { setSending(false); setStreamingContent(''); return; }
+    if (!session || !profile) { setSending(false); setStreamingContent(''); if (sessionId) publishGeneration(sessionId, null); return; }
 
     const historyMsgs = buildHistory([...baseMessages], effectiveSummaryTurn);
     let currentMessages = [...baseMessages];
     if (text) {
-      const { data: userMsg } = await supabase
+      const { data: userMsg, error: userMessageError } = await supabase
         .from('messages')
         .insert({ session_id: session.id, role: 'user', content: text, turn_index: turnIndex })
         .select('*').single();
+      if (userMessageError) {
+        addError(userMessageError.message);
+        setSending(false);
+        abortControllerRef.current = null;
+        if (sessionId) publishGeneration(sessionId, null);
+        return;
+      }
       if (userMsg) {
         currentMessages = [...baseMessages, userMsg as Message];
         setMessages(currentMessages);
@@ -436,23 +516,32 @@ export default function ChatPage() {
 
     const assembled = assemblePrompt({
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
-      summary: [effectiveSummary, storyNotes.length ? `# 스토리 메모\n${storyNotes.map((note) => note.content).join('\n\n')}` : ''].filter(Boolean).join('\n\n'), persona,
+      summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
       keywordBookContents: getActiveKeywordContents(currentMessages, text),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: text,
     });
     const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
     try {
+      const { data: draft, error: draftError } = await supabase.from('messages').insert({
+        session_id: session.id, role: 'assistant', content: '', turn_index: turnIndex,
+        input_tokens: 0, output_tokens: 0, cost: 0, reroll_group_id: rerollGroupId,
+        reroll_index: rerollIndex, is_active_variant: true, generation_status: 'streaming',
+      }).select('id').single();
+      if (draftError || !draft) throw draftError ?? new Error('응답 임시 저장 공간을 만들 수 없습니다.');
+      draftMessageId = draft.id;
       const result = await generate(provider, { apiKey, model, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
       if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
-      const { data: aiMsg } = await supabase
+      await draftSaveQueue;
+      const { data: aiMsg, error: finalMessageError } = await supabase
         .from('messages')
-        .insert({
-          session_id: session.id, role: 'assistant', content: result.text, turn_index: turnIndex,
+        .update({
+          content: result.text,
           input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
-          reroll_group_id: rerollGroupId, reroll_index: rerollIndex, is_active_variant: true,
+          generation_status: 'complete',
         })
-        .select('*').single();
+        .eq('id', draftMessageId).select('*').single();
+      if (finalMessageError || !aiMsg) throw finalMessageError ?? new Error('최종 응답을 저장하지 못했습니다.');
       const messagesAfterResponse = aiMsg ? [...currentMessages, aiMsg as Message] : currentMessages;
       if (aiMsg) {
         if (rerollTarget) await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
@@ -468,29 +557,42 @@ export default function ChatPage() {
       const newIn = session.total_input_tokens + result.usage.inputTokens;
       const newOut = session.total_output_tokens + result.usage.outputTokens;
       const newCost = session.total_cost + result.usage.cost;
-      await supabase.from('sessions')
+      const { error: totalsError } = await supabase.from('sessions')
         .update({ total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn, updated_at: new Date().toISOString() })
         .eq('id', session.id);
+      if (totalsError) throw totalsError;
       setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn });
       const unsummarizedTurns = messagesAfterSummary(messagesAfterResponse, effectiveSummaryTurn).filter((message) => message.role === 'user' && !message.is_hidden).length;
-      if (!rerollTarget && session.auto_summary_enabled && unsummarizedTurns >= (session.summary_interval_override ?? profile?.summary_interval ?? 30)) {
+      const costGateEnabled = session.summary_cost_enabled_override ?? profile?.summary_cost_enabled ?? false;
+      const costCurrency = session.summary_cost_currency_override ?? profile?.summary_cost_currency ?? 'USD';
+      const costThreshold = session.summary_cost_threshold_override ?? profile?.summary_cost_threshold ?? 0;
+      const recentAssistantCosts = messagesAfterResponse.filter((message) => message.role === 'assistant' && message.is_active_variant !== false).slice(-5).map((message) => costCurrency === 'KRW' ? message.cost * exchange.rate : message.cost);
+      const costGatePassed = !costGateEnabled || recentAssistantCosts.filter((cost) => cost >= costThreshold).length >= 3;
+      if (!rerollTarget && session.auto_summary_enabled && unsummarizedTurns >= (session.summary_interval_override ?? profile?.summary_interval ?? 30) && costGatePassed) {
         await generateSummary(messagesAfterResponse);
       }
     } catch (err) {
-      const isAbort = err instanceof DOMException && err.name === 'AbortError';
-      if (isAbort && partialText) {
-        const { data: aiMsg } = await supabase
-          .from('messages')
-          .insert({ session_id: session.id, role: 'assistant', content: partialText, turn_index: turnIndex })
-          .select('*').single();
+      const isAbort = controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError');
+      if (partialText) {
+        await draftSaveQueue.catch(() => {});
+        const { data: aiMsg } = draftMessageId ? await supabase.from('messages').update({ content: partialText, generation_status: 'complete' }).eq('id', draftMessageId).select('*').single() : { data: null };
+        if (aiMsg && rerollTarget) {
+          await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
+        }
         if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
-      } else if (!isAbort) {
-        addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
+        if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
+      } else {
+        const { data: interrupted } = draftMessageId
+          ? await supabase.from('messages').update({ generation_status: 'interrupted' }).eq('id', draftMessageId).select('*').single()
+          : { data: null };
+        if (interrupted) setMessages((current) => [...current, interrupted as Message]);
+        if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
       }
     } finally {
       setSending(false);
       setStreamingContent('');
       abortControllerRef.current = null;
+      if (sessionId) publishGeneration(sessionId, null);
     }
   }
 
@@ -513,6 +615,7 @@ export default function ChatPage() {
       if (replacement) next = next.map((message) => message.id === replacement.id ? { ...message, is_active_variant: true } : message);
     }
     setMessages(next);
+    showToast('메시지를 삭제했습니다.');
     setMessageActionBusy(false);
   }
 
@@ -551,12 +654,16 @@ export default function ChatPage() {
       summary_level_override: session.summary_level_override, summary_allow_omission_override: session.summary_allow_omission_override,
       summary_parameters_enabled_override: session.summary_parameters_enabled_override,
       summary_source_mode_override: session.summary_source_mode_override,
+      summary_cost_enabled_override: session.summary_cost_enabled_override,
+      summary_cost_currency_override: session.summary_cost_currency_override,
+      summary_cost_threshold_override: session.summary_cost_threshold_override,
     }).select('id').single();
     if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); setMessageActionBusy(false); return; }
     const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }));
     if (copiedMessages.length) await supabase.from('messages').insert(copiedMessages);
     if (versions.length) await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost })));
     if (storyNotes.length) await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content })));
+    showToast('새 채팅방으로 분기했습니다.');
     navigate(`/chat/${newSession.id}`);
   }
 
@@ -577,7 +684,8 @@ export default function ChatPage() {
 
   const currentSession = isGuest ? guestSession : session;
 
-  const visibleMessages = messages.filter((m) => m.is_active_variant !== false && (!m.is_hidden || debugMode));
+  const hasLocalGeneration = !!sessionId && activeGenerations.has(sessionId);
+  const visibleMessages = messages.filter((m) => !(hasLocalGeneration && m.generation_status === 'streaming') && m.is_active_variant !== false && (!m.is_hidden || debugMode));
 
   if (!currentSession || !work) {
     return <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>;
@@ -642,7 +750,9 @@ export default function ChatPage() {
                       ? 'border border-amber-500/40 bg-surface text-amber-200'
                       : m.role === 'user'
                         ? 'bg-brand text-white'
-                        : 'bg-surface text-slate-100'
+                        : m.generation_status === 'interrupted' && !m.content
+                          ? 'bg-surface text-slate-500'
+                          : 'bg-surface text-slate-100'
                   }`}>
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
@@ -673,7 +783,7 @@ export default function ChatPage() {
                         ),
                       }}
                     >
-                      {m.content}
+                      {m.content || (m.generation_status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : m.generation_status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
                     </ReactMarkdown>
                   </div>
                   {!m.is_hidden && (
@@ -682,7 +792,7 @@ export default function ChatPage() {
                       <button onClick={() => void branchFrom(m)} className="text-xs text-slate-500">분기</button>
                       <button disabled={messageActionBusy} onClick={() => void deleteMsg(m.id)} className="text-xs text-red-400/60 disabled:opacity-50">삭제</button>
                       {m.role === 'assistant' && <div className="ml-auto flex items-center gap-2">
-                        {showCost && <span className="text-right text-[10px] text-slate-500">${m.cost.toFixed(6)} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
+                        {showCost && <span className="text-right text-[10px] text-slate-500">{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`} {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
                         {variantsFor(m).length > 1 && <select aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
                         {!isGuest && m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성">↻</button>}
                       </div>}
@@ -708,14 +818,14 @@ export default function ChatPage() {
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && shouldSubmitOnEnter()) { e.preventDefault(); void send(); } }}
           rows={1}
           placeholder="메시지 입력…"
           className="max-h-32 flex-1 resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm outline-none"
         />
         {sending ? (
           <button
-            onClick={() => abortControllerRef.current?.abort()}
+            onClick={() => (sessionId ? activeGenerations.get(sessionId)?.controller : abortControllerRef.current)?.abort('사용자가 응답 생성을 중단했습니다.')}
             className="rounded-full bg-red-500 px-4 py-2.5 text-sm font-semibold text-white"
           >
             중단
@@ -741,6 +851,9 @@ export default function ChatPage() {
           onDebugToggle={setDebugMode}
           showCost={showCost}
           onShowCostToggle={(v) => { setShowCost(v); localStorage.setItem('chatforme.showCost', v ? '1' : '0'); }}
+          showCostKrw={showCostKrw}
+          onShowCostKrwToggle={(v) => { setShowCostKrw(v); localStorage.setItem('inuchat.showCostKrw', v ? '1' : '0'); }}
+          exchange={exchange}
           sessionModel={sessionModel || modelsFor('openrouter')[0]}
           sessionReasoning={sessionReasoning}
           onModelChange={(m) => {
