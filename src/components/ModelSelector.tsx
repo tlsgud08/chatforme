@@ -18,7 +18,12 @@ const RELEASE_LABEL = { stable: 'Stable', preview: 'Preview', alias: 'Alias' } a
 const AVAILABILITY_LABEL = { verified: 'OpenRouter 확인됨', unverified: '접근 미확인', unavailable: '사용 불가' } as const;
 
 function vendorOf(modelId: string) {
-  return modelId.includes('/') ? modelId.split('/')[0] : '기타';
+  if (!modelId.includes('/')) return '기타';
+  // OpenRouter may return provider-routing aliases such as
+  // `~anthropic/claude-sonnet-latest`. Keep those aliases in the same company
+  // category as canonical `anthropic/*` models instead of creating a separate
+  // `~anthropic` category containing only a handful of `latest` aliases.
+  return modelId.split('/')[0].replace(/^~+/, '');
 }
 
 export default function ModelSelector({ provider, model, reasoning, onModelChange, onReasoningChange, favoritesOnly = false }: Props) {
@@ -46,6 +51,13 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
     return candidates.filter((item) => {
       if (vendor === '즐겨찾기' && !favorites.includes(item)) return false;
       if (vendor !== '전체' && vendor !== '즐겨찾기' && vendorOf(item) !== vendor) return false;
+      // `~provider/*-latest` entries are OpenRouter routing aliases, not the
+      // provider's detailed model catalog. Hide them in a company category
+      // when canonical models for that company are available.
+      if (vendor !== '전체' && vendor !== '즐겨찾기' && item.startsWith('~')) {
+        const hasCanonicalModels = models.some((candidate) => !candidate.startsWith('~') && vendorOf(candidate) === vendor);
+        if (hasCanonicalModels) return false;
+      }
       const info = getOpenRouterModel(item);
       return !needle || item.toLowerCase().includes(needle) || info?.name.toLowerCase().includes(needle);
     }).sort((a, b) => {
