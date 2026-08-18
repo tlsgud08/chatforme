@@ -160,6 +160,7 @@ export default function WorkDetailPage() {
         summary_level_override: profile?.summary_level ?? 5,
         summary_allow_omission_override: profile?.summary_allow_omission ?? true,
         summary_parameters_enabled_override: profile?.summary_parameters_enabled ?? true,
+        auto_summary_enabled: true,
       })
       .select('id').single();
 
