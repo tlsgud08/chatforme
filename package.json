@@ -2,6 +2,9 @@
   "name": "inuchat",
   "private": true,
   "version": "0.2.0",
+  "engines": {
+    "node": ">=20 <21"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
