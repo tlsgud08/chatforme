@@ -7,6 +7,7 @@ const CUSTOM_MODELS_KEY = 'inuchat.customModels';
 const LEGACY_CUSTOM_MODELS_KEY = 'chatforme.customModels';
 const DEFAULT_REASONING_KEY = 'inuchat.defaultReasoning';
 const LEGACY_REASONING_KEY = 'chatforme.defaultReasoning';
+const FAVORITE_MODELS_KEY = 'inuchat.favoriteModels';
 
 export type CustomModels = Record<Provider, string[]>;
 const EMPTY: CustomModels = { openrouter: [] };
@@ -53,6 +54,30 @@ export function removeCustomModel(provider: Provider, model: string): void {
   const all = loadCustomModels();
   all[provider] = all[provider].filter((item) => item !== model);
   localStorage.setItem(CUSTOM_MODELS_KEY, JSON.stringify(all));
+}
+
+export function loadFavoriteModels(): string[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(FAVORITE_MODELS_KEY) ?? '[]');
+    return Array.isArray(stored) ? stored.filter((model): model is string => typeof model === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function toggleFavoriteModel(model: string): string[] {
+  const favorites = loadFavoriteModels();
+  const next = favorites.includes(model)
+    ? favorites.filter((item) => item !== model)
+    : [...favorites, model];
+  localStorage.setItem(FAVORITE_MODELS_KEY, JSON.stringify(next));
+  return next;
+}
+
+export function cacheFavoriteModels(models: string[]): string[] {
+  const next = [...new Set(models.filter(Boolean))];
+  localStorage.setItem(FAVORITE_MODELS_KEY, JSON.stringify(next));
+  return next;
 }
 
 function migrateReasoning(value: unknown, provider: Provider, model: string): ReasoningSelection {
