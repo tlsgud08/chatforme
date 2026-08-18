@@ -17,6 +17,7 @@ import {
 } from '@/lib/guest';
 import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
+import MarkdownCodeBlock from '@/components/MarkdownCodeBlock';
 import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
 import { showToast } from '@/lib/toast';
 
@@ -782,7 +783,7 @@ export default function ChatPage() {
                         ol: ({ children }) => <ol className="mb-2 list-outside list-decimal pl-5">{children}</ol>,
                         li: ({ children }) => <li className="mb-0.5">{children}</li>,
                         code: ({ children }) => <code className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>,
-                        pre: ({ children }) => <pre className="mb-2 max-w-full min-w-0 overflow-x-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-lg bg-surface2 p-3 text-xs [&>code]:block [&>code]:max-w-full [&>code]:bg-transparent [&>code]:p-0">{children}</pre>,
+                        pre: ({ children }) => <MarkdownCodeBlock>{children}</MarkdownCodeBlock>,
                         blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
                         h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
                         h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
