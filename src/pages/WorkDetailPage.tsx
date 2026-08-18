@@ -11,7 +11,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 export default function WorkDetailPage() {
   const { workId } = useParams();
   const navigate = useNavigate();
-  const { user, isGuest } = useAuth();
+  const { user, isGuest, isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [starting, setStarting] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>('');
@@ -178,14 +178,14 @@ export default function WorkDetailPage() {
   }
 
   async function deleteWork() {
-    if (!work || !user || user.id !== work.creator_id) return;
+    if (!work || !user || (!isAdmin && user.id !== work.creator_id)) return;
     setDeleting(true);
-    const { data, error } = await supabase
+    let deleteQuery = supabase
       .from('works')
       .delete()
-      .eq('id', work.id)
-      .eq('creator_id', user.id)
-      .select('id');
+      .eq('id', work.id);
+    if (!isAdmin) deleteQuery = deleteQuery.eq('creator_id', user.id);
+    const { data, error } = await deleteQuery.select('id');
     setDeleting(false);
 
     if (error || !data?.length) {
@@ -208,7 +208,7 @@ export default function WorkDetailPage() {
   if (!work) return <p className="p-6 text-amber-400">작품을 찾을 수 없습니다.</p>;
 
   const isCreator = user?.id === work.creator_id;
-  if (work.visibility === 'private' && !isCreator) {
+  if (work.visibility === 'private' && !isCreator && !isAdmin) {
     return (
       <div className="p-6 text-center">
         <p className="text-lg font-semibold text-white">비공개 작품입니다</p>
@@ -227,7 +227,7 @@ export default function WorkDetailPage() {
 
       <div className="relative mt-4 flex items-start gap-2">
         <h1 className="flex-1 text-xl font-bold text-white">{work.title || '(제목 없음)'}</h1>
-        {isCreator && (
+        {(isCreator || isAdmin) && (
           <div className="relative shrink-0">
             <button
               type="button"
@@ -240,13 +240,15 @@ export default function WorkDetailPage() {
             </button>
             {menuOpen && (
               <div className="absolute right-0 top-8 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">
-                <button
-                  type="button"
-                  onClick={() => navigate(`/create/${work.id}`)}
-                  className="w-full px-4 py-3 text-left text-sm text-white active:bg-surface2"
-                >
-                  작품 수정
-                </button>
+                {isCreator && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/create/${work.id}`)}
+                    className="w-full px-4 py-3 text-left text-sm text-white active:bg-surface2"
+                  >
+                    작품 수정
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => { setMenuOpen(false); setConfirmDelete(true); }}

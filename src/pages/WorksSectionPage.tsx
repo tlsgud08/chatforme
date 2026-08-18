@@ -17,7 +17,10 @@ export default function WorksSectionPage() {
   const navigate = useNavigate();
   const id = sectionId as SectionId;
 
-  const { data, isLoading } = useQuery({ queryKey: ['works-stats'], queryFn: fetchWorksWithStats });
+  const { data, isLoading } = useQuery({
+    queryKey: ['works-stats', { includePrivate: false }],
+    queryFn: () => fetchWorksWithStats(false),
+  });
 
   if (!VALID.includes(id)) {
     return (

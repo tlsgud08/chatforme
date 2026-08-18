@@ -5,9 +5,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { fetchWorksWithStats, sortForSection } from '@/lib/works';
 
 export default function WorksPage() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const queryClient = useQueryClient();
-  const { data, isLoading, error } = useQuery({ queryKey: ['works-stats'], queryFn: fetchWorksWithStats });
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['works-stats', { includePrivate: isAdmin }],
+    queryFn: () => fetchWorksWithStats(isAdmin),
+  });
   const latest = data ? sortForSection('latest', data) : [];
 
   const { data: favoritedIds = [] } = useQuery({
@@ -36,7 +39,7 @@ export default function WorksPage() {
   return (
     <div className="flex flex-col pb-4">
       <div className="sticky top-0 z-10 flex items-center border-b border-surface2 bg-bg px-4 py-3">
-        <h1 className="font-bold text-white">최신 작품</h1>
+        <h1 className="font-bold text-white">{isAdmin ? '전체 작품 관리' : '최신 작품'}</h1>
         {latest.length > 0 && <span className="ml-auto text-xs text-slate-500">최신순</span>}
       </div>
       {isLoading && <p className="p-6 text-slate-400">불러오는 중…</p>}
