@@ -10,11 +10,12 @@ import { PROVIDER_LABELS, type ReasoningSelection } from '@/lib/llm/types';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import { assemblePrompt } from '@/lib/prompt/assemble';
+import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
   type GuestSession, type GuestMessage,
 } from '@/lib/guest';
-import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, Work } from '@/types/db';
+import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
@@ -42,7 +43,7 @@ function loadSessionSettings(id: string, profile: Profile | null): SessionSettin
 }
 
 function toMsg(m: GuestMessage): Message {
-  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0 };
+  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0, reroll_group_id: null, reroll_index: 1, is_active_variant: true };
 }
 
 export interface ErrorEntry {
@@ -64,6 +65,19 @@ function classifyError(raw: string): string {
   return raw.length <= 80 ? raw : raw.slice(0, 80) + '…';
 }
 
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object') {
+    const value = error as { message?: string; details?: string; hint?: string; code?: string };
+    return [value.message, value.details, value.hint, value.code].filter(Boolean).join(' · ') || JSON.stringify(error);
+  }
+  return String(error);
+}
+
+function isNearScrollBottom(element: HTMLDivElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+}
+
 export default function ChatPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -82,13 +96,16 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
-  const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') === '1');
+  const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') !== '0');
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
   const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
   const [sessionModel, setSessionModel] = useState('');
   const [sessionReasoning, setSessionReasoning] = useState<ReasoningSelection>(() => defaultReasoningFor('openrouter', modelsFor('openrouter')[0]));
+  const [summaryGenerating, setSummaryGenerating] = useState(false);
+  const [storyNotes, setStoryNotes] = useState<StoryNote[]>([]);
+  const [messageActionBusy, setMessageActionBusy] = useState(false);
 
   const [streamingContent, setStreamingContent] = useState('');
   const [cacheToast, setCacheToast] = useState('');
@@ -97,6 +114,7 @@ export default function ChatPage() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cachedPartsRef = useRef({ core: '', persona: '', userNote: '', summary: '' });
+  const shouldAutoScrollRef = useRef(true);
 
   function showCacheToast(parts: { core: string; persona: string; userNote: string; summary: string }) {
     const labels: string[] = [];
@@ -141,18 +159,20 @@ export default function ChatPage() {
       const sess = s as Session;
       setSession(sess);
 
-      const [{ data: w }, { data: p }, { data: cfg }, { data: msgs }, { data: kbs }] = await Promise.all([
+      const [{ data: w }, { data: p }, { data: cfg }, { data: msgs }, { data: kbs }, { data: notes }] = await Promise.all([
         supabase.from('works').select('*').eq('id', sess.work_id).single(),
         supabase.from('profiles').select('*').eq('id', user!.id).single(),
         supabase.from('platform_config').select('system_prompt').eq('id', 1).single(),
         supabase.from('messages').select('*').eq('session_id', sessionId).order('created_at', { ascending: true }),
         supabase.from('keyword_books').select('*').eq('work_id', sess.work_id).order('sort_order'),
+        supabase.from('story_notes').select('*').eq('session_id', sess.id).order('created_at'),
       ]);
       setWork(w as Work);
       setProfile(p as Profile);
       setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
       setMessages((msgs as Message[]) ?? []);
       setKeywordBooks((kbs as KeywordBook[]) ?? []);
+      setStoryNotes((notes as StoryNote[]) ?? []);
 
       if (sess.persona_id) {
         const { data: pn } = await supabase.from('personas').select('*').eq('id', sess.persona_id).single();
@@ -183,8 +203,9 @@ export default function ChatPage() {
   }, [isGuest, sessionId, sessionModel, sessionReasoning]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, sending, streamingContent]);
+    if (!shouldAutoScrollRef.current) return;
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
+  }, [messages, sending]);
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
@@ -204,16 +225,91 @@ export default function ChatPage() {
     return activated.sort((a, b) => a.recency - b.recency).slice(0, 3).map((a) => a.content);
   }
 
-  function buildHistory(allMsgs: Message[]) {
+  function messagesAfterSummary(allMsgs: Message[], cutoff = session?.summary_last_turn ?? 0) {
+    if (isGuest || cutoff <= 0) return allMsgs;
+    let seenUserTurns = 0;
+    return allMsgs.filter((message) => {
+      if (message.role === 'user' && !message.is_hidden) seenUserTurns += 1;
+      return seenUserTurns > cutoff;
+    });
+  }
+
+  function buildHistory(allMsgs: Message[], cutoff = session?.summary_last_turn ?? 0) {
     const userCount = allMsgs.filter((m) => m.role === 'user' && !m.is_hidden).length;
-    return allMsgs.filter((m) => {
+    return messagesAfterSummary(allMsgs, cutoff).filter((m) => {
       if (m.is_hidden && startConfig) return userCount < startConfig.keep_turns;
       if (m.is_hidden && !startConfig) return false;
       return true;
     });
   }
 
-  async function send() {
+  async function generateSummary(sourceMessages = messages, archivesToMerge: string[] = []) {
+    if (!session || !profile || summaryGenerating) return;
+    const apiKey = getApiKey('openrouter');
+    if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return; }
+    // Include the hidden initial context in the first archive so important
+    // scenario setup is not lost after its short keep_turns window expires.
+    const sourceMode = session.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
+    const activeSourceMessages = sourceMessages.filter((message) => message.is_active_variant !== false);
+    const candidates = sourceMode === 'full' ? activeSourceMessages : messagesAfterSummary(activeSourceMessages);
+    if (candidates.length === 0 && archivesToMerge.length === 0) { addError('새로 요약할 대화가 없습니다.'); return; }
+    setSummaryGenerating(true);
+    try {
+      const previous = archivesToMerge.length > 0
+        ? archivesToMerge.join('\n\n--- 통합 대상 요약 구분 ---\n\n')
+        : sourceMode === 'incremental' ? session.summary.trim() : '';
+      const dialogue = candidates.map((message) => `[${message.is_hidden ? '숨김 시작 설정' : message.role === 'user' ? '사용자' : 'AI'}]\n${message.content}`).join('\n\n');
+      const input = `${previous ? `=== 이전 요약 노트${archivesToMerge.length > 1 ? ' (선택한 복수 노트를 하나로 통합)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== 새로 요약할 대화 ===\n${dialogue}` : '=== 요청 ===\n선택한 요약 노트들을 누락과 단절 없이 하나의 최신 요약 노트로 통합하세요.'}`;
+      const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
+      const allowOmission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
+      const parametersEnabled = !profile.summary_prompt?.trim() || (session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true);
+      const parameterBlock = parametersEnabled ? `[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = ${summaryLevel}\nALLOW_OMISSION = ${allowOmission ? 'ON' : 'OFF'}` : '';
+      const extraNote = profile.summary_extra_note?.trim() ? `[ADDITIONAL NOTE]\n${profile.summary_extra_note.trim()}` : '';
+      const summaryCore = [profile.summary_prompt?.trim() || DEFAULT_SUMMARY_PROMPT, parameterBlock, extraNote].filter(Boolean).join('\n\n');
+      const result = await generate('openrouter', {
+        apiKey,
+        model: session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
+        reasoning: normalizeReasoning(session.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
+        systemParts: { core: summaryCore, persona: '', userNote: '', summary: '', keywords: '' },
+        messages: [{ role: 'user', content: input }],
+        maxOutputTokens: 4096,
+      });
+      if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
+      const throughTurn = sourceMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
+      const ids = candidates.map((message) => message.id);
+      const { error: deactivateError } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id).eq('is_active', true);
+      const versionsUnavailableAtUpdate = deactivateError?.code === 'PGRST205' || deactivateError?.message?.includes('summary_versions');
+      if (deactivateError && !versionsUnavailableAtUpdate) throw deactivateError;
+      const { error: versionError } = await supabase.from('summary_versions').insert({
+        session_id: session.id, content: result.text, summarized_through_turn: throughTurn,
+        input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
+      });
+      const versionsUnavailable = versionsUnavailableAtUpdate || versionError?.code === 'PGRST205' || versionError?.message?.includes('summary_versions');
+      if (versionError && !versionsUnavailable) throw versionError;
+      const { error: markError } = await supabase.from('messages').update({ is_summarized: true }).in('id', ids);
+      if (markError) throw markError;
+      const { data: fresh } = await supabase.from('sessions').select('total_input_tokens,total_output_tokens,total_cost').eq('id', session.id).single();
+      const totals = fresh as Pick<Session, 'total_input_tokens' | 'total_output_tokens' | 'total_cost'> | null;
+      const patch = {
+        summary: result.text,
+        summary_last_turn: throughTurn,
+        total_input_tokens: (totals?.total_input_tokens ?? session.total_input_tokens) + result.usage.inputTokens,
+        total_output_tokens: (totals?.total_output_tokens ?? session.total_output_tokens) + result.usage.outputTokens,
+        total_cost: (totals?.total_cost ?? session.total_cost) + result.usage.cost,
+      };
+      const { error: sessionError } = await supabase.from('sessions').update(patch).eq('id', session.id);
+      if (sessionError) throw sessionError;
+      setMessages((current) => current.map((message) => ids.includes(message.id) ? { ...message, is_summarized: true } : message));
+      setSession((current) => current ? { ...current, ...patch } : current);
+      if (versionsUnavailable) addError('요약은 생성되어 채팅에 반영됐지만 요약 기록 테이블이 아직 배포되지 않아 버전 기록은 저장하지 못했습니다. Supabase 마이그레이션 0013~0016을 적용해 주세요.');
+    } catch (error) {
+      addError(`요약 생성 실패: ${describeUnknownError(error)}`);
+    } finally {
+      setSummaryGenerating(false);
+    }
+  }
+
+  async function send(options?: { reroll?: boolean }) {
     if (!work || sending) return;
 
     const guestSettings = loadGuestSettings();
@@ -223,16 +319,46 @@ export default function ChatPage() {
     const apiKey = getApiKey(provider);
     if (!apiKey) { addError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
 
-    const text = input.trim();
-    setInput('');
+    const activeMessages = messages.filter((message) => message.is_active_variant !== false);
+    const rerollTarget = options?.reroll ? [...activeMessages].reverse().find((message) => message.role === 'assistant' && !message.is_hidden) ?? null : null;
+    const baseMessages = rerollTarget ? activeMessages.filter((message) => message.id !== rerollTarget.id) : activeMessages;
+    let effectiveSummary = session?.summary ?? '';
+    let effectiveSummaryTurn = session?.summary_last_turn ?? 0;
+    let rerollVersionIds: string[] | null = null;
+    let rerollIndex = 1;
+    let rerollGroupId: string | null = null;
+    if (rerollTarget && session) {
+      const currentTurns = baseMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
+      if (effectiveSummaryTurn >= currentTurns) {
+        const { data } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).lt('summarized_through_turn', currentTurns).order('created_at', { ascending: false });
+        const prior = (data as SummaryVersion[] | null) ?? [];
+        const selectedPrior = prior.filter((version) => version.is_active);
+        const restored = selectedPrior.length ? selectedPrior : prior.slice(0, 1);
+        effectiveSummary = restored.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
+        effectiveSummaryTurn = restored.reduce((latest, version) => Math.max(latest, version.summarized_through_turn), 0);
+        rerollVersionIds = restored.map((version) => version.id);
+      }
+    }
+    if (rerollTarget) {
+      rerollGroupId = rerollTarget.reroll_group_id ?? rerollTarget.id;
+      const variants = messages.filter((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === rerollGroupId);
+      rerollIndex = Math.max(0, ...variants.map((message) => message.reroll_index ?? 1)) + 1;
+    }
+    const text = options?.reroll ? '' : input.trim();
+    if (!options?.reroll) setInput('');
     setSending(true);
     setStreamingContent('');
     const controller = new AbortController();
     abortControllerRef.current = controller;
     const now = new Date().toISOString();
-    const turnIndex = messages.filter((m) => !m.is_hidden).length;
+    const turnIndex = baseMessages.filter((m) => !m.is_hidden).length;
     let partialText = '';
-    const onChunk = (t: string) => { partialText = t; setStreamingContent(t); };
+    let lastPaint = 0;
+    const onChunk = (t: string) => {
+      partialText = t;
+      const nowMs = performance.now();
+      if (nowMs - lastPaint >= 50) { lastPaint = nowMs; setStreamingContent(t); }
+    };
 
     if (isGuest && guestSession) {
       const historyMsgs = buildHistory([...messages]);
@@ -295,22 +421,22 @@ export default function ChatPage() {
 
     if (!session || !profile) { setSending(false); setStreamingContent(''); return; }
 
-    const historyMsgs = buildHistory([...messages]);
-    let currentMessages = [...messages];
+    const historyMsgs = buildHistory([...baseMessages], effectiveSummaryTurn);
+    let currentMessages = [...baseMessages];
     if (text) {
       const { data: userMsg } = await supabase
         .from('messages')
         .insert({ session_id: session.id, role: 'user', content: text, turn_index: turnIndex })
         .select('*').single();
       if (userMsg) {
-        currentMessages = [...messages, userMsg as Message];
+        currentMessages = [...baseMessages, userMsg as Message];
         setMessages(currentMessages);
       }
     }
 
     const assembled = assemblePrompt({
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
-      summary: session.summary, persona,
+      summary: [effectiveSummary, storyNotes.length ? `# 스토리 메모\n${storyNotes.map((note) => note.content).join('\n\n')}` : ''].filter(Boolean).join('\n\n'), persona,
       keywordBookContents: getActiveKeywordContents(currentMessages, text),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: text,
@@ -324,17 +450,32 @@ export default function ChatPage() {
         .insert({
           session_id: session.id, role: 'assistant', content: result.text, turn_index: turnIndex,
           input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
+          reroll_group_id: rerollGroupId, reroll_index: rerollIndex, is_active_variant: true,
         })
         .select('*').single();
-      if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
+      const messagesAfterResponse = aiMsg ? [...currentMessages, aiMsg as Message] : currentMessages;
+      if (aiMsg) {
+        if (rerollTarget) await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
+        if (rerollVersionIds) {
+          await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id);
+          if (rerollVersionIds.length) await supabase.from('summary_versions').update({ is_active: true }).in('id', rerollVersionIds);
+        }
+        setMessages((current) => rerollTarget
+          ? [...current.map((message) => message.id === rerollTarget.id ? { ...message, is_active_variant: false, reroll_group_id: rerollGroupId } : message), aiMsg as Message]
+          : messagesAfterResponse);
+      }
 
       const newIn = session.total_input_tokens + result.usage.inputTokens;
       const newOut = session.total_output_tokens + result.usage.outputTokens;
       const newCost = session.total_cost + result.usage.cost;
       await supabase.from('sessions')
-        .update({ total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, updated_at: new Date().toISOString() })
+        .update({ total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn, updated_at: new Date().toISOString() })
         .eq('id', session.id);
-      setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost });
+      setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn });
+      const unsummarizedTurns = messagesAfterSummary(messagesAfterResponse, effectiveSummaryTurn).filter((message) => message.role === 'user' && !message.is_hidden).length;
+      if (!rerollTarget && session.auto_summary_enabled && unsummarizedTurns >= (session.summary_interval_override ?? profile?.summary_interval ?? 30)) {
+        await generateSummary(messagesAfterResponse);
+      }
     } catch (err) {
       const isAbort = err instanceof DOMException && err.name === 'AbortError';
       if (isAbort && partialText) {
@@ -354,12 +495,25 @@ export default function ChatPage() {
   }
 
   async function deleteMsg(msgId: string) {
+    if (!window.confirm('이 메시지를 삭제할까요?')) return;
+    if (messageActionBusy) return;
+    setMessageActionBusy(true);
+    const target = messages.find((message) => message.id === msgId);
     if (isGuest && guestSession) {
       guestDeleteMessage(guestSession.id, msgId);
     } else {
-      await supabase.from('messages').delete().eq('id', msgId);
+      const { error } = await supabase.from('messages').delete().eq('id', msgId);
+      if (error) { addError(error.message); setMessageActionBusy(false); return; }
     }
-    setMessages((m) => m.filter((msg) => msg.id !== msgId));
+    let next = messages.filter((msg) => msg.id !== msgId);
+    if (target?.role === 'assistant' && target.is_active_variant !== false) {
+      const groupId = target.reroll_group_id ?? target.id;
+      const replacement = [...next].reverse().find((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === groupId);
+      if (replacement && !isGuest) await supabase.from('messages').update({ is_active_variant: true }).eq('id', replacement.id);
+      if (replacement) next = next.map((message) => message.id === replacement.id ? { ...message, is_active_variant: true } : message);
+    }
+    setMessages(next);
+    setMessageActionBusy(false);
   }
 
   async function saveEdit(msgId: string) {
@@ -374,16 +528,63 @@ export default function ChatPage() {
     setEditingId(null);
   }
 
+  async function branchFrom(message: Message) {
+    if (!session || !user) return;
+    if (!window.confirm('이 메시지 시점에서 새 채팅방으로 분기할까요?') || messageActionBusy) return;
+    setMessageActionBusy(true);
+    const branchSource = messages.filter((item) => item.is_active_variant !== false);
+    const messageIndex = branchSource.findIndex((item) => item.id === message.id);
+    if (messageIndex < 0) { setMessageActionBusy(false); return; }
+    const branchMessages = branchSource.slice(0, messageIndex + 1);
+    const branchTurns = branchMessages.filter((item) => item.role === 'user' && !item.is_hidden).length;
+    const { data: versionsData, error: versionsError } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).eq('is_active', true).lte('summarized_through_turn', branchTurns).order('created_at');
+    if (versionsError && versionsError.code !== 'PGRST205') { addError(versionsError.message); setMessageActionBusy(false); return; }
+    const versions = (versionsData as SummaryVersion[] | null) ?? [];
+    const branchSummary = versions.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
+    const branchSummaryTurn = versions.length ? versions[versions.length - 1].summarized_through_turn : 0;
+    const { data: newSession, error } = await supabase.from('sessions').insert({
+      user_id: user.id, work_id: session.work_id, title: `${session.title} (분기)`, persona_id: session.persona_id,
+      start_config_id: session.start_config_id, user_note: session.user_note, output_tokens_override: session.output_tokens_override,
+      summary: branchSummary, auto_summary_enabled: session.auto_summary_enabled, summary_interval: session.summary_interval,
+      summary_last_turn: branchSummaryTurn, summary_model_override: session.summary_model_override,
+      summary_reasoning_override: session.summary_reasoning_override, summary_interval_override: session.summary_interval_override,
+      summary_level_override: session.summary_level_override, summary_allow_omission_override: session.summary_allow_omission_override,
+      summary_parameters_enabled_override: session.summary_parameters_enabled_override,
+      summary_source_mode_override: session.summary_source_mode_override,
+    }).select('id').single();
+    if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); setMessageActionBusy(false); return; }
+    const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }));
+    if (copiedMessages.length) await supabase.from('messages').insert(copiedMessages);
+    if (versions.length) await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost })));
+    if (storyNotes.length) await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content })));
+    navigate(`/chat/${newSession.id}`);
+  }
+
+  async function selectVariant(message: Message, id: string) {
+    const groupId = message.reroll_group_id ?? message.id;
+    const group = messages.filter((item) => item.role === 'assistant' && (item.reroll_group_id ?? item.id) === groupId);
+    await supabase.from('messages').update({ is_active_variant: false }).in('id', group.map((item) => item.id));
+    await supabase.from('messages').update({ is_active_variant: true }).eq('id', id);
+    setMessages((current) => current.map((item) => group.some((variant) => variant.id === item.id) ? { ...item, is_active_variant: item.id === id } : item));
+  }
+
+  function variantsFor(message: Message) {
+    const groupId = message.reroll_group_id ?? message.id;
+    return messages
+      .filter((item) => item.role === 'assistant' && (item.reroll_group_id ?? item.id) === groupId)
+      .sort((a, b) => (a.reroll_index ?? 1) - (b.reroll_index ?? 1));
+  }
+
   const currentSession = isGuest ? guestSession : session;
 
-  const visibleMessages = messages.filter((m) => !m.is_hidden || debugMode);
+  const visibleMessages = messages.filter((m) => m.is_active_variant !== false && (!m.is_hidden || debugMode));
 
   if (!currentSession || !work) {
     return <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>;
   }
 
   return (
-    <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
+    <div className="mx-auto flex h-full min-h-0 max-w-app flex-col bg-bg">
       <header className="flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
         <button onClick={() => navigate('/sessions')} className="text-slate-400">←</button>
         <button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 flex-1 text-left">
@@ -410,7 +611,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div ref={scrollRef} className="w-full flex-1 overflow-y-auto overflow-x-hidden px-3 py-4">
+      <div ref={scrollRef} onScroll={(event) => { shouldAutoScrollRef.current = isNearScrollBottom(event.currentTarget); }} className="w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
         )}
@@ -425,9 +626,9 @@ export default function ChatPage() {
                   <textarea
                     value={editingContent}
                     onChange={(e) => setEditingContent(e.target.value)}
-                    rows={3}
+                    rows={Math.max(3, editingContent.split('\n').reduce((rows, line) => rows + Math.max(1, Math.ceil(line.length / 36)), 0))}
                     autoFocus
-                    className="w-full resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-100 outline-none"
+                    className="w-full resize-none overflow-hidden rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-100 outline-none"
                   />
                   <div className="flex justify-end gap-2">
                     <button onClick={() => setEditingId(null)} className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300">취소</button>
@@ -478,10 +679,13 @@ export default function ChatPage() {
                   {!m.is_hidden && (
                     <div className={`flex items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); }} className="text-xs text-slate-500">편집</button>
-                      <button onClick={() => deleteMsg(m.id)} className="text-xs text-red-400/60">삭제</button>
-                      {showCost && m.role === 'assistant' && m.cost > 0 && (
-                        <span className="text-[10px] text-slate-500">${m.cost.toFixed(6)}</span>
-                      )}
+                      <button onClick={() => void branchFrom(m)} className="text-xs text-slate-500">분기</button>
+                      <button disabled={messageActionBusy} onClick={() => void deleteMsg(m.id)} className="text-xs text-red-400/60 disabled:opacity-50">삭제</button>
+                      {m.role === 'assistant' && <div className="ml-auto flex items-center gap-2">
+                        {showCost && <span className="text-right text-[10px] text-slate-500">${m.cost.toFixed(6)} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
+                        {variantsFor(m).length > 1 && <select aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
+                        {!isGuest && m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성">↻</button>}
+                      </div>}
                     </div>
                   )}
                 </>
@@ -491,34 +695,7 @@ export default function ChatPage() {
           {sending && (
             <div className="self-start max-w-full rounded-2xl bg-surface px-4 py-2.5 text-sm leading-relaxed text-slate-100">
               {streamingContent ? (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                    em: ({ children }) => <em className="not-italic opacity-50">{children}</em>,
-                    ul: ({ children }) => <ul className="mb-2 list-disc pl-4">{children}</ul>,
-                    ol: ({ children }) => <ol className="mb-2 list-decimal pl-4">{children}</ol>,
-                    li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                    code: ({ children, className }) =>
-                      className ? (
-                        <code className="block overflow-x-auto rounded-lg bg-surface2 p-3 text-xs font-mono">{children}</code>
-                      ) : (
-                        <code className="rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>
-                      ),
-                    pre: ({ children }) => <pre className="mb-2">{children}</pre>,
-                    blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
-                    h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
-                    h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
-                    h3: ({ children }) => <h3 className="mb-1 text-base font-semibold">{children}</h3>,
-                    hr: () => <hr className="my-2 border-slate-600" />,
-                    a: ({ href, children }) => (
-                      <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
-                    ),
-                  }}
-                >
-                  {streamingContent}
-                </ReactMarkdown>
+                <p className="whitespace-pre-wrap break-words">{streamingContent}</p>
               ) : (
                 <span className="text-slate-400">생각 중…</span>
               )}
@@ -527,7 +704,7 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <div className="flex items-end gap-2 border-t border-surface2 p-2">
+      <div className="flex shrink-0 items-end gap-2 border-t border-surface2 p-2">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -545,7 +722,7 @@ export default function ChatPage() {
           </button>
         ) : (
           <button
-            onClick={send}
+          onClick={() => void send()}
             className="rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white"
           >
             전송
@@ -574,6 +751,11 @@ export default function ChatPage() {
           }}
           errorLog={errorLog}
           onClearErrors={() => setErrorLog([])}
+          onGenerateSummary={() => generateSummary()}
+          onMergeSummaries={(contents) => generateSummary(messages, contents)}
+          summaryGenerating={summaryGenerating}
+          storyNotes={storyNotes}
+          onStoryNotesChange={setStoryNotes}
         />
       )}
     </div>
