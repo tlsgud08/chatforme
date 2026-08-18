@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { guestCreateSession, guestAddMessage } from '@/lib/guest';
 import { formatCount } from '@/lib/works';
-import type { Persona, StartConfig, Work } from '@/types/db';
+import type { Persona, Profile, StartConfig, Work } from '@/types/db';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
 export default function WorkDetailPage() {
@@ -143,6 +143,9 @@ export default function WorkDetailPage() {
 
     if (!user) { setStarting(false); return; }
 
+    const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+    const profile = profileData as Profile | null;
+
     const { data, error } = await supabase
       .from('sessions')
       .insert({
@@ -151,6 +154,14 @@ export default function WorkDetailPage() {
         title: work.title,
         persona_id: selectedPersonaId || null,
         start_config_id: selectedConfigId || null,
+        summary_model_override: profile?.summary_model || profile?.default_model || null,
+        summary_reasoning_override: profile?.summary_reasoning ?? null,
+        summary_interval_override: profile?.summary_interval ?? 30,
+        summary_level_override: profile?.summary_level ?? 5,
+        summary_allow_omission_override: profile?.summary_allow_omission ?? true,
+        summary_parameters_enabled_override: profile?.summary_parameters_enabled ?? true,
+        summary_source_mode_override: profile?.summary_source_mode ?? 'incremental',
+        auto_summary_enabled: true,
       })
       .select('id').single();
 
