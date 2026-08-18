@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { guestDeleteSession, guestGetSessions, guestUpdateSession } from '@/lib/guest';
 import type { Session } from '@/types/db';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { showToast } from '@/lib/toast';
 
 type SessionRow = Session & { works: { title: string; thumbnail_url: string | null } | null };
 type ViewTab = 'active' | 'archived';
@@ -23,6 +24,12 @@ export default function SessionsPage() {
   const [renameValue, setRenameValue] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string; guest: boolean } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  useEffect(() => {
+    if (!menuId) return;
+    const close = (event: PointerEvent) => { if (!(event.target as Element).closest('[data-popup-menu]')) setMenuId(null); };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [menuId]);
 
   const { data: guestData } = useQuery({
     queryKey: ['guest-sessions'],
@@ -137,11 +144,12 @@ export default function SessionsPage() {
     }
     setDeleting(false);
     setDeleteTarget(null);
+    showToast('채팅방을 삭제했습니다.');
   }
 
   function rowMenu(target: { id: string; title: string; guest: boolean }) {
     return (
-      <div className="relative pr-2">
+      <div data-popup-menu className="relative pr-2">
         <button
           type="button"
           aria-label={`${target.title} 메뉴`}

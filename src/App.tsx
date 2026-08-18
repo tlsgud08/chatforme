@@ -15,6 +15,7 @@ import MyPage from './pages/MyPage';
 import SetupNotice from './components/SetupNotice';
 import FavoritesPage from './pages/FavoritesPage';
 import UserPage from './pages/UserPage';
+import AppToast from './components/AppToast';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -29,7 +30,8 @@ export default function App() {
 
   if (!user) return <LoginPage />;
 
-  return (
+  return (<>
+    <AppToast />
     <Routes>
       {/* 로그인 화면 (CreatePage에서 로그인 유도 시 이동) */}
       <Route path="/login" element={<LoginPage />} />
@@ -53,5 +55,5 @@ export default function App() {
         <Route path="*" element={<Navigate to="/works" replace />} />
       </Route>
     </Routes>
-  );
+  </>);
 }
