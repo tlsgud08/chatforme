@@ -97,7 +97,6 @@ export interface Session {
   summary_level_override: number | null;
   summary_allow_omission_override: boolean | null;
   summary_parameters_enabled_override: boolean | null;
-  summary_source_mode_override: 'incremental' | 'full' | null;
   is_archived: boolean;
   created_at: string;
   updated_at: string;
