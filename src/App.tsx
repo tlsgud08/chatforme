@@ -17,7 +17,7 @@ import FavoritesPage from './pages/FavoritesPage';
 import UserPage from './pages/UserPage';
 
 export default function App() {
-  const { user, isGuest, loading } = useAuth();
+  const { user, loading } = useAuth();
 
   if (!isSupabaseConfigured) return <SetupNotice />;
 
@@ -27,7 +27,7 @@ export default function App() {
     );
   }
 
-  if (!user && !isGuest) return <LoginPage />;
+  if (!user) return <LoginPage />;
 
   return (
     <Routes>

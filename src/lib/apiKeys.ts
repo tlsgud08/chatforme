@@ -5,14 +5,14 @@ const STORAGE_KEY = 'chatforme.apiKeys';
 
 export type ApiKeys = Record<Provider, string>;
 
-const EMPTY: ApiKeys = { openrouter: '', claude: '', gemini: '', openai: '' };
+const EMPTY: ApiKeys = { openrouter: '' };
 
 export function loadApiKeys(): ApiKeys {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...EMPTY };
     const parsed = JSON.parse(raw) as Partial<ApiKeys>;
-    return { ...EMPTY, ...parsed };
+    return { openrouter: parsed.openrouter ?? '' };
   } catch {
     return { ...EMPTY };
   }

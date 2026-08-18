@@ -6,15 +6,19 @@ import { useAuth } from '@/hooks/useAuth';
 import { guestCreateSession, guestAddMessage } from '@/lib/guest';
 import { formatCount } from '@/lib/works';
 import type { Persona, StartConfig, Work } from '@/types/db';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 export default function WorkDetailPage() {
   const { workId } = useParams();
   const navigate = useNavigate();
-  const { user, isGuest } = useAuth();
+  const { user, isGuest, isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [starting, setStarting] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>('');
   const [selectedConfigId, setSelectedConfigId] = useState<string>('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const { data: work, isLoading } = useQuery({
     queryKey: ['work', workId],
@@ -173,11 +177,38 @@ export default function WorkDetailPage() {
     navigate(`/chat/${sessionId}`);
   }
 
+  async function deleteWork() {
+    if (!work || !user || (!isAdmin && user.id !== work.creator_id)) return;
+    setDeleting(true);
+    let deleteQuery = supabase
+      .from('works')
+      .delete()
+      .eq('id', work.id);
+    if (!isAdmin) deleteQuery = deleteQuery.eq('creator_id', user.id);
+    const { data, error } = await deleteQuery.select('id');
+    setDeleting(false);
+
+    if (error || !data?.length) {
+      alert(`삭제 실패: ${error?.message ?? '삭제 권한을 확인해주세요.'}`);
+      return;
+    }
+
+    queryClient.removeQueries({ queryKey: ['work', work.id] });
+    queryClient.setQueriesData({ queryKey: ['works-stats'] }, (old: unknown) =>
+      Array.isArray(old) ? old.filter((item: Work) => item.id !== work.id) : old,
+    );
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['works-stats'] }),
+      queryClient.invalidateQueries({ queryKey: ['my-works', user.id] }),
+    ]);
+    navigate('/works', { replace: true });
+  }
+
   if (isLoading) return <p className="p-6 text-slate-400">불러오는 중…</p>;
   if (!work) return <p className="p-6 text-amber-400">작품을 찾을 수 없습니다.</p>;
 
   const isCreator = user?.id === work.creator_id;
-  if (work.visibility === 'private' && !isCreator) {
+  if (work.visibility === 'private' && !isCreator && !isAdmin) {
     return (
       <div className="p-6 text-center">
         <p className="text-lg font-semibold text-white">비공개 작품입니다</p>
@@ -194,8 +225,41 @@ export default function WorkDetailPage() {
         {work.thumbnail_url && <img src={work.thumbnail_url} alt="" className="h-full w-full object-cover" />}
       </div>
 
-      <div className="mt-4 flex items-start gap-2">
+      <div className="relative mt-4 flex items-start gap-2">
         <h1 className="flex-1 text-xl font-bold text-white">{work.title || '(제목 없음)'}</h1>
+        {(isCreator || isAdmin) && (
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              aria-label="작품 관리 메뉴"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+              className="px-2 text-2xl leading-none text-slate-400 active:text-white"
+            >
+              ⋯
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-8 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">
+                {isCreator && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/create/${work.id}`)}
+                    className="w-full px-4 py-3 text-left text-sm text-white active:bg-surface2"
+                  >
+                    작품 수정
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); setConfirmDelete(true); }}
+                  className="w-full px-4 py-3 text-left text-sm text-red-400 active:bg-surface2"
+                >
+                  작품 삭제
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {user && !isGuest && (
           <button
             onClick={toggleFavorite}
@@ -258,6 +322,15 @@ export default function WorkDetailPage() {
           {starting ? '시작 중…' : '새 채팅 시작'}
         </button>
       </div>
+      {confirmDelete && (
+        <ConfirmDialog
+          title="작품을 삭제할까요?"
+          description={`‘${work.title || '제목 없음'}’ 작품과 연결된 채팅 및 설정이 모두 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.`}
+          busy={deleting}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => void deleteWork()}
+        />
+      )}
     </div>
   );
 }

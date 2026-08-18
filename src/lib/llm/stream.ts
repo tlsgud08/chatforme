@@ -52,74 +52,15 @@ export async function readOpenAIStream(
         fullText += delta;
         onChunk(fullText);
       }
-      if (parsed.usage) {
-        inputTokens = parsed.usage.prompt_tokens ?? 0;
-        outputTokens = parsed.usage.completion_tokens ?? 0;
-        cacheReadTokens = parsed.usage.prompt_tokens_details?.cached_tokens ?? 0;
-        cost = parsed.usage.cost ?? 0; // OpenRouter (usage: {include: true})
+      const usage = parsed.usage;
+      if (usage) {
+        inputTokens = usage.prompt_tokens ?? 0;
+        outputTokens = usage.completion_tokens ?? 0;
+        cacheReadTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
+        cost = usage.cost ?? 0;
       }
     } catch {}
   });
 
   return { text: fullText, inputTokens, outputTokens, cacheCreationTokens: 0, cacheReadTokens, cost };
-}
-
-export async function readClaudeStream(
-  body: ReadableStream<Uint8Array>,
-  onChunk: (fullText: string) => void,
-): Promise<StreamResult> {
-  let fullText = '';
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let cacheCreationTokens = 0;
-  let cacheReadTokens = 0;
-
-  await readLines(body, (line) => {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('data:')) return;
-    const data = trimmed.slice(5).trim();
-    try {
-      const parsed = JSON.parse(data);
-      if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
-        fullText += parsed.delta.text ?? '';
-        onChunk(fullText);
-      }
-      if (parsed.type === 'message_start') {
-        const u = parsed.message?.usage ?? {};
-        inputTokens = u.input_tokens ?? 0;
-        cacheCreationTokens = u.cache_creation_input_tokens ?? 0;
-        cacheReadTokens = u.cache_read_input_tokens ?? 0;
-      }
-      if (parsed.type === 'message_delta') outputTokens = parsed.usage?.output_tokens ?? 0;
-    } catch {}
-  });
-
-  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost: 0 };
-}
-
-export async function readGeminiStream(
-  body: ReadableStream<Uint8Array>,
-  onChunk: (fullText: string) => void,
-): Promise<StreamResult> {
-  let fullText = '';
-  let inputTokens = 0;
-  let outputTokens = 0;
-
-  await readLines(body, (line) => {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('data:')) return;
-    const data = trimmed.slice(5).trim();
-    try {
-      const parsed = JSON.parse(data);
-      const delta = (parsed.candidates?.[0]?.content?.parts ?? [])
-        .map((p: { text?: string }) => p.text ?? '').join('');
-      if (delta) { fullText += delta; onChunk(fullText); }
-      if (parsed.usageMetadata) {
-        inputTokens = parsed.usageMetadata.promptTokenCount ?? 0;
-        outputTokens = parsed.usageMetadata.candidatesTokenCount ?? 0;
-      }
-    } catch {}
-  });
-
-  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens: 0, cacheReadTokens: 0, cost: 0 };
 }

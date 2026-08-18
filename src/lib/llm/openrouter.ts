@@ -1,5 +1,6 @@
 import type { GenerateOptions, GenerateResult, LLMAdapter, SystemParts } from './types';
 import { readOpenAIStream } from './stream';
+import { openRouterReasoningPayload } from './reasoningPayloads';
 
 // 정적인 것부터 동적인 것 순으로 concat — prefix caching 최적화
 function buildSystem(parts: SystemParts): string {
@@ -27,7 +28,7 @@ export const openrouterAdapter: LLMAdapter = {
         'content-type': 'application/json',
         authorization: `Bearer ${opts.apiKey}`,
         'HTTP-Referer': window.location.origin,
-        'X-Title': 'ChatForMe',
+        'X-Title': 'Inuchat',
       },
       body: JSON.stringify({
         model: opts.model,
@@ -35,6 +36,7 @@ export const openrouterAdapter: LLMAdapter = {
         usage: { include: true }, // 응답에 실제 청구 비용(cost) 포함
         ...(streaming && { stream_options: { include_usage: true } }),
         ...(opts.maxOutputTokens !== null && { max_tokens: opts.maxOutputTokens }),
+        ...openRouterReasoningPayload(opts.model, opts.reasoning),
         messages,
       }),
     });

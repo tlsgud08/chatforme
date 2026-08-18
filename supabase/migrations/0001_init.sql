@@ -8,7 +8,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null default '',
   default_output_tokens int not null default 1024,
-  default_provider text not null default 'claude',  -- claude | gemini | openai
+  default_provider text not null default 'openrouter',
   default_model text not null default '',
   created_at timestamptz not null default now()
 );

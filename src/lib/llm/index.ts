@@ -1,15 +1,9 @@
 import type { Provider } from '@/types/db';
 import type { ChatMessage, GenerateOptions, GenerateResult, LLMAdapter } from './types';
-import { claudeAdapter } from './claude';
-import { geminiAdapter } from './gemini';
-import { openaiAdapter } from './openai';
 import { openrouterAdapter } from './openrouter';
 
 const ADAPTERS: Record<Provider, LLMAdapter> = {
   openrouter: openrouterAdapter,
-  claude: claudeAdapter,
-  gemini: geminiAdapter,
-  openai: openaiAdapter,
 };
 
 // 연속된 동일 role 메시지를 병합하고, 첫 메시지가 user임을 보장
