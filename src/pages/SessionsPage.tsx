@@ -106,7 +106,7 @@ export default function SessionsPage() {
     if (selected.size === 0) return;
     const ids = [...selected];
     const { data: deleted, error } = await supabase.from('sessions').delete().in('id', ids).select('id');
-    if (error || deleted?.length !== ids.length) { alert('삭제 실패: ' + (error?.message ?? '일부 채팅방이 삭제되지 않았습니다.')); return; }
+    if (error || deleted?.length !== ids.length) { showToast('삭제 실패: ' + (error?.message ?? '일부 채팅방이 삭제되지 않았습니다.')); return; }
     queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
     cancelSelect();
     showToast(`${ids.length}개 채팅방과 연결 데이터를 삭제했습니다.`);
@@ -126,7 +126,7 @@ export default function SessionsPage() {
       await queryClient.invalidateQueries({ queryKey: ['guest-sessions'] });
     } else {
       const { error } = await supabase.from('sessions').update({ title, updated_at: new Date().toISOString() }).eq('id', renameTarget.id);
-      if (error) { alert('이름 변경 실패: ' + error.message); return; }
+      if (error) { showToast('이름 변경 실패: ' + error.message); return; }
       await queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
     }
     setRenameTarget(null);
@@ -140,7 +140,7 @@ export default function SessionsPage() {
       await queryClient.invalidateQueries({ queryKey: ['guest-sessions'] });
     } else {
       const { data: deleted, error } = await supabase.from('sessions').delete().eq('id', deleteTarget.id).select('id');
-      if (error || !deleted?.length) { setDeleting(false); alert('삭제 실패: ' + (error?.message ?? '채팅방이 삭제되지 않았습니다.')); return; }
+      if (error || !deleted?.length) { setDeleting(false); showToast('삭제 실패: ' + (error?.message ?? '채팅방이 삭제되지 않았습니다.')); return; }
       await queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
     }
     setDeleting(false);

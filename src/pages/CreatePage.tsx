@@ -56,7 +56,7 @@ export default function CreatePage() {
       .select('id')
       .single();
     if (error) {
-      alert('생성 실패: ' + error.message);
+      showToast('생성 실패: ' + error.message);
       return;
     }
     await refetch();
@@ -73,7 +73,7 @@ export default function CreatePage() {
       .select('id');
     setDeleting(false);
     if (error || !deleted?.length) {
-      alert('삭제 실패: ' + (error?.message ?? '삭제 권한을 확인해주세요.'));
+      showToast('삭제 실패: ' + (error?.message ?? '삭제 권한을 확인해주세요.'));
       return;
     }
     setDeleteTarget(null);
@@ -92,7 +92,7 @@ export default function CreatePage() {
     setMenuId(null);
     const { id: _id, created_at: _created, updated_at: _updated, ...copy } = work;
     const { data: created, error } = await supabase.from('works').insert({ ...copy, title: `${work.title || '제목 없음'} (복제본)`, creator_id: user!.id, is_published: false }).select('id').single();
-    if (error || !created) { alert(`복제 실패: ${error?.message ?? '작품을 만들 수 없습니다.'}`); return; }
+    if (error || !created) { showToast(`복제 실패: ${error?.message ?? '작품을 만들 수 없습니다.'}`); return; }
     const [{ data: configs }, { data: books }] = await Promise.all([
       supabase.from('start_configs').select('name,initial_message,initial_context,keep_turns,sort_order,is_default').eq('work_id', work.id),
       supabase.from('keyword_books').select('name,keywords,content,activation_turns,sort_order').eq('work_id', work.id),

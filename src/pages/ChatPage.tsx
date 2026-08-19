@@ -21,6 +21,7 @@ import MarkdownCodeBlock from '@/components/MarkdownCodeBlock';
 import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
 import { showToast } from '@/lib/toast';
 import CommandMenu from '@/components/CommandMenu';
+import { showConfirmDialog } from '@/lib/dialog';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 const GENERATION_TIMEOUT_MS = 120_000;
@@ -612,7 +613,7 @@ export default function ChatPage() {
   }
 
   async function deleteMsg(msgId: string) {
-    if (!window.confirm('이 메시지를 삭제할까요?')) return;
+    if (!await showConfirmDialog('이 메시지를 삭제할까요?', '삭제한 메시지는 복구할 수 없습니다.', '삭제')) return;
     if (messageActionBusy) return;
     setMessageActionBusy(true);
     const target = messages.find((message) => message.id === msgId);
@@ -651,7 +652,7 @@ export default function ChatPage() {
 
   async function branchFrom(message: Message) {
     if (!session || !user) return;
-    if (!window.confirm('이 메시지 시점에서 새 채팅방으로 분기할까요?') || messageActionBusy) return;
+    if (messageActionBusy || !await showConfirmDialog('새 채팅방으로 분기할까요?', '이 메시지 시점까지의 대화로 새 채팅방을 만듭니다.', '분기')) return;
     setMessageActionBusy(true);
     const branchSource = messages.filter((item) => item.is_active_variant !== false);
     const messageIndex = branchSource.findIndex((item) => item.id === message.id);

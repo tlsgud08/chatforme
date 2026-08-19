@@ -175,7 +175,7 @@ export default function WorkDetailPage() {
       })
       .select('id').single();
 
-    if (error) { alert('채팅 시작에 실패했습니다: ' + error.message); setStarting(false); return; }
+    if (error) { showToast('채팅 시작에 실패했습니다: ' + error.message); setStarting(false); return; }
 
     const sessionId = data.id;
 
@@ -210,7 +210,7 @@ export default function WorkDetailPage() {
     setDeleting(false);
 
     if (error || !data?.length) {
-      alert(`삭제 실패: ${error?.message ?? '삭제 권한을 확인해주세요.'}`);
+      showToast(`삭제 실패: ${error?.message ?? '삭제 권한을 확인해주세요.'}`);
       return;
     }
 
