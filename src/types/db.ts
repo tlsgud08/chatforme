@@ -146,6 +146,8 @@ export interface Message {
   reroll_index: number;
   is_active_variant: boolean;
   generation_status: 'streaming' | 'complete' | 'interrupted';
+  command_id: string | null;
+  command_name: string | null;
   created_at: string;
 }
 
