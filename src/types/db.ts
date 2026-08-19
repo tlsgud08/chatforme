@@ -154,3 +154,15 @@ export interface Follow {
   following_id: string;
   created_at: string;
 }
+
+export interface Command {
+  id: string;
+  owner_id: string;
+  name: string;
+  description: string;
+  prompt: string;
+  is_published: boolean;
+  copied_from_id: string | null;
+  created_at: string;
+  updated_at: string;
+}

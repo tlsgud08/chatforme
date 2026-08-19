@@ -15,11 +15,12 @@ import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
   type GuestSession, type GuestMessage,
 } from '@/lib/guest';
-import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
+import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
 import MarkdownCodeBlock from '@/components/MarkdownCodeBlock';
 import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
 import { showToast } from '@/lib/toast';
+import CommandMenu from '@/components/CommandMenu';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 const GENERATION_TIMEOUT_MS = 120_000;
@@ -137,6 +138,8 @@ export default function ChatPage() {
   const [summaryGenerating, setSummaryGenerating] = useState(false);
   const [storyNotes, setStoryNotes] = useState<StoryNote[]>([]);
   const [messageActionBusy, setMessageActionBusy] = useState(false);
+  const [commandMenuOpen, setCommandMenuOpen] = useState(false);
+  const [selectedCommand, setSelectedCommand] = useState<Command | null>(null);
 
   const [streamingContent, setStreamingContent] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -386,7 +389,9 @@ export default function ChatPage() {
       rerollIndex = Math.max(0, ...variants.map((message) => message.reroll_index ?? 1)) + 1;
     }
     const text = options?.reroll ? '' : input.trim();
-    if (!options?.reroll) setInput('');
+    const commandPrompt = options?.reroll ? '' : selectedCommand?.prompt.trim() ?? '';
+    const promptText = commandPrompt ? `${text}${text ? '\n\n' : ''}[선택한 명령어 /${selectedCommand!.name}]\n${commandPrompt}` : text;
+    if (!options?.reroll) { setInput(''); setSelectedCommand(null); }
     setSending(true);
     setStreamingContent('');
     const controller = new AbortController();
@@ -439,9 +444,9 @@ export default function ChatPage() {
       const assembled = assemblePrompt({
         systemPrompt, mainPrompt: work.main_prompt, userNote: guestSession.user_note,
         summary: '',
-        keywordBookContents: getActiveKeywordContents(updatedMessages, text),
+        keywordBookContents: getActiveKeywordContents(updatedMessages, promptText),
         history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
-        latestUserMessage: text,
+        latestUserMessage: promptText,
       });
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
       try {
@@ -519,9 +524,9 @@ export default function ChatPage() {
     const assembled = assemblePrompt({
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
-      keywordBookContents: getActiveKeywordContents(currentMessages, text),
+      keywordBookContents: getActiveKeywordContents(currentMessages, promptText),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
-      latestUserMessage: text,
+      latestUserMessage: promptText,
     });
     const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
     try {
@@ -824,7 +829,13 @@ export default function ChatPage() {
         </div>
       </div>
 
+      {selectedCommand && <div className="flex shrink-0 items-center gap-2 border-t border-surface2 bg-brand/10 px-3 py-2 text-sm">
+        <span className="font-semibold text-brand">/{selectedCommand.name}</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-slate-400">{selectedCommand.description}</span>
+        <button onClick={() => setSelectedCommand(null)} aria-label="선택한 명령어 해제" className="text-slate-500">×</button>
+      </div>}
       <div className="flex shrink-0 items-end gap-2 border-t border-surface2 p-2">
+        {!isGuest && <button onClick={() => setCommandMenuOpen(true)} aria-label="명령어 메뉴 열기" className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-semibold ${selectedCommand ? 'bg-brand text-white' : 'bg-surface text-slate-400'}`}>/</button>}
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -849,6 +860,8 @@ export default function ChatPage() {
           </button>
         )}
       </div>
+
+      {commandMenuOpen && user && <CommandMenu userId={user.id} onClose={() => setCommandMenuOpen(false)} onSelect={setSelectedCommand} />}
 
       {menuOpen && !isGuest && session && (
         <SessionMenu
