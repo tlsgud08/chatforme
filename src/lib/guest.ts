@@ -24,6 +24,10 @@ function load(): GuestSession[] {
 
 function save(sessions: GuestSession[]): void {
   localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+  // Once the legacy data has been migrated, do not leave a second, stale copy
+  // behind. In particular, a deleted guest session must not survive under the
+  // old key and reappear if the current key is later cleared.
+  localStorage.removeItem(LEGACY_SESSIONS_KEY);
 }
 
 export function guestGetSessions(): GuestSession[] {

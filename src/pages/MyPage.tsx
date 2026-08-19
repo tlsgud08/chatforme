@@ -100,7 +100,11 @@ export default function MyPage() {
   }
 
   async function deletePersona(id: string) {
-    await supabase.from('personas').delete().eq('id', id);
+    const { data: deleted, error } = await supabase.from('personas').delete().eq('id', id).select('id');
+    if (error || !deleted?.length) {
+      flash('삭제 실패: ' + (error?.message ?? '페르소나가 삭제되지 않았습니다.'));
+      return;
+    }
     const remaining = personas.filter((x) => x.id !== id);
     if (remaining.length > 0 && !remaining.some((x) => x.is_default)) {
       await supabase.from('personas').update({ is_default: true }).eq('id', remaining[0].id);
