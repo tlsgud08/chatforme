@@ -390,11 +390,8 @@ export default function ChatPage() {
       rerollIndex = Math.max(0, ...variants.map((message) => message.reroll_index ?? 1)) + 1;
     }
     const text = options?.reroll ? '' : input.trim();
-    const submittedText = !options?.reroll && selectedCommand
-      ? `/${selectedCommand.name}${text ? ` ${text}` : ''}`
-      : text;
     const commandPrompt = options?.reroll ? '' : selectedCommand?.prompt.trim() ?? '';
-    const promptText = commandPrompt ? `${submittedText}\n\n[선택한 명령어 /${selectedCommand!.name}]\n${commandPrompt}` : submittedText;
+    const promptText = commandPrompt ? `${text}${text ? '\n\n' : ''}[선택한 명령어 /${selectedCommand!.name}]\n${commandPrompt}` : text;
     if (!options?.reroll) { setInput(''); setSelectedCommand(null); }
     setSending(true);
     setStreamingContent('');
@@ -507,11 +504,11 @@ export default function ChatPage() {
 
     const historyMsgs = buildHistory([...baseMessages], effectiveSummaryTurn);
     let currentMessages = [...baseMessages];
-    if (submittedText || commandPrompt) {
+    if (text || commandPrompt) {
       const { data: userMsg, error: userMessageError } = await supabase
         .from('messages')
         .insert({
-          session_id: session.id, role: 'user', content: submittedText, turn_index: turnIndex,
+          session_id: session.id, role: 'user', content: text, turn_index: turnIndex,
           command_id: selectedCommand?.id ?? null, command_name: selectedCommand?.name ?? null,
         })
         .select('*').single();
@@ -752,12 +749,7 @@ export default function ChatPage() {
                     className={`w-full resize-none overflow-hidden rounded-2xl px-4 py-3 text-sm text-slate-100 outline-none ${editingCommandName ? 'border-2 border-indigo-500 bg-indigo-500/10' : 'bg-surface'}`}
                   />
                   <div className="flex items-center justify-end gap-2">
-                    {editingCommandName && <button onClick={() => {
-                      setEditingContent((content) => content.startsWith(`/${editingCommandName} `)
-                        ? content.slice(editingCommandName.length + 2)
-                        : content === `/${editingCommandName}` ? '' : content);
-                      setEditingCommandName(null);
-                    }} className="mr-auto rounded-lg border border-indigo-400/60 bg-indigo-500/15 px-3 py-1.5 text-xs font-semibold text-indigo-300" aria-label={`/${editingCommandName} 명령어 제거`}>×　/{editingCommandName}</button>}
+                    {editingCommandName && <button onClick={() => setEditingCommandName(null)} className="mr-auto rounded-lg border border-indigo-400/60 bg-indigo-500/15 px-3 py-1.5 text-xs font-semibold text-indigo-300" aria-label={`/${editingCommandName} 명령어 제거`}>×　/{editingCommandName}</button>}
                     <button onClick={() => setEditingId(null)} className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300">취소</button>
                     <button onClick={() => saveEdit(m.id)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white">저장</button>
                   </div>
@@ -775,7 +767,7 @@ export default function ChatPage() {
                           ? 'bg-surface text-slate-500'
                           : 'bg-surface text-slate-100'
                   }`}>
-                    {m.role === 'user' && m.command_name && !m.content.startsWith(`/${m.command_name}`) && <p className="mb-2 font-bold text-indigo-400">/{m.command_name}</p>}
+                    {m.role === 'user' && m.command_name && <p className="mb-2 font-bold text-indigo-400">/{m.command_name}</p>}
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={{
