@@ -22,6 +22,8 @@ export interface ReasoningSelection {
 export interface GenerateOptions {
   apiKey: string;
   model: string;
+  /** Stable conversation identifier. OpenRouter accepts at most 64 characters here. */
+  sessionId: string;
   systemParts: SystemParts;
   messages: ChatMessage[];
   maxOutputTokens: number | null;
@@ -33,8 +35,8 @@ export interface GenerateOptions {
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
+  cacheCreationTokens: number | null;
+  cacheReadTokens: number | null;
   cost: number;
 }
 

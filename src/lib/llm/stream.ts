@@ -39,8 +39,8 @@ export interface StreamResult {
   text: string;
   inputTokens: number;
   outputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
+  cacheCreationTokens: number | null;
+  cacheReadTokens: number | null;
   cost: number;
 }
 
@@ -51,7 +51,8 @@ export async function readOpenAIStream(
   let fullText = '';
   let inputTokens = 0;
   let outputTokens = 0;
-  let cacheReadTokens = 0;
+  let cacheReadTokens: number | null = null;
+  let cacheCreationTokens: number | null = null;
   let cost = 0;
   let receivedDone = false;
   let finishReason: string | null = null;
@@ -76,7 +77,11 @@ export async function readOpenAIStream(
       if (usage) {
         inputTokens = usage.prompt_tokens ?? 0;
         outputTokens = usage.completion_tokens ?? 0;
-        cacheReadTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
+        cacheReadTokens = usage.prompt_tokens_details?.cached_tokens ?? usage.cache_read_input_tokens ?? null;
+        cacheCreationTokens = usage.prompt_tokens_details?.cache_write_tokens
+          ?? usage.cache_creation_input_tokens
+          ?? usage.cache_creation_tokens
+          ?? null;
         cost = usage.cost ?? 0;
       }
       const reason = parsed.choices?.[0]?.finish_reason;
@@ -90,5 +95,5 @@ export async function readOpenAIStream(
   if (!receivedDone) throw new Error(`스트리밍 연결이 정상 완료 신호 없이 종료되었습니다${finishReason ? ` (finish_reason: ${finishReason})` : ''}.`);
   if (!fullText.trim()) throw new Error('모델이 빈 응답을 반환했습니다.');
 
-  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens: 0, cacheReadTokens, cost };
+  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost };
 }

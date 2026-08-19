@@ -125,6 +125,7 @@ export default function ChatPage() {
   const [debugMode, setDebugMode] = useState(false);
   const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') !== '0');
   const [showCostKrw, setShowCostKrw] = useState(() => localStorage.getItem('inuchat.showCostKrw') === '1');
+  const [showCacheTokens, setShowCacheTokens] = useState(() => localStorage.getItem('inuchat.showCacheTokens') === '1');
   const exchange = useUsdKrwRate();
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
   const [toastError, setToastError] = useState('');
@@ -137,12 +138,9 @@ export default function ChatPage() {
   const [messageActionBusy, setMessageActionBusy] = useState(false);
 
   const [streamingContent, setStreamingContent] = useState('');
-  const [cacheToast, setCacheToast] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cachedPartsRef = useRef({ core: '', persona: '', userNote: '', summary: '' });
   const shouldAutoScrollRef = useRef(true);
 
   useEffect(() => {
@@ -160,19 +158,6 @@ export default function ChatPage() {
     active.listeners.add(listener);
     return () => { active.listeners.delete(listener); };
   }, [sessionId]);
-
-  function showCacheToast(parts: { core: string; persona: string; userNote: string; summary: string }) {
-    const labels: string[] = [];
-    if (parts.core !== cachedPartsRef.current.core) labels.push('작품 설정');
-    if (parts.persona !== cachedPartsRef.current.persona) labels.push('페르소나');
-    if (parts.userNote !== cachedPartsRef.current.userNote) labels.push('유저 노트');
-    if (parts.summary !== cachedPartsRef.current.summary) labels.push('요약');
-    if (labels.length === 0) return;
-    cachedPartsRef.current = { ...parts };
-    setCacheToast(`${labels.join(', ')}을(를) 캐싱했습니다`);
-    if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
-    cacheTimerRef.current = setTimeout(() => setCacheToast(''), 3000);
-  }
 
   function addError(raw: string) {
     const short = classifyError(raw);
@@ -316,6 +301,7 @@ export default function ChatPage() {
       const summaryCore = [profile.summary_prompt?.trim() || DEFAULT_SUMMARY_PROMPT, parameterBlock, extraNote].filter(Boolean).join('\n\n');
       const result = await generate('openrouter', {
         apiKey,
+        sessionId: session.id,
         model: session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
         reasoning: normalizeReasoning(session.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
         systemParts: { core: summaryCore, persona: '', userNote: '', summary: '', keywords: '' },
@@ -441,7 +427,7 @@ export default function ChatPage() {
       if (text) {
         const userMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'user',
-          content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cost: 0,
+          content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cache_read_tokens: null, cache_write_tokens: null, cost: 0,
           is_hidden: false, created_at: now,
         };
         guestAddMessage(guestSession.id, userMsg);
@@ -459,12 +445,12 @@ export default function ChatPage() {
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
       try {
         startGenerationTimeout();
-        const result = await generate(provider, { apiKey, model, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
-        if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
+        const result = await generate(provider, { apiKey, model, sessionId: guestSession.id, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
         const aiMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
           content: result.text, turn_index: turnIndex,
           input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
+          cache_read_tokens: result.usage.cacheReadTokens, cache_write_tokens: result.usage.cacheCreationTokens,
           is_hidden: false, created_at: new Date().toISOString(),
         };
         guestAddMessage(guestSession.id, aiMsg);
@@ -479,7 +465,7 @@ export default function ChatPage() {
         if (partialText) {
           const aiMsg: GuestMessage = {
             id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
-            content: partialText, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cost: 0,
+            content: partialText, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cache_read_tokens: null, cache_write_tokens: null, cost: 0,
             is_hidden: false, created_at: new Date().toISOString(),
           };
           guestAddMessage(guestSession.id, aiMsg);
@@ -490,7 +476,7 @@ export default function ChatPage() {
           const interrupted: GuestMessage = {
             id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
             content: '응답이 중단되었습니다.', turn_index: turnIndex, input_tokens: 0,
-            output_tokens: 0, cost: 0, is_hidden: false, created_at: new Date().toISOString(),
+            output_tokens: 0, cache_read_tokens: null, cache_write_tokens: null, cost: 0, is_hidden: false, created_at: new Date().toISOString(),
           };
           guestAddMessage(guestSession.id, interrupted);
           setMessages((current) => [...current, toMsg(interrupted)]);
@@ -546,14 +532,14 @@ export default function ChatPage() {
       if (draftError || !draft) throw draftError ?? new Error('응답 임시 저장 공간을 만들 수 없습니다.');
       draftMessageId = draft.id;
       startGenerationTimeout();
-      const result = await generate(provider, { apiKey, model, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
-      if (result.usage.cacheCreationTokens > 0) showCacheToast(assembled.systemParts);
+      const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
       await draftSaveQueue;
       const { data: aiMsg, error: finalMessageError } = await supabase
         .from('messages')
         .update({
           content: result.text,
           input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
+          cache_read_tokens: result.usage.cacheReadTokens, cache_write_tokens: result.usage.cacheCreationTokens,
           generation_status: 'complete',
         })
         .eq('id', draftMessageId).select('*').single();
@@ -678,7 +664,7 @@ export default function ChatPage() {
       summary_cost_threshold_override: session.summary_cost_threshold_override,
     }).select('id').single();
     if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); setMessageActionBusy(false); return; }
-    const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cost, is_hidden, is_summarized }));
+    const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized }));
     if (copiedMessages.length) await supabase.from('messages').insert(copiedMessages);
     if (versions.length) await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost })));
     if (storyNotes.length) await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content })));
@@ -730,14 +716,6 @@ export default function ChatPage() {
           </div>
         </div>
       )}
-      {cacheToast && (
-        <div className="toast-enter pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-4">
-          <div className="max-w-[88vw] rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg">
-            {cacheToast}
-          </div>
-        </div>
-      )}
-
       <div ref={scrollRef} onScroll={(event) => { shouldAutoScrollRef.current = isNearScrollBottom(event.currentTarget); }} className="w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
@@ -814,6 +792,7 @@ export default function ChatPage() {
                       <button disabled={messageActionBusy} onClick={() => void deleteMsg(m.id)} className="text-xs text-red-400/60 disabled:opacity-50">삭제</button>
                       {m.role === 'assistant' && <div className="ml-auto flex items-center gap-2">
                         {showCost && <span className="text-right text-[10px] text-slate-500">{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`} {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
+                        {showCacheTokens && <span className="text-right text-[10px] text-slate-500">캐시 읽기 {m.cache_read_tokens == null ? '미보고' : m.cache_read_tokens.toLocaleString()} · 쓰기 {m.cache_write_tokens == null ? '미보고' : m.cache_write_tokens.toLocaleString()}</span>}
                         {variantsFor(m).length > 1 && <select aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
                         {!isGuest && m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성">↻</button>}
                       </div>}
@@ -874,6 +853,8 @@ export default function ChatPage() {
           onShowCostToggle={(v) => { setShowCost(v); localStorage.setItem('chatforme.showCost', v ? '1' : '0'); }}
           showCostKrw={showCostKrw}
           onShowCostKrwToggle={(v) => { setShowCostKrw(v); localStorage.setItem('inuchat.showCostKrw', v ? '1' : '0'); }}
+          showCacheTokens={showCacheTokens}
+          onShowCacheTokensToggle={(v) => { setShowCacheTokens(v); localStorage.setItem('inuchat.showCacheTokens', v ? '1' : '0'); }}
           exchange={exchange}
           sessionModel={sessionModel || modelsFor('openrouter')[0]}
           sessionReasoning={sessionReasoning}
