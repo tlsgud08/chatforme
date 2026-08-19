@@ -31,8 +31,8 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
     setCommands(next);
     const ids = [...new Set(next.map((item) => item.owner_id))];
     if (ids.length) {
-      const { data: profiles } = await supabase.rpc('command_author_names', { author_ids: ids });
-      setAuthors(Object.fromEntries(((profiles ?? []) as Array<{ id: string; display_name: string }>).map((profile) => [profile.id, profile.display_name || '이름 없음'])));
+      const { data: profiles } = await supabase.from('profiles').select('id,display_name').in('id', ids);
+      setAuthors(Object.fromEntries((profiles ?? []).map((profile) => [profile.id, profile.display_name || '이름 없음'])));
     }
   }
 
