@@ -146,6 +146,8 @@ export interface Message {
   reroll_index: number;
   is_active_variant: boolean;
   generation_status: 'streaming' | 'complete' | 'interrupted';
+  command_id: string | null;
+  command_name: string | null;
   created_at: string;
 }
 
@@ -153,4 +155,16 @@ export interface Follow {
   follower_id: string;
   following_id: string;
   created_at: string;
+}
+
+export interface Command {
+  id: string;
+  owner_id: string;
+  name: string;
+  description: string;
+  prompt: string;
+  is_published: boolean;
+  copied_from_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
