@@ -10,12 +10,13 @@ interface Props {
   onSelect: (command: Command) => void;
 }
 
-type Tab = 'all' | 'mine' | 'hub';
+type Tab = 'all' | 'mine' | 'hub' | 'favorites';
 type Draft = Pick<Command, 'name' | 'description' | 'prompt'>;
 const emptyDraft: Draft = { name: '', description: '', prompt: '' };
 
 export default function CommandMenu({ userId, onClose, onSelect }: Props) {
   const [commands, setCommands] = useState<Command[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [authors, setAuthors] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<Tab>('all');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -26,10 +27,15 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const { data, error } = await supabase.from('commands').select('*').or(`owner_id.eq.${userId},is_published.eq.true`).order('updated_at', { ascending: false });
+    const [{ data, error }, { data: favorites, error: favoritesError }] = await Promise.all([
+      supabase.from('commands').select('*').or(`owner_id.eq.${userId},is_published.eq.true`).order('updated_at', { ascending: false }),
+      supabase.from('command_favorites').select('command_id').eq('user_id', userId),
+    ]);
     if (error) { showToast(`명령어를 불러오지 못했습니다: ${error.message}`); return; }
+    if (favoritesError) { showToast(`즐겨찾기를 불러오지 못했습니다: ${favoritesError.message}`); return; }
     const next = (data as Command[]) ?? [];
     setCommands(next);
+    setFavoriteIds(new Set((favorites ?? []).map((favorite) => favorite.command_id)));
     const ids = [...new Set(next.map((item) => item.owner_id))];
     if (ids.length) {
       const { data: profiles } = await supabase.from('profiles').select('id,display_name').in('id', ids);
@@ -40,10 +46,39 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
   useEffect(() => { void load(); }, [userId]);
 
   const visible = useMemo(() => commands.filter((command) => {
-    const inTab = tab === 'all' ? command.owner_id === userId || command.is_published : tab === 'mine' ? command.owner_id === userId : command.is_published;
+    const inTab = tab === 'all'
+      ? command.owner_id === userId || command.is_published
+      : tab === 'mine'
+        ? command.owner_id === userId
+        : tab === 'hub'
+          ? command.is_published
+          : favoriteIds.has(command.id);
     const term = query.trim().toLocaleLowerCase();
     return inTab && (!term || `${command.name} ${command.description} ${authors[command.owner_id] ?? ''}`.toLocaleLowerCase().includes(term));
-  }), [authors, commands, query, tab, userId]);
+  }), [authors, commands, favoriteIds, query, tab, userId]);
+
+  async function toggleFavorite(command: Command) {
+    const wasFavorite = favoriteIds.has(command.id);
+    setFavoriteIds((current) => {
+      const next = new Set(current);
+      if (wasFavorite) next.delete(command.id); else next.add(command.id);
+      return next;
+    });
+
+    const { error } = wasFavorite
+      ? await supabase.from('command_favorites').delete().eq('user_id', userId).eq('command_id', command.id)
+      : await supabase.from('command_favorites').insert({ user_id: userId, command_id: command.id });
+    if (error) {
+      setFavoriteIds((current) => {
+        const next = new Set(current);
+        if (wasFavorite) next.add(command.id); else next.delete(command.id);
+        return next;
+      });
+      showToast(`즐겨찾기를 변경하지 못했습니다: ${error.message}`);
+      return;
+    }
+    showToast(wasFavorite ? '즐겨찾기에서 삭제했습니다.' : '즐겨찾기에 추가했습니다.');
+  }
 
   function beginEdit(command?: Command) {
     setEditing(command ?? 'new');
@@ -117,7 +152,7 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
       <section className="flex h-[72dvh] w-full max-w-app flex-col rounded-t-3xl bg-bg shadow-2xl">
         <header className="flex items-center justify-between px-4 pb-2 pt-4"><div><h2 className="text-lg font-bold text-white">명령어</h2><p className="text-xs text-slate-500">메뉴에서 선택해야 명령어가 활성화됩니다.</p></div><button onClick={onClose} className="p-2 text-xl text-slate-400">×</button></header>
         <div className="flex items-center border-b border-surface2 px-3">
-          {(['all', 'mine', 'hub'] as Tab[]).map((value) => <button key={value} onClick={() => { setTab(value); setQuery(''); setSearchOpen(false); }} className={`border-b-2 px-3 py-3 text-sm ${tab === value ? 'border-brand font-semibold text-white' : 'border-transparent text-slate-500'}`}>{value === 'all' ? '전체' : value === 'mine' ? '내 명령어' : '명령어 허브'}</button>)}
+          {(['all', 'mine', 'hub', 'favorites'] as Tab[]).map((value) => <button key={value} onClick={() => { setTab(value); setQuery(''); setSearchOpen(false); }} className={`whitespace-nowrap border-b-2 px-2.5 py-3 text-sm ${tab === value ? 'border-brand font-semibold text-white' : 'border-transparent text-slate-500'}`}>{value === 'all' ? '전체' : value === 'mine' ? '내 명령어' : value === 'hub' ? '명령어 허브' : '즐겨찾기'}</button>)}
           {tab === 'hub' && <button aria-label="명령어 검색" onClick={() => setSearchOpen(true)} className="ml-auto p-2 text-lg text-slate-400">⌕</button>}
         </div>
         {tab === 'hub' && searchOpen && <div className="border-b border-surface2 p-3"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="이름, 설명, 작성자 검색" className="w-full rounded-xl bg-surface px-4 py-2.5 text-sm outline-none" /></div>}
@@ -130,7 +165,8 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
                 <p className="mt-1 truncate text-xs text-slate-400">{command.description || '설명 없음'}</p>
                 {command.is_published && <p className="mt-1 text-[11px] text-slate-500">올린 사람 · {mine ? '나' : authors[command.owner_id] ?? '사용자'}</p>}
               </button>
-              <button aria-label="명령어 메뉴" onClick={() => setOpenMenu(openMenu === command.id ? null : command.id)} className="self-start px-2 text-xl text-slate-500">⋯</button>
+              <button aria-label={`/${command.name} ${favoriteIds.has(command.id) ? '즐겨찾기 해제' : '즐겨찾기 추가'}`} aria-pressed={favoriteIds.has(command.id)} onClick={() => void toggleFavorite(command)} className={`self-start px-1 text-2xl leading-none ${favoriteIds.has(command.id) ? 'text-amber-400' : 'text-slate-500'}`}>{favoriteIds.has(command.id) ? '★' : '☆'}</button>
+              <button aria-label="명령어 메뉴" onClick={() => setOpenMenu(openMenu === command.id ? null : command.id)} className="self-start px-1 text-xl text-slate-500">⋯</button>
               {openMenu === command.id && <div className="absolute right-4 top-10 z-10 min-w-40 overflow-hidden rounded-xl border border-surface2 bg-surface shadow-xl">
                 {mine ? <><button onClick={() => beginEdit(command)} className="block w-full px-4 py-2.5 text-left text-sm">명령어 수정</button><button onClick={() => void publish(command, !command.is_published)} className="block w-full px-4 py-2.5 text-left text-sm">{command.is_published ? '허브에서 비공개' : '전체 공개'}</button><button onClick={() => void remove(command)} className="block w-full px-4 py-2.5 text-left text-sm text-red-400">삭제</button></> : <button onClick={() => void copy(command)} className="block w-full px-4 py-2.5 text-left text-sm">내 명령어로 복사</button>}
               </div>}
