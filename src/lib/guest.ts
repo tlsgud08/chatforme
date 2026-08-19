@@ -4,7 +4,7 @@ import type { Message, Session, Work } from '@/types/db';
 const SESSIONS_KEY = 'inuchat.guest.sessions';
 const LEGACY_SESSIONS_KEY = 'nekochat.guest.sessions';
 
-export interface GuestMessage extends Pick<Message, 'id' | 'role' | 'content' | 'turn_index' | 'input_tokens' | 'output_tokens' | 'cost' | 'is_hidden' | 'created_at'> {
+export interface GuestMessage extends Pick<Message, 'id' | 'role' | 'content' | 'turn_index' | 'input_tokens' | 'output_tokens' | 'cache_read_tokens' | 'cache_write_tokens' | 'cost' | 'is_hidden' | 'created_at'> {
   session_id: string;
 }
 
@@ -31,7 +31,16 @@ export function guestGetSessions(): GuestSession[] {
 }
 
 export function guestGetSession(id: string): GuestSession | null {
-  return load().find((s) => s.id === id) ?? null;
+  const session = load().find((s) => s.id === id);
+  if (!session) return null;
+  return {
+    ...session,
+    messages: session.messages.map((message) => ({
+      ...message,
+      cache_read_tokens: message.cache_read_tokens ?? null,
+      cache_write_tokens: message.cache_write_tokens ?? null,
+    })),
+  };
 }
 
 export function guestCreateSession(work: Pick<Work, 'id' | 'title'>): GuestSession {

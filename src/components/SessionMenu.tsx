@@ -39,6 +39,8 @@ interface Props {
   onShowCostToggle: (v: boolean) => void;
   showCostKrw: boolean;
   onShowCostKrwToggle: (v: boolean) => void;
+  showCacheTokens: boolean;
+  onShowCacheTokensToggle: (v: boolean) => void;
   exchange: ExchangeRate;
   sessionModel: string;
   onModelChange: (m: string) => void;
@@ -55,7 +57,8 @@ interface Props {
 
 export default function SessionMenu({
   session, profile, onClose, onUpdate, onPersonaChange,
-  debugMode, onDebugToggle, showCost, onShowCostToggle, showCostKrw, onShowCostKrwToggle, exchange,
+  debugMode, onDebugToggle, showCost, onShowCostToggle, showCostKrw, onShowCostKrwToggle,
+  showCacheTokens, onShowCacheTokensToggle, exchange,
   sessionModel, onModelChange, sessionReasoning, onReasoningChange,
   errorLog, onClearErrors,
   onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange,
@@ -476,6 +479,20 @@ export default function SessionMenu({
             <div><p className="text-sm text-slate-300">소비 비용 원화로 표시</p><p className="text-[11px] text-slate-500">모든 채팅방에 적용 · 환율 {exchange.rate.toLocaleString('ko-KR')}</p></div>
             <button type="button" aria-pressed={showCostKrw} onClick={() => onShowCostKrwToggle(!showCostKrw)} className={`relative h-6 w-11 rounded-full transition-colors ${showCostKrw ? 'bg-emerald-500' : 'bg-surface2'}`}><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showCostKrw ? 'translate-x-5' : 'translate-x-0.5'}`} /></button>
           </div>
+        </section>
+
+        {/* OpenRouter prompt-cache usage */}
+        <section>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-300">캐시 토큰 보기</p>
+              <p className="text-xs text-slate-500">AI 응답 아래에 프롬프트 캐시 읽기·쓰기 표시</p>
+            </div>
+            <button type="button" aria-pressed={showCacheTokens} onClick={() => onShowCacheTokensToggle(!showCacheTokens)} className={`relative h-6 w-11 rounded-full transition-colors ${showCacheTokens ? 'bg-emerald-500' : 'bg-surface2'}`}>
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showCacheTokens ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">OpenRouter가 보고한 프롬프트 캐시 사용량만 표시합니다. 응답 캐시는 사용하지 않습니다.</p>
         </section>
 
         {/* 디버그 모드 */}

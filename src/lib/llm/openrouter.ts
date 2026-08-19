@@ -2,6 +2,12 @@ import type { GenerateOptions, GenerateResult, LLMAdapter, SystemParts } from '.
 import { readOpenAIStream } from './stream';
 import { openRouterReasoningPayload } from './reasoningPayloads';
 
+const MAX_SESSION_ID_LENGTH = 64;
+
+function openRouterSessionId(value: string): string {
+  return value.trim().slice(0, MAX_SESSION_ID_LENGTH);
+}
+
 // 정적인 것부터 동적인 것 순으로 concat — prefix caching 최적화
 function buildSystem(parts: SystemParts): string {
   return [parts.core, parts.persona, parts.userNote, parts.summary, parts.keywords]
@@ -32,6 +38,7 @@ export const openrouterAdapter: LLMAdapter = {
       },
       body: JSON.stringify({
         model: opts.model,
+        session_id: openRouterSessionId(opts.sessionId),
         stream: streaming,
         usage: { include: true }, // 응답에 실제 청구 비용(cost) 포함
         ...(streaming && { stream_options: { include_usage: true } }),
@@ -61,8 +68,13 @@ export const openrouterAdapter: LLMAdapter = {
       usage: {
         inputTokens: data.usage?.prompt_tokens ?? 0,
         outputTokens: data.usage?.completion_tokens ?? 0,
-        cacheCreationTokens: 0,
-        cacheReadTokens: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+        cacheCreationTokens: data.usage?.prompt_tokens_details?.cache_write_tokens
+          ?? data.usage?.cache_creation_input_tokens
+          ?? data.usage?.cache_creation_tokens
+          ?? null,
+        cacheReadTokens: data.usage?.prompt_tokens_details?.cached_tokens
+          ?? data.usage?.cache_read_input_tokens
+          ?? null,
         cost: data.usage?.cost ?? 0,
       },
     };
