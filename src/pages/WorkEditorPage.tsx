@@ -129,7 +129,11 @@ export default function WorkEditorPage() {
   async function remove() {
     if (!work) return;
     if (!confirm('이 작품을 삭제할까요? 되돌릴 수 없습니다.')) return;
-    await supabase.from('works').delete().eq('id', work.id);
+    const { data: deleted, error } = await supabase.from('works').delete().eq('id', work.id).select('id');
+    if (error || !deleted?.length) {
+      alert('삭제 실패: ' + (error?.message ?? '작품이 삭제되지 않았습니다.'));
+      return;
+    }
     navigate('/create');
   }
 
@@ -155,13 +159,21 @@ export default function WorkEditorPage() {
 
   async function deleteKeywordBook(id: string) {
     if (!confirm('이 키워드북을 삭제할까요?')) return;
-    await supabase.from('keyword_books').delete().eq('id', id);
+    const { data: deleted, error } = await supabase.from('keyword_books').delete().eq('id', id).select('id');
+    if (error || !deleted?.length) {
+      alert('삭제 실패: ' + (error?.message ?? '키워드북이 삭제되지 않았습니다.'));
+      return;
+    }
     setKeywordBooks((ks) => ks.filter((k) => k.id !== id));
   }
 
   async function deleteStartConfig(id: string) {
     if (!confirm('이 시작 설정을 삭제할까요?')) return;
-    await supabase.from('start_configs').delete().eq('id', id);
+    const { data: deleted, error } = await supabase.from('start_configs').delete().eq('id', id).select('id');
+    if (error || !deleted?.length) {
+      alert('삭제 실패: ' + (error?.message ?? '시작 설정이 삭제되지 않았습니다.'));
+      return;
+    }
     setStartConfigs((cs) => cs.filter((c) => c.id !== id));
   }
 
