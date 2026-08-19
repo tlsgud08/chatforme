@@ -51,11 +51,12 @@ interface Props {
   onReasoningChange: (reasoning: ReasoningSelection) => void;
   errorLog: ErrorEntry[];
   onClearErrors: () => void;
-  onGenerateSummary: () => Promise<void>;
+  onGenerateSummary: (throughTurn?: number) => Promise<void>;
   onMergeSummaries: (contents: string[]) => Promise<void>;
   summaryGenerating: boolean;
   storyNotes: StoryNote[];
   onStoryNotesChange: (notes: StoryNote[]) => void;
+  sessionTurnCount: number;
 }
 
 export default function SessionMenu({
@@ -65,7 +66,7 @@ export default function SessionMenu({
   showImages, onShowImagesToggle,
   sessionModel, onModelChange, sessionReasoning, onReasoningChange,
   errorLog, onClearErrors,
-  onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange,
+  onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange, sessionTurnCount,
 }: Props) {
   const { user } = useAuth();
   const [note, setNote] = useState(session.user_note);
@@ -107,6 +108,7 @@ export default function SessionMenu({
   const [summaryDraft, setSummaryDraft] = useState('');
   const [selectedSummaryIds, setSelectedSummaryIds] = useState<string[]>([]);
   const [storyNoteDraft, setStoryNoteDraft] = useState('');
+  const [summaryThroughTurn, setSummaryThroughTurn] = useState<number | ''>('');
 
   useEffect(() => {
     if (!user) return;
@@ -431,11 +433,22 @@ export default function SessionMenu({
             <option value="incremental">이전 요약 + 이후 메시지</option>
             <option value="full">이전 요약 제외 + 세션 전체 메시지</option>
           </select>
+          <label className="mt-3 block text-xs text-slate-400">요약 생성 기준 턴</label>
+          <input
+            type="number"
+            min={1}
+            max={Math.max(1, sessionTurnCount)}
+            value={summaryThroughTurn}
+            onChange={(event) => setSummaryThroughTurn(event.target.value === '' ? '' : Math.max(1, Math.min(sessionTurnCount, Number(event.target.value) || 1)))}
+            placeholder={`최신 (${sessionTurnCount}턴)`}
+            className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none"
+          />
+          <p className="mt-1 text-[11px] text-slate-500">비워 두면 최신 시점까지, 숫자를 입력하면 해당 턴까지만 요약합니다.</p>
           <label className="mt-3 block text-xs text-slate-400">Summary level (0~10)</label>
           <input type="number" min={0} max={10} value={session.summary_level_override ?? profile?.summary_level ?? 5} onChange={(e) => void saveSummarySettings({ summary_level_override: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none" />
           <label className="mt-3 flex items-center justify-between text-xs text-slate-300"><span>Allow omission</span><input type="checkbox" checked={session.summary_allow_omission_override ?? profile?.summary_allow_omission ?? true} onChange={(e) => void saveSummarySettings({ summary_allow_omission_override: e.target.checked })} /></label>
           <label className="mt-3 flex items-center justify-between text-xs text-slate-300"><span>요약 파라미터 함께 전송</span><input type="checkbox" disabled={!profile?.summary_prompt?.trim()} checked={session.summary_parameters_enabled_override ?? profile?.summary_parameters_enabled ?? true} onChange={(e) => void saveSummarySettings({ summary_parameters_enabled_override: e.target.checked })} /></label>
-          <button type="button" disabled={summaryGenerating} onClick={async () => { await onGenerateSummary(); await loadSummaries(); }} className="mt-3 w-full rounded-lg bg-brand py-2 text-sm font-semibold text-white disabled:opacity-50">
+          <button type="button" disabled={summaryGenerating || sessionTurnCount === 0} onClick={async () => { await onGenerateSummary(summaryThroughTurn === '' ? undefined : summaryThroughTurn); await loadSummaries(); }} className="mt-3 w-full rounded-lg bg-brand py-2 text-sm font-semibold text-white disabled:opacity-50">
             {summaryGenerating ? '요약 생성 중…' : '지금 요약 노트 생성'}
           </button>
           <button type="button" onClick={() => void openSummaries()} className="mt-2 w-full rounded-lg bg-surface2 py-2 text-sm text-slate-200">요약 노트 보기</button>
@@ -456,7 +469,7 @@ export default function SessionMenu({
                 {summaryVersions.length > 0 && <div className="rounded-xl bg-surface p-3"><p className="text-xs text-amber-400">복수 노트 반영은 내용 중복이나 지시 충돌이 생길 수 있어 권장하지 않습니다.</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => void applySelectedSummaries()} className="flex-1 rounded-lg bg-surface2 py-2 text-xs text-white">선택 노트 반영</button><button type="button" disabled={selectedSummaryIds.length < 2 || summaryGenerating} onClick={async () => { await onMergeSummaries(summaryVersions.filter((v) => selectedSummaryIds.includes(v.id)).map((v) => v.content)); await loadSummaries(); }} className="flex-1 rounded-lg bg-brand py-2 text-xs text-white disabled:opacity-50">선택 노트 통합 생성</button></div></div>}
                 {summaryVersions.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">생성된 요약이 없습니다.</p> : summaryVersions.map((version) => (
                   <article key={version.id} className={`rounded-xl border p-3 ${version.is_active ? 'border-emerald-500/50' : 'border-surface2 opacity-70'}`}>
-                    <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-500"><input type="checkbox" checked={selectedSummaryIds.includes(version.id)} onChange={(e) => setSelectedSummaryIds((ids) => e.target.checked ? [...ids, version.id] : ids.filter((id) => id !== version.id))} /><span>{new Date(version.created_at).toLocaleString('ko-KR')}</span><span>{version.summarized_through_turn}턴까지</span>{version.is_active && <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-emerald-400">전송 중</span>}</div>
+                    <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-500"><input type="checkbox" checked={selectedSummaryIds.includes(version.id)} onChange={(e) => setSelectedSummaryIds((ids) => e.target.checked ? [...ids, version.id] : ids.filter((id) => id !== version.id))} /><span>{new Date(version.created_at).toLocaleString('ko-KR')}</span><span>AI 요약 · {version.summarized_through_turn}턴 기준</span>{version.is_active && <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-emerald-400">전송 중</span>}</div>
                     {editingSummary === version.id ? <><textarea rows={14} value={summaryDraft} onChange={(event) => setSummaryDraft(event.target.value)} className="w-full rounded-lg bg-surface p-3 text-xs outline-none"/><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={() => setEditingSummary(null)} className="text-xs text-slate-400">취소</button><button type="button" onClick={() => void saveSummary(version)} className="rounded bg-brand px-3 py-1.5 text-xs text-white">저장</button></div></> : <><pre className="whitespace-pre-wrap break-words text-xs text-slate-300">{version.content}</pre><div className="mt-2 flex gap-3"><button type="button" onClick={() => { setEditingSummary(version.id); setSummaryDraft(version.content); }} className="text-xs text-brand">편집</button><button type="button" onClick={() => void deleteSummary(version)} className="text-xs text-red-400">삭제</button></div></>}
                   </article>
                 ))}
