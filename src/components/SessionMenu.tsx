@@ -41,6 +41,8 @@ interface Props {
   onShowCostKrwToggle: (v: boolean) => void;
   showCacheTokens: boolean;
   onShowCacheTokensToggle: (v: boolean) => void;
+  showImages: boolean;
+  onShowImagesToggle: (v: boolean) => void;
   exchange: ExchangeRate;
   sessionModel: string;
   onModelChange: (m: string) => void;
@@ -59,6 +61,7 @@ export default function SessionMenu({
   session, profile, onClose, onUpdate, onPersonaChange,
   debugMode, onDebugToggle, showCost, onShowCostToggle, showCostKrw, onShowCostKrwToggle,
   showCacheTokens, onShowCacheTokensToggle, exchange,
+  showImages, onShowImagesToggle,
   sessionModel, onModelChange, sessionReasoning, onReasoningChange,
   errorLog, onClearErrors,
   onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange,
@@ -493,6 +496,25 @@ export default function SessionMenu({
             </button>
           </div>
           <p className="mt-2 text-[11px] text-slate-500">OpenRouter가 보고한 프롬프트 캐시 사용량만 표시합니다. 응답 캐시는 사용하지 않습니다.</p>
+        </section>
+
+        {/* Markdown images */}
+        <section>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-300">이미지 보기</p>
+              <p className="text-xs text-slate-500">끄면 마크다운 이미지를 흐린 링크로 표시</p>
+            </div>
+            <button
+              type="button"
+              aria-label="마크다운 이미지 보기"
+              aria-pressed={showImages}
+              onClick={() => onShowImagesToggle(!showImages)}
+              className={`relative h-6 w-11 rounded-full transition-colors ${showImages ? 'bg-emerald-500' : 'bg-surface2'}`}
+            >
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showImages ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
         </section>
 
         {/* 디버그 모드 */}
