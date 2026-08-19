@@ -795,7 +795,7 @@ export default function ChatPage() {
                             href={typeof src === 'string' ? src : undefined}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="break-all text-slate-500 opacity-60 hover:text-slate-400"
+                            className="my-2 block w-fit max-w-full break-all text-slate-500 opacity-60 hover:text-slate-400"
                           >
                             {typeof src === 'string' ? src : (alt || '이미지')}
                           </a>
