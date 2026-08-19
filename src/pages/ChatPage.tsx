@@ -126,6 +126,7 @@ export default function ChatPage() {
   const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') !== '0');
   const [showCostKrw, setShowCostKrw] = useState(() => localStorage.getItem('inuchat.showCostKrw') === '1');
   const [showCacheTokens, setShowCacheTokens] = useState(() => localStorage.getItem('inuchat.showCacheTokens') === '1');
+  const [showImages, setShowImages] = useState(() => localStorage.getItem('inuchat.showImages') !== '0');
   const exchange = useUsdKrwRate();
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
   const [toastError, setToastError] = useState('');
@@ -771,8 +772,17 @@ export default function ChatPage() {
                         th: ({ children }) => <th className="break-words border border-slate-500/60 bg-surface2 px-2 py-1.5 font-semibold [overflow-wrap:anywhere]">{children}</th>,
                         td: ({ children }) => <td className="break-words border border-slate-500/60 px-2 py-1.5 align-top [overflow-wrap:anywhere]">{children}</td>,
                         del: ({ children }) => <del className="opacity-70">{children}</del>,
-                        img: ({ src, alt }) => (
+                        img: ({ src, alt }) => showImages ? (
                           <img src={src} alt={alt ?? ''} className="my-2 block h-auto max-w-full" loading="lazy" />
+                        ) : (
+                          <a
+                            href={typeof src === 'string' ? src : undefined}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="break-all text-slate-500 opacity-60 hover:text-slate-400"
+                          >
+                            {typeof src === 'string' ? src : (alt || '이미지')}
+                          </a>
                         ),
                         a: ({ href, children }) => (
                           <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
@@ -855,6 +865,8 @@ export default function ChatPage() {
           onShowCostKrwToggle={(v) => { setShowCostKrw(v); localStorage.setItem('inuchat.showCostKrw', v ? '1' : '0'); }}
           showCacheTokens={showCacheTokens}
           onShowCacheTokensToggle={(v) => { setShowCacheTokens(v); localStorage.setItem('inuchat.showCacheTokens', v ? '1' : '0'); }}
+          showImages={showImages}
+          onShowImagesToggle={(v) => { setShowImages(v); localStorage.setItem('inuchat.showImages', v ? '1' : '0'); }}
           exchange={exchange}
           sessionModel={sessionModel || modelsFor('openrouter')[0]}
           sessionReasoning={sessionReasoning}
