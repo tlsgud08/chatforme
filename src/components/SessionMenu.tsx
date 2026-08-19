@@ -7,6 +7,7 @@ import ModelSelector from './ModelSelector';
 import type { Persona, Profile, Session, StoryNote, SummaryVersion } from '@/types/db';
 import type { ErrorEntry } from '@/pages/ChatPage';
 import { formatKrw, type ExchangeRate } from '@/lib/exchangeRate';
+import { showConfirmDialog } from '@/lib/dialog';
 
 interface OpenRouterCredit {
   usage: number;
@@ -201,7 +202,7 @@ export default function SessionMenu({
   }
 
   async function deleteSummary(version: SummaryVersion) {
-    if (!window.confirm('이 요약 노트를 삭제할까요?')) return;
+    if (!await showConfirmDialog('이 요약 노트를 삭제할까요?', '삭제한 요약 노트는 복구할 수 없습니다.', '삭제')) return;
     const { error } = await supabase.from('summary_versions').delete().eq('id', version.id);
     if (error) { flash(error.message); return; }
     const remaining = summaryVersions.filter((item) => item.id !== version.id);

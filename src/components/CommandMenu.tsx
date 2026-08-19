@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Command } from '@/types/db';
 import { showToast } from '@/lib/toast';
+import { showConfirmDialog } from '@/lib/dialog';
 
 interface Props {
   userId: string;
@@ -88,7 +89,7 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
 
   async function remove(command: Command) {
     setOpenMenu(null);
-    if (!window.confirm(`/${command.name} 명령어를 삭제할까요?`)) return;
+    if (!await showConfirmDialog(`/${command.name} 명령어를 삭제할까요?`, '삭제한 명령어는 복구할 수 없습니다.', '삭제')) return;
     const { error } = await supabase.from('commands').delete().eq('id', command.id);
     if (error) showToast(error.message); else { showToast('명령어를 삭제했습니다.'); await load(); }
   }

@@ -16,6 +16,7 @@ import SetupNotice from './components/SetupNotice';
 import FavoritesPage from './pages/FavoritesPage';
 import UserPage from './pages/UserPage';
 import AppToast from './components/AppToast';
+import AppConfirmDialog from './components/AppConfirmDialog';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -32,6 +33,7 @@ export default function App() {
 
   return (<>
     <AppToast />
+    <AppConfirmDialog />
     <Routes>
       {/* 로그인 화면 (CreatePage에서 로그인 유도 시 이동) */}
       <Route path="/login" element={<LoginPage />} />

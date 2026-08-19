@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import type { KeywordBook, StartConfig, Work } from '@/types/db';
+import { showToast } from '@/lib/toast';
+import { showConfirmDialog } from '@/lib/dialog';
 
 type Tab = 'basic' | 'prompt' | 'start' | 'keywords';
 const MAX_THUMB_BYTES = 5 * 1024 * 1024;
@@ -85,7 +87,7 @@ export default function WorkEditorPage() {
         updated_at: new Date().toISOString(),
       })
       .eq('id', work.id);
-    if (error) { setSaving(false); alert('저장 실패: ' + error.message); return; }
+    if (error) { setSaving(false); showToast('저장 실패: ' + error.message); return; }
 
     await Promise.all([
       ...startConfigs.map((cfg) =>
@@ -107,20 +109,20 @@ export default function WorkEditorPage() {
       ),
     ]);
     setSaving(false);
-    alert('저장되었습니다.');
+    showToast('저장되었습니다.');
   }
 
   async function uploadThumb(file: File) {
     if (!work || !user) return;
     if (file.size > MAX_THUMB_BYTES) {
-      alert('썸네일은 5MB 이하만 업로드할 수 있습니다.');
+      showToast('썸네일은 5MB 이하만 업로드할 수 있습니다.');
       return;
     }
     setUploading(true);
     const ext = file.name.split('.').pop() ?? 'jpg';
     const path = `${user.id}/${work.id}.${ext}`;
     const { error } = await supabase.storage.from('thumbnails').upload(path, file, { upsert: true });
-    if (error) { setUploading(false); alert('업로드 실패: ' + error.message); return; }
+    if (error) { setUploading(false); showToast('업로드 실패: ' + error.message); return; }
     const { data } = supabase.storage.from('thumbnails').getPublicUrl(path);
     patch({ thumbnail_url: `${data.publicUrl}?t=${Date.now()}` });
     setUploading(false);
@@ -128,10 +130,10 @@ export default function WorkEditorPage() {
 
   async function remove() {
     if (!work) return;
-    if (!confirm('이 작품을 삭제할까요? 되돌릴 수 없습니다.')) return;
+    if (!await showConfirmDialog('이 작품을 삭제할까요?', '작품과 연결된 데이터가 삭제되며 되돌릴 수 없습니다.', '삭제')) return;
     const { data: deleted, error } = await supabase.from('works').delete().eq('id', work.id).select('id');
     if (error || !deleted?.length) {
-      alert('삭제 실패: ' + (error?.message ?? '작품이 삭제되지 않았습니다.'));
+      showToast('삭제 실패: ' + (error?.message ?? '작품이 삭제되지 않았습니다.'));
       return;
     }
     navigate('/create');
@@ -143,7 +145,7 @@ export default function WorkEditorPage() {
       .from('start_configs')
       .insert({ work_id: work.id, name: '', initial_message: '', initial_context: '', keep_turns: 3, sort_order: startConfigs.length, is_default: startConfigs.length === 0 })
       .select('*').single();
-    if (error) { alert('추가 실패: ' + error.message); return; }
+    if (error) { showToast('추가 실패: ' + error.message); return; }
     setStartConfigs((cs) => [...cs, data as StartConfig]);
   }
 
@@ -153,25 +155,25 @@ export default function WorkEditorPage() {
       .from('keyword_books')
       .insert({ work_id: work.id, name: '', keywords: [], content: '', activation_turns: 3, sort_order: keywordBooks.length })
       .select('*').single();
-    if (error) { alert('추가 실패: ' + error.message); return; }
+    if (error) { showToast('추가 실패: ' + error.message); return; }
     setKeywordBooks((ks) => [...ks, data as KeywordBook]);
   }
 
   async function deleteKeywordBook(id: string) {
-    if (!confirm('이 키워드북을 삭제할까요?')) return;
+    if (!await showConfirmDialog('이 키워드북을 삭제할까요?', '삭제한 키워드북은 복구할 수 없습니다.', '삭제')) return;
     const { data: deleted, error } = await supabase.from('keyword_books').delete().eq('id', id).select('id');
     if (error || !deleted?.length) {
-      alert('삭제 실패: ' + (error?.message ?? '키워드북이 삭제되지 않았습니다.'));
+      showToast('삭제 실패: ' + (error?.message ?? '키워드북이 삭제되지 않았습니다.'));
       return;
     }
     setKeywordBooks((ks) => ks.filter((k) => k.id !== id));
   }
 
   async function deleteStartConfig(id: string) {
-    if (!confirm('이 시작 설정을 삭제할까요?')) return;
+    if (!await showConfirmDialog('이 시작 설정을 삭제할까요?', '삭제한 시작 설정은 복구할 수 없습니다.', '삭제')) return;
     const { data: deleted, error } = await supabase.from('start_configs').delete().eq('id', id).select('id');
     if (error || !deleted?.length) {
-      alert('삭제 실패: ' + (error?.message ?? '시작 설정이 삭제되지 않았습니다.'));
+      showToast('삭제 실패: ' + (error?.message ?? '시작 설정이 삭제되지 않았습니다.'));
       return;
     }
     setStartConfigs((cs) => cs.filter((c) => c.id !== id));
