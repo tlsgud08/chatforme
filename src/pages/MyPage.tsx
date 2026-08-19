@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
+import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
 import type { Persona, Profile } from '@/types/db';
 
 interface OpenRouterCredit {
@@ -15,6 +15,7 @@ interface OpenRouterCredit {
 export default function MyPage() {
   const { user, isGuest } = useAuth();
   const navigate = useNavigate();
+  const exchange = useUsdKrwRate();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
@@ -125,32 +126,6 @@ export default function MyPage() {
     setTimeout(() => setSavedMsg(''), 2000);
   }
 
-  const { data: followerCountData } = useQuery({
-    queryKey: ['follower-count', user?.id],
-    queryFn: async () => {
-      if (!user) return 0;
-      const { count } = await supabase
-        .from('user_follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('following_id', user.id);
-      return count ?? 0;
-    },
-    enabled: !!user && !isGuest,
-  });
-
-  const { data: followingCountData } = useQuery({
-    queryKey: ['following-count', user?.id],
-    queryFn: async () => {
-      if (!user) return 0;
-      const { count } = await supabase
-        .from('user_follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('follower_id', user.id);
-      return count ?? 0;
-    },
-    enabled: !!user && !isGuest,
-  });
-
   async function uploadAvatar(file: File) {
     if (!user || !profile) return;
     if (file.size > 5 * 1024 * 1024) {
@@ -185,7 +160,7 @@ export default function MyPage() {
       <div className="flex flex-col items-center gap-4 p-8 text-center">
         <div className="flex h-20 w-20 items-center justify-center rounded-full bg-surface2 text-4xl">👤</div>
         <p className="font-semibold text-white">비회원 모드</p>
-        <p className="text-sm text-slate-400">로그인하면 프로필·페르소나·팔로우·하트를 사용할 수 있습니다.</p>
+        <p className="text-sm text-slate-400">로그인하면 프로필·페르소나·하트를 사용할 수 있습니다.</p>
         <button
           onClick={() => navigate('/login')}
           className="mt-2 rounded-lg bg-brand px-6 py-2.5 text-sm font-semibold text-white"
@@ -258,9 +233,6 @@ export default function MyPage() {
             className="mt-2 w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm text-slate-300 outline-none"
           />
           <p className="mt-1 text-xs text-slate-500">{user?.email}</p>
-          <p className="mt-1 text-xs text-slate-400">
-            팔로워 {followerCountData ?? 0} · 팔로잉 {followingCountData ?? 0}
-          </p>
         </div>
       </section>
 
@@ -274,7 +246,10 @@ export default function MyPage() {
                 ${credit.remaining.toFixed(3)}
                 <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
               </p>
-              <p className="mt-0.5 text-[11px] text-slate-500">총 ${credit.usage.toFixed(4)} 사용</p>
+              <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-500">
+                <span>약 {formatKrw(credit.remaining, exchange.rate)}</span>
+                <span>총 ${credit.usage.toFixed(4)} 사용</span>
+              </div>
             </div>
           ) : (
             <div>
@@ -300,16 +275,6 @@ export default function MyPage() {
               <span className="text-xl">❤️</span>
               <span className="flex-1 text-sm text-white">하트 목록</span>
               <span className="text-slate-500">›</span>
-            </button>
-          </li>
-          <li>
-            <button
-              disabled
-              className="flex w-full items-center gap-3 px-4 py-3.5 text-left opacity-40"
-            >
-              <span className="text-xl">👥</span>
-              <span className="flex-1 text-sm text-white">팔로우</span>
-              <span className="text-[10px] text-slate-500">추후 지원 예정</span>
             </button>
           </li>
         </ul>
