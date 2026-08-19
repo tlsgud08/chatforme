@@ -272,10 +272,13 @@ export default function SessionMenu({
                 <div className="flex items-center justify-between">
                   <div>
                     {credit.remaining !== null ? (
-                      <p className="text-xl font-bold text-white">
-                        ${credit.remaining.toFixed(3)}
-                        <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
-                      </p>
+                      <>
+                        <p className="text-xl font-bold text-white">
+                          ${credit.remaining.toFixed(3)}
+                          <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
+                        </p>
+                        <p className="text-[11px] text-slate-500">약 {formatKrw(credit.remaining, exchange.rate)}</p>
+                      </>
                     ) : (
                       <p className="text-xl font-bold text-white">
                         무제한

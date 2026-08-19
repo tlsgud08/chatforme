@@ -151,12 +151,6 @@ export interface Message {
   created_at: string;
 }
 
-export interface Follow {
-  follower_id: string;
-  following_id: string;
-  created_at: string;
-}
-
 export interface Command {
   id: string;
   owner_id: string;
