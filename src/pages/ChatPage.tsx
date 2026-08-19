@@ -431,10 +431,10 @@ export default function ChatPage() {
     if (isGuest && guestSession) {
       const historyMsgs = buildHistory([...messages]);
       let updatedMessages = [...messages];
-      if (text) {
+      if (submittedText) {
         const userMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'user',
-          content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cache_read_tokens: null, cache_write_tokens: null, cost: 0,
+          content: submittedText, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cache_read_tokens: null, cache_write_tokens: null, cost: 0,
           is_hidden: false, created_at: now,
         };
         guestAddMessage(guestSession.id, userMsg);
