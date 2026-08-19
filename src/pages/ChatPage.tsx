@@ -15,11 +15,12 @@ import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
   type GuestSession, type GuestMessage,
 } from '@/lib/guest';
-import type { KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
+import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
 import MarkdownCodeBlock from '@/components/MarkdownCodeBlock';
 import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
 import { showToast } from '@/lib/toast';
+import CommandMenu from '@/components/CommandMenu';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 const GENERATION_TIMEOUT_MS = 120_000;
@@ -48,7 +49,7 @@ function loadSessionSettings(id: string, profile: Profile | null): SessionSettin
 }
 
 function toMsg(m: GuestMessage): Message {
-  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0, reroll_group_id: null, reroll_index: 1, is_active_variant: true, generation_status: 'complete' };
+  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0, reroll_group_id: null, reroll_index: 1, is_active_variant: true, generation_status: 'complete', command_id: null, command_name: null };
 }
 
 interface ActiveGeneration {
@@ -132,11 +133,14 @@ export default function ChatPage() {
   const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
+  const [editingCommandName, setEditingCommandName] = useState<string | null>(null);
   const [sessionModel, setSessionModel] = useState('');
   const [sessionReasoning, setSessionReasoning] = useState<ReasoningSelection>(() => defaultReasoningFor('openrouter', modelsFor('openrouter')[0]));
   const [summaryGenerating, setSummaryGenerating] = useState(false);
   const [storyNotes, setStoryNotes] = useState<StoryNote[]>([]);
   const [messageActionBusy, setMessageActionBusy] = useState(false);
+  const [commandMenuOpen, setCommandMenuOpen] = useState(false);
+  const [selectedCommand, setSelectedCommand] = useState<Command | null>(null);
 
   const [streamingContent, setStreamingContent] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -386,7 +390,12 @@ export default function ChatPage() {
       rerollIndex = Math.max(0, ...variants.map((message) => message.reroll_index ?? 1)) + 1;
     }
     const text = options?.reroll ? '' : input.trim();
-    if (!options?.reroll) setInput('');
+    const submittedText = !options?.reroll && selectedCommand
+      ? `/${selectedCommand.name}${text ? ` ${text}` : ''}`
+      : text;
+    const commandPrompt = options?.reroll ? '' : selectedCommand?.prompt.trim() ?? '';
+    const promptText = commandPrompt ? `${submittedText}\n\n[선택한 명령어 /${selectedCommand!.name}]\n${commandPrompt}` : submittedText;
+    if (!options?.reroll) { setInput(''); setSelectedCommand(null); }
     setSending(true);
     setStreamingContent('');
     const controller = new AbortController();
@@ -425,10 +434,10 @@ export default function ChatPage() {
     if (isGuest && guestSession) {
       const historyMsgs = buildHistory([...messages]);
       let updatedMessages = [...messages];
-      if (text) {
+      if (submittedText) {
         const userMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'user',
-          content: text, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cache_read_tokens: null, cache_write_tokens: null, cost: 0,
+          content: submittedText, turn_index: turnIndex, input_tokens: 0, output_tokens: 0, cache_read_tokens: null, cache_write_tokens: null, cost: 0,
           is_hidden: false, created_at: now,
         };
         guestAddMessage(guestSession.id, userMsg);
@@ -439,9 +448,9 @@ export default function ChatPage() {
       const assembled = assemblePrompt({
         systemPrompt, mainPrompt: work.main_prompt, userNote: guestSession.user_note,
         summary: '',
-        keywordBookContents: getActiveKeywordContents(updatedMessages, text),
+        keywordBookContents: getActiveKeywordContents(updatedMessages, promptText),
         history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
-        latestUserMessage: text,
+        latestUserMessage: promptText,
       });
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
       try {
@@ -498,10 +507,13 @@ export default function ChatPage() {
 
     const historyMsgs = buildHistory([...baseMessages], effectiveSummaryTurn);
     let currentMessages = [...baseMessages];
-    if (text) {
+    if (submittedText || commandPrompt) {
       const { data: userMsg, error: userMessageError } = await supabase
         .from('messages')
-        .insert({ session_id: session.id, role: 'user', content: text, turn_index: turnIndex })
+        .insert({
+          session_id: session.id, role: 'user', content: submittedText, turn_index: turnIndex,
+          command_id: selectedCommand?.id ?? null, command_name: selectedCommand?.name ?? null,
+        })
         .select('*').single();
       if (userMessageError) {
         addError(userMessageError.message);
@@ -519,9 +531,9 @@ export default function ChatPage() {
     const assembled = assemblePrompt({
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
-      keywordBookContents: getActiveKeywordContents(currentMessages, text),
+      keywordBookContents: getActiveKeywordContents(currentMessages, promptText),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
-      latestUserMessage: text,
+      latestUserMessage: promptText,
     });
     const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
     try {
@@ -628,12 +640,15 @@ export default function ChatPage() {
   async function saveEdit(msgId: string) {
     const content = editingContent.trim();
     if (!content) return;
+    const original = messages.find((message) => message.id === msgId);
+    const commandId = editingCommandName ? original?.command_id ?? null : null;
     if (isGuest && guestSession) {
       guestUpdateMessage(guestSession.id, msgId, content);
     } else {
-      await supabase.from('messages').update({ content }).eq('id', msgId);
+      const { error } = await supabase.from('messages').update({ content, command_id: commandId, command_name: editingCommandName }).eq('id', msgId);
+      if (error) { addError(`메시지 편집 실패: ${error.message}`); return; }
     }
-    setMessages((m) => m.map((msg) => msg.id === msgId ? { ...msg, content } : msg));
+    setMessages((m) => m.map((msg) => msg.id === msgId ? { ...msg, content, command_id: commandId, command_name: editingCommandName } : msg));
     setEditingId(null);
   }
 
@@ -665,7 +680,7 @@ export default function ChatPage() {
       summary_cost_threshold_override: session.summary_cost_threshold_override,
     }).select('id').single();
     if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); setMessageActionBusy(false); return; }
-    const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized }));
+    const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, command_id, command_name }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, command_id, command_name }));
     if (copiedMessages.length) await supabase.from('messages').insert(copiedMessages);
     if (versions.length) await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost })));
     if (storyNotes.length) await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content })));
@@ -734,9 +749,15 @@ export default function ChatPage() {
                     onChange={(e) => setEditingContent(e.target.value)}
                     rows={Math.max(3, editingContent.split('\n').reduce((rows, line) => rows + Math.max(1, Math.ceil(line.length / 36)), 0))}
                     autoFocus
-                    className="w-full resize-none overflow-hidden rounded-2xl bg-surface px-4 py-2.5 text-sm text-slate-100 outline-none"
+                    className={`w-full resize-none overflow-hidden rounded-2xl px-4 py-3 text-sm text-slate-100 outline-none ${editingCommandName ? 'border-2 border-indigo-500 bg-indigo-500/10' : 'bg-surface'}`}
                   />
-                  <div className="flex justify-end gap-2">
+                  <div className="flex items-center justify-end gap-2">
+                    {editingCommandName && <button onClick={() => {
+                      setEditingContent((content) => content.startsWith(`/${editingCommandName} `)
+                        ? content.slice(editingCommandName.length + 2)
+                        : content === `/${editingCommandName}` ? '' : content);
+                      setEditingCommandName(null);
+                    }} className="mr-auto rounded-lg border border-indigo-400/60 bg-indigo-500/15 px-3 py-1.5 text-xs font-semibold text-indigo-300" aria-label={`/${editingCommandName} 명령어 제거`}>×　/{editingCommandName}</button>}
                     <button onClick={() => setEditingId(null)} className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300">취소</button>
                     <button onClick={() => saveEdit(m.id)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white">저장</button>
                   </div>
@@ -746,12 +767,15 @@ export default function ChatPage() {
                   <div className={`w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                     m.is_hidden
                       ? 'border border-amber-500/40 bg-surface text-amber-200'
+                      : m.role === 'user' && m.command_name
+                        ? 'border-l-4 border-indigo-500 bg-indigo-500/15 text-slate-100 ring-1 ring-inset ring-indigo-400/25'
                       : m.role === 'user'
                         ? 'bg-brand text-white'
                         : m.generation_status === 'interrupted' && !m.content
                           ? 'bg-surface text-slate-500'
                           : 'bg-surface text-slate-100'
                   }`}>
+                    {m.role === 'user' && m.command_name && !m.content.startsWith(`/${m.command_name}`) && <p className="mb-2 font-bold text-indigo-400">/{m.command_name}</p>}
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={{
@@ -779,7 +803,7 @@ export default function ChatPage() {
                             href={typeof src === 'string' ? src : undefined}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="break-all text-slate-500 opacity-60 hover:text-slate-400"
+                            className="my-2 block w-fit max-w-full break-all text-slate-500 opacity-60 hover:text-slate-400"
                           >
                             {typeof src === 'string' ? src : (alt || '이미지')}
                           </a>
@@ -797,7 +821,7 @@ export default function ChatPage() {
                   )}
                   {!m.is_hidden && (
                     <div className={`flex items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); }} className="text-xs text-slate-500">편집</button>
+                      <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); setEditingCommandName(m.command_name); }} className="text-xs text-slate-500">편집</button>
                       <button onClick={() => void branchFrom(m)} className="text-xs text-slate-500">분기</button>
                       <button disabled={messageActionBusy} onClick={() => void deleteMsg(m.id)} className="text-xs text-red-400/60 disabled:opacity-50">삭제</button>
                       {m.role === 'assistant' && <div className="ml-auto flex items-center gap-2">
@@ -824,7 +848,13 @@ export default function ChatPage() {
         </div>
       </div>
 
+      {selectedCommand && <div className="flex shrink-0 items-center gap-2 border-t border-surface2 bg-brand/10 px-3 py-2 text-sm">
+        <span className="font-semibold text-brand">/{selectedCommand.name}</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-slate-400">{selectedCommand.description}</span>
+        <button onClick={() => setSelectedCommand(null)} aria-label="선택한 명령어 해제" className="text-slate-500">×</button>
+      </div>}
       <div className="flex shrink-0 items-end gap-2 border-t border-surface2 p-2">
+        {!isGuest && <button onClick={() => setCommandMenuOpen(true)} aria-label="명령어 메뉴 열기" className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-semibold ${selectedCommand ? 'bg-brand text-white' : 'bg-surface text-slate-400'}`}>/</button>}
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -849,6 +879,8 @@ export default function ChatPage() {
           </button>
         )}
       </div>
+
+      {commandMenuOpen && user && <CommandMenu userId={user.id} onClose={() => setCommandMenuOpen(false)} onSelect={setSelectedCommand} />}
 
       {menuOpen && !isGuest && session && (
         <SessionMenu
