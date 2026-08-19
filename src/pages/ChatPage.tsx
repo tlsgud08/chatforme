@@ -273,6 +273,14 @@ export default function ChatPage() {
     });
   }
 
+  function messagesThroughTurn(allMsgs: Message[], throughTurn: number) {
+    let seenUserTurns = 0;
+    return allMsgs.filter((message) => {
+      if (message.role === 'user' && !message.is_hidden) seenUserTurns += 1;
+      return seenUserTurns <= throughTurn;
+    });
+  }
+
   function buildHistory(allMsgs: Message[], cutoff = session?.summary_last_turn ?? 0) {
     const userCount = allMsgs.filter((m) => m.role === 'user' && !m.is_hidden).length;
     return messagesAfterSummary(allMsgs, cutoff).filter((m) => {
@@ -282,21 +290,42 @@ export default function ChatPage() {
     });
   }
 
-  async function generateSummary(sourceMessages = messages, archivesToMerge: string[] = []) {
+  async function generateSummary(sourceMessages = messages, archivesToMerge: string[] = [], requestedThroughTurn?: number) {
     if (!session || !profile || summaryGenerating) return;
     const apiKey = getApiKey('openrouter');
     if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return; }
     // Include the hidden initial context in the first archive so important
     // scenario setup is not lost after its short keep_turns window expires.
     const sourceMode = session.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
-    const activeSourceMessages = sourceMessages.filter((message) => message.is_active_variant !== false);
-    const candidates = sourceMode === 'full' ? activeSourceMessages : messagesAfterSummary(activeSourceMessages);
+    const allActiveMessages = sourceMessages.filter((message) => message.is_active_variant !== false);
+    const latestTurn = allActiveMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
+    const throughTurn = Math.max(0, Math.min(requestedThroughTurn ?? latestTurn, latestTurn));
+    const activeSourceMessages = messagesThroughTurn(allActiveMessages, throughTurn);
+    let previous = archivesToMerge.length > 0
+      ? archivesToMerge.join('\n\n--- 통합 대상 요약 구분 ---\n\n')
+      : '';
+    let previousTurn = 0;
+    if (archivesToMerge.length === 0 && sourceMode === 'incremental' && throughTurn > 0) {
+      const { data: earlierVersions } = await supabase.from('summary_versions')
+        .select('*').eq('session_id', session.id).lt('summarized_through_turn', throughTurn)
+        .order('summarized_through_turn', { ascending: false }).limit(1);
+      const earlier = ((earlierVersions as SummaryVersion[] | null) ?? [])[0];
+      if (earlier) {
+        previous = earlier.content.trim();
+        previousTurn = earlier.summarized_through_turn;
+      } else if (session.summary_last_turn < throughTurn) {
+        previous = session.summary.trim();
+        previousTurn = session.summary_last_turn;
+      }
+    }
+    const candidates = archivesToMerge.length > 0
+      ? []
+      : sourceMode === 'full'
+      ? activeSourceMessages
+      : messagesAfterSummary(activeSourceMessages, previousTurn);
     if (candidates.length === 0 && archivesToMerge.length === 0) { addError('새로 요약할 대화가 없습니다.'); return; }
     setSummaryGenerating(true);
     try {
-      const previous = archivesToMerge.length > 0
-        ? archivesToMerge.join('\n\n--- 통합 대상 요약 구분 ---\n\n')
-        : sourceMode === 'incremental' ? session.summary.trim() : '';
       const dialogue = candidates.map((message) => `[${message.is_hidden ? '숨김 시작 설정' : message.role === 'user' ? '사용자' : 'AI'}]\n${message.content}`).join('\n\n');
       const input = `${previous ? `=== 이전 요약 노트${archivesToMerge.length > 1 ? ' (선택한 복수 노트를 하나로 통합)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== 새로 요약할 대화 ===\n${dialogue}` : '=== 요청 ===\n선택한 요약 노트들을 누락과 단절 없이 하나의 최신 요약 노트로 통합하세요.'}`;
       const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
@@ -315,7 +344,6 @@ export default function ChatPage() {
         maxOutputTokens: 4096,
       });
       if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
-      const throughTurn = sourceMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
       const ids = candidates.map((message) => message.id);
       const { error: deactivateError } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id).eq('is_active', true);
       const versionsUnavailableAtUpdate = deactivateError?.code === 'PGRST205' || deactivateError?.message?.includes('summary_versions');
@@ -622,6 +650,29 @@ export default function ChatPage() {
     } else {
       const { error } = await supabase.from('messages').delete().eq('id', msgId);
       if (error) { addError(error.message); setMessageActionBusy(false); return; }
+      if (target?.role === 'user' && !target.is_hidden && session) {
+        const activeBeforeDelete = messages.filter((message) => message.is_active_variant !== false);
+        const deletedTurn = activeBeforeDelete
+          .slice(0, activeBeforeDelete.findIndex((message) => message.id === msgId) + 1)
+          .filter((message) => message.role === 'user' && !message.is_hidden).length;
+        const { data: versionsData } = await supabase.from('summary_versions').select('*').eq('session_id', session.id);
+        const versions = (versionsData as SummaryVersion[] | null) ?? [];
+        const invalidVersions = versions.filter((version) => version.summarized_through_turn >= deletedTurn);
+        if (invalidVersions.length) await supabase.from('summary_versions').delete().in('id', invalidVersions.map((version) => version.id));
+        const remainingVersions = versions
+          .filter((version) => version.summarized_through_turn < deletedTurn)
+          .sort((a, b) => a.summarized_through_turn - b.summarized_through_turn);
+        let remainingActive = remainingVersions.filter((version) => version.is_active);
+        if (remainingActive.length === 0 && remainingVersions.length > 0) {
+          const fallback = remainingVersions.at(-1)!;
+          await supabase.from('summary_versions').update({ is_active: true }).eq('id', fallback.id);
+          remainingActive = [fallback];
+        }
+        const nextSummary = remainingActive.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
+        const nextSummaryTurn = Math.max(0, ...remainingActive.map((version) => version.summarized_through_turn));
+        await supabase.from('sessions').update({ summary: nextSummary, summary_last_turn: nextSummaryTurn }).eq('id', session.id);
+        setSession((current) => current ? { ...current, summary: nextSummary, summary_last_turn: nextSummaryTurn } : current);
+      }
     }
     let next = messages.filter((msg) => msg.id !== msgId);
     if (target?.role === 'assistant' && target.is_active_variant !== false) {
@@ -705,6 +756,13 @@ export default function ChatPage() {
 
   const hasLocalGeneration = !!sessionId && activeGenerations.has(sessionId);
   const visibleMessages = messages.filter((m) => !(hasLocalGeneration && m.generation_status === 'streaming') && m.is_active_variant !== false && (!m.is_hidden || debugMode));
+  const assistantTurnNumbers = new Map<string, number>();
+  let countedUserTurns = 0;
+  for (const message of messages.filter((item) => item.is_active_variant !== false)) {
+    if (message.role === 'user' && !message.is_hidden) countedUserTurns += 1;
+    if (message.role === 'assistant') assistantTurnNumbers.set(message.id, countedUserTurns);
+  }
+  const sessionTurnCount = messages.filter((message) => message.role === 'user' && !message.is_hidden && message.is_active_variant !== false).length;
 
   if (!currentSession || !work) {
     return <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>;
@@ -812,6 +870,9 @@ export default function ChatPage() {
                   {m.role === 'assistant' && m.generation_status === 'interrupted' && m.content && (
                     <p className="text-xs text-amber-400">응답이 중간에 중단되어 수신한 내용까지만 저장되었습니다.</p>
                   )}
+                  {m.role === 'assistant' && !m.is_hidden && (
+                    <p className="text-right text-[10px] font-medium text-slate-500">{assistantTurnNumbers.get(m.id) ?? 0}턴</p>
+                  )}
                   {!m.is_hidden && (
                     <div className={`flex items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); setEditingCommandName(m.command_name); }} className="text-xs text-slate-500">편집</button>
@@ -903,11 +964,12 @@ export default function ChatPage() {
           }}
           errorLog={errorLog}
           onClearErrors={() => setErrorLog([])}
-          onGenerateSummary={() => generateSummary()}
+          onGenerateSummary={(throughTurn) => generateSummary(messages, [], throughTurn)}
           onMergeSummaries={(contents) => generateSummary(messages, contents)}
           summaryGenerating={summaryGenerating}
           storyNotes={storyNotes}
           onStoryNotesChange={setStoryNotes}
+          sessionTurnCount={sessionTurnCount}
         />
       )}
     </div>
