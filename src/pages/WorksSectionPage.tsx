@@ -4,7 +4,6 @@ import WorkPosterCard from '@/components/WorkPosterCard';
 import {
   fetchWorksWithStats,
   sortForSection,
-  metricForSection,
   isRankingSection,
   SECTION_TITLES,
   type SectionId,
@@ -51,7 +50,6 @@ export default function WorksSectionPage() {
             <WorkPosterCard
               key={w.id}
               work={w}
-              count={metricForSection(id, w)}
               rank={ranked ? i + 1 : undefined}
             />
           ))}

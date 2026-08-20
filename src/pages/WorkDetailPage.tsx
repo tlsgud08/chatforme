@@ -54,18 +54,6 @@ export default function WorkDetailPage() {
     enabled: !!user && !isGuest,
   });
 
-  const { data: totalPlays = 0 } = useQuery({
-    queryKey: ['work-plays-total', workId],
-    queryFn: async () => {
-      const { count } = await supabase
-        .from('work_plays')
-        .select('*', { count: 'exact', head: true })
-        .eq('work_id', workId!);
-      return count ?? 0;
-    },
-    enabled: !!workId,
-  });
-
   const { data: favoriteCount = 0 } = useQuery({
     queryKey: ['work-fav-count', workId],
     queryFn: async () => {
@@ -294,7 +282,6 @@ export default function WorkDetailPage() {
       </div>
 
       <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
-        <span>💬 {formatCount(totalPlays)} 대화</span>
         <span>❤️ {formatCount(favoriteCount)}</span>
       </div>
 

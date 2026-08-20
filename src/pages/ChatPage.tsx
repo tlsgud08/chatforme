@@ -50,7 +50,7 @@ function loadSessionSettings(id: string, profile: Profile | null): SessionSettin
 }
 
 function toMsg(m: GuestMessage): Message {
-  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0, reroll_group_id: null, reroll_index: 1, is_active_variant: true, generation_status: 'complete', command_id: null, command_name: null };
+  return { ...m, is_hidden: m.is_hidden ?? false, is_summarized: false, input_tokens: m.input_tokens ?? 0, output_tokens: m.output_tokens ?? 0, cost: m.cost ?? 0, reroll_group_id: null, reroll_index: 1, is_active_variant: true, generation_status: 'complete', command_id: null, command_name: null, command_prompt: null };
 }
 
 interface ActiveGeneration {
@@ -418,9 +418,16 @@ export default function ChatPage() {
       const variants = messages.filter((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === rerollGroupId);
       rerollIndex = Math.max(0, ...variants.map((message) => message.reroll_index ?? 1)) + 1;
     }
-    const text = options?.reroll ? '' : input.trim();
-    const commandPrompt = options?.reroll ? '' : selectedCommand?.prompt.trim() ?? '';
-    const promptText = commandPrompt ? `${text}${text ? '\n\n' : ''}[선택한 명령어 /${selectedCommand!.name}]\n${commandPrompt}` : text;
+    const rerollUserMessage = rerollTarget ? [...baseMessages].reverse().find((message) => message.role === 'user' && !message.is_hidden) ?? null : null;
+    let rerollCommandPrompt = rerollUserMessage?.command_prompt?.trim() ?? '';
+    if (!rerollCommandPrompt && rerollUserMessage?.command_id) {
+      const { data: command } = await supabase.from('commands').select('prompt').eq('id', rerollUserMessage.command_id).maybeSingle();
+      rerollCommandPrompt = command?.prompt?.trim() ?? '';
+    }
+    const text = options?.reroll ? rerollUserMessage?.content ?? '' : input.trim();
+    const commandName = options?.reroll ? rerollUserMessage?.command_name : selectedCommand?.name;
+    const commandPrompt = options?.reroll ? rerollCommandPrompt : selectedCommand?.prompt.trim() ?? '';
+    const promptText = commandPrompt ? `${text}${text ? '\n\n' : ''}[선택한 명령어 /${commandName}]\n${commandPrompt}` : text;
     if (!options?.reroll) { setInput(''); setSelectedCommand(null); }
     setSending(true);
     setStreamingContent('');
@@ -531,14 +538,20 @@ export default function ChatPage() {
 
     if (!session || !profile) { setSending(false); setStreamingContent(''); if (sessionId) publishGeneration(sessionId, null); return; }
 
-    const historyMsgs = buildHistory([...baseMessages], effectiveSummaryTurn);
+    // A reroll re-sends the original user turn as the latest message, so remove
+    // that same row from history to avoid sending it twice.
+    const historySource = rerollUserMessage
+      ? baseMessages.filter((message) => message.id !== rerollUserMessage.id)
+      : baseMessages;
+    const historyMsgs = buildHistory(historySource, effectiveSummaryTurn);
     let currentMessages = [...baseMessages];
-    if (text || commandPrompt) {
+    if (!options?.reroll && (text || commandPrompt)) {
       const { data: userMsg, error: userMessageError } = await supabase
         .from('messages')
         .insert({
           session_id: session.id, role: 'user', content: text, turn_index: turnIndex,
           command_id: selectedCommand?.id ?? null, command_name: selectedCommand?.name ?? null,
+          command_prompt: selectedCommand?.prompt.trim() ?? null,
         })
         .select('*').single();
       if (userMessageError) {
@@ -729,7 +742,7 @@ export default function ChatPage() {
       summary_cost_threshold_override: session.summary_cost_threshold_override,
     }).select('id').single();
     if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); setMessageActionBusy(false); return; }
-    const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, command_id, command_name }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, command_id, command_name }));
+    const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, command_id, command_name, command_prompt }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, command_id, command_name, command_prompt }));
     if (copiedMessages.length) await supabase.from('messages').insert(copiedMessages);
     if (versions.length) await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost })));
     if (storyNotes.length) await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content })));
@@ -773,7 +786,7 @@ export default function ChatPage() {
       <header className="flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
         <button onClick={() => navigate('/sessions')} className="text-slate-400">←</button>
         <button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 flex-1 text-left">
-          <p className="truncate text-sm font-semibold text-white">{work.title}</p>
+          <p className="truncate text-sm font-semibold text-white">{currentSession.title || work.title}</p>
 
         </button>
         {!isGuest && (
@@ -874,7 +887,7 @@ export default function ChatPage() {
                     <div className={`flex min-w-0 items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); setEditingCommandName(m.command_name); }} className="text-xs text-slate-500">편집</button>
                       <button onClick={() => void branchFrom(m)} className="text-xs text-slate-500">분기</button>
-                      <button disabled={messageActionBusy} onClick={() => void deleteMsg(m.id)} className="text-xs text-red-400/60 disabled:opacity-50">삭제</button>
+                      <button disabled={messageActionBusy} onClick={() => void deleteMsg(m.id)} className="text-xs text-[#DA7F88] disabled:opacity-50">삭제</button>
                       {m.role === 'assistant' && <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
                         {showCost && <span className="text-right text-[10px] text-slate-500">{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`} {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
                         {showCacheTokens && <span className="text-right text-[10px] text-slate-500">캐시 읽기 {m.cache_read_tokens == null ? '미보고' : m.cache_read_tokens.toLocaleString()} · 쓰기 {m.cache_write_tokens == null ? '미보고' : m.cache_write_tokens.toLocaleString()}</span>}
