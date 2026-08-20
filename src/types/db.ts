@@ -148,6 +148,7 @@ export interface Message {
   generation_status: 'streaming' | 'complete' | 'interrupted';
   command_id: string | null;
   command_name: string | null;
+  command_prompt: string | null;
   created_at: string;
 }
 

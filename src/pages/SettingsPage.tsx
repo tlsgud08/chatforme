@@ -9,18 +9,7 @@ import ModelSelector from '@/components/ModelSelector';
 import { loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import type { Profile, Provider } from '@/types/db';
 import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
-
-const SLIDER_MAX = 4224;
-
-function tokenLabel(v: number | null) {
-  return v === null || v >= SLIDER_MAX ? '무제한' : String(v);
-}
-function sliderToTokens(v: number): number | null {
-  return v >= SLIDER_MAX ? null : v;
-}
-function tokensToSlider(v: number | null): number {
-  return v === null ? SLIDER_MAX : v;
-}
+import OutputTokenSelector from '@/components/OutputTokenSelector';
 
 export default function SettingsPage() {
   const { user, isGuest, signOut } = useAuth();
@@ -239,22 +228,11 @@ export default function SettingsPage() {
               onModelChange={(model) => setProfile({ ...profile, default_model: model })}
               onReasoningChange={setDefaultReasoning}
             />
-            <div>
-              <label className="mb-1 block text-xs text-slate-400">
-                기본 출력량: {tokenLabel(profile.default_output_tokens)}
-              </label>
-              <input
-                type="range"
-                min={256}
-                max={SLIDER_MAX}
-                step={128}
-                value={tokensToSlider(profile.default_output_tokens)}
-                onChange={(e) =>
-                  setProfile({ ...profile, default_output_tokens: sliderToTokens(Number(e.target.value)) })
-                }
-                className="w-full"
-              />
-            </div>
+            <OutputTokenSelector
+              label="기본 출력량"
+              value={profile.default_output_tokens}
+              onChange={(default_output_tokens) => setProfile({ ...profile, default_output_tokens })}
+            />
             <button onClick={saveProfile} className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">
               저장
             </button>

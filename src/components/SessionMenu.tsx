@@ -8,6 +8,7 @@ import type { Persona, Profile, Session, StoryNote, SummaryVersion } from '@/typ
 import type { ErrorEntry } from '@/pages/ChatPage';
 import { formatKrw, type ExchangeRate } from '@/lib/exchangeRate';
 import { showConfirmDialog } from '@/lib/dialog';
+import OutputTokenSelector, { normalizeOutputTokens } from './OutputTokenSelector';
 
 interface OpenRouterCredit {
   usage: number;
@@ -16,17 +17,6 @@ interface OpenRouterCredit {
 }
 
 const MAX_NOTE = 2000;
-const SLIDER_MAX = 4224;
-
-function tokenLabel(v: number | null) {
-  return v === null || v >= SLIDER_MAX ? '무제한' : String(v);
-}
-function sliderToTokens(v: number): number | null {
-  return v >= SLIDER_MAX ? null : v;
-}
-function tokensToSlider(v: number | null): number {
-  return v === null ? SLIDER_MAX : v;
-}
 
 interface Props {
   session: Session;
@@ -97,7 +87,8 @@ export default function SessionMenu({
       .catch(() => {})
       .finally(() => setCreditLoading(false));
   }, []);
-  const [sliderVal, setSliderVal] = useState(() => tokensToSlider(session.output_tokens_override));
+  const inheritedTokens = normalizeOutputTokens(profile?.default_output_tokens ?? null);
+  const [outputTokens, setOutputTokens] = useState<number | null>(() => normalizeOutputTokens(session.output_tokens_override ?? profile?.default_output_tokens ?? null));
   const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_tokens_override !== null);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [savedMsg, setSavedMsg] = useState('');
@@ -127,19 +118,19 @@ export default function SessionMenu({
     flash('유저 노트를 저장했습니다.');
   }
 
-  async function saveOverride(sv: number) {
-    const value = sliderToTokens(sv);
-    setSliderVal(sv);
+  async function saveOverride() {
+    const { error } = await supabase.from('sessions').update({ output_tokens_override: outputTokens }).eq('id', session.id);
+    if (error) { flash(`출력량 저장 실패: ${error.message}`); return; }
     setHasExplicitOverride(true);
-    await supabase.from('sessions').update({ output_tokens_override: value }).eq('id', session.id);
-    onUpdate({ output_tokens_override: value });
+    onUpdate({ output_tokens_override: outputTokens });
+    flash('출력량을 저장했습니다.');
   }
 
   async function resetOverride() {
-    const defaultSv = tokensToSlider(profile?.default_output_tokens ?? null);
-    setSliderVal(defaultSv);
+    const { error } = await supabase.from('sessions').update({ output_tokens_override: null }).eq('id', session.id);
+    if (error) { flash(`출력량 초기화 실패: ${error.message}`); return; }
+    setOutputTokens(inheritedTokens);
     setHasExplicitOverride(false);
-    await supabase.from('sessions').update({ output_tokens_override: null }).eq('id', session.id);
     onUpdate({ output_tokens_override: null });
   }
 
@@ -241,10 +232,6 @@ export default function SessionMenu({
     setSavedMsg(m);
     setTimeout(() => setSavedMsg(''), 1500);
   }
-
-  const overrideLabel = hasExplicitOverride
-    ? tokenLabel(sliderToTokens(sliderVal))
-    : `${tokenLabel(profile?.default_output_tokens ?? null)} (기본값)`;
 
   return (
     <div className="fixed inset-0 z-20 flex justify-end" onClick={onClose}>
@@ -358,18 +345,8 @@ export default function SessionMenu({
 
         {/* 출력량 */}
         <section>
-          <label className="mb-1 block text-xs text-slate-400">
-            이 세션 출력량: {overrideLabel}
-          </label>
-          <input
-            type="range"
-            min={256}
-            max={SLIDER_MAX}
-            step={128}
-            value={sliderVal}
-            onChange={(e) => saveOverride(Number(e.target.value))}
-            className="w-full"
-          />
+          <OutputTokenSelector label={`이 채팅방 출력량${hasExplicitOverride ? '' : ' (전역 기본값)'}`} value={outputTokens} onChange={setOutputTokens} />
+          <button type="button" onClick={() => void saveOverride()} className="mt-3 w-full rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">출력량 저장</button>
           {hasExplicitOverride && (
             <button onClick={resetOverride} className="mt-1 text-xs text-slate-400 underline">
               기본값으로 되돌리기

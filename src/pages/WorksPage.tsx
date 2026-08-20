@@ -53,7 +53,6 @@ export default function WorksPage() {
             <WorkPosterCard
               key={work.id}
               work={work}
-              count={work.total_play_count}
               isFavorited={favoritedIds.includes(work.id)}
               onFavoriteToggle={user ? (workId, event) => { void event; void toggleFavorite(workId); } : undefined}
             />

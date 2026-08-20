@@ -1,16 +1,15 @@
 import { Link } from 'react-router-dom';
-import { formatCount, type WorkStat } from '@/lib/works';
+import type { WorkStat } from '@/lib/works';
 
 interface Props {
   work: WorkStat;
-  count: number;
   rank?: number;
   className?: string;
   isFavorited?: boolean;
   onFavoriteToggle?: (workId: string, e: React.MouseEvent) => void;
 }
 
-export default function WorkPosterCard({ work, count, rank, className = '', isFavorited, onFavoriteToggle }: Props) {
+export default function WorkPosterCard({ work, rank, className = '', isFavorited, onFavoriteToggle }: Props) {
   return (
     <Link to={`/works/${work.id}`} className={`block ${className}`}>
       <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-surface2">
@@ -41,7 +40,7 @@ export default function WorkPosterCard({ work, count, rank, className = '', isFa
         {work.title || '(제목 없음)'}
       </p>
       <p className="mt-0.5 truncate text-xs text-slate-400">
-        {formatCount(count)} · {work.creator_name}
+        {work.creator_name}
       </p>
     </Link>
   );
