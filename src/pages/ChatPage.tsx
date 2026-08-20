@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -26,6 +26,62 @@ import { showConfirmDialog } from '@/lib/dialog';
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 const GENERATION_TIMEOUT_MS = 120_000;
 const DRAFT_SAVE_INTERVAL_MS = 500;
+const MESSAGE_TURN_PAGE_SIZE = 10;
+const MESSAGE_FETCH_BATCH_SIZE = 500;
+interface MessagePage { messages: Message[]; hasOlder: boolean; oldestCreatedAt: string | null; }
+
+async function fetchMessagePage(sessionId: string, before?: string): Promise<MessagePage> {
+  let userTurnsQuery = supabase.from('messages')
+    .select('created_at')
+    .eq('session_id', sessionId)
+    .eq('role', 'user')
+    .eq('is_hidden', false)
+    .eq('is_active_variant', true)
+    .order('created_at', { ascending: false })
+    .limit(MESSAGE_TURN_PAGE_SIZE + 1);
+  if (before) userTurnsQuery = userTurnsQuery.lt('created_at', before);
+  const { data: userTurns, error: userTurnsError } = await userTurnsQuery;
+  if (userTurnsError) throw userTurnsError;
+
+  const turns = userTurns ?? [];
+  const hasOlder = turns.length > MESSAGE_TURN_PAGE_SIZE;
+  const pageTurns = turns.slice(0, MESSAGE_TURN_PAGE_SIZE);
+  const cutoff = hasOlder ? pageTurns.at(-1)?.created_at : undefined;
+  let messagesQuery = supabase.from('messages').select('*').eq('session_id', sessionId).order('created_at', { ascending: true });
+  if (cutoff) messagesQuery = messagesQuery.gte('created_at', cutoff);
+  if (before) messagesQuery = messagesQuery.lt('created_at', before);
+  const { data, error } = await messagesQuery;
+  if (error) throw error;
+  const pageMessages = (data as Message[] | null) ?? [];
+  return { messages: pageMessages, hasOlder, oldestCreatedAt: pageMessages[0]?.created_at ?? null };
+}
+
+async function fetchAllSessionMessages(sessionId: string): Promise<Message[]> {
+  const messages: Message[] = [];
+  for (let from = 0; ; from += MESSAGE_FETCH_BATCH_SIZE) {
+    const { data, error } = await supabase.from('messages')
+      .select('*')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + MESSAGE_FETCH_BATCH_SIZE - 1);
+    if (error) throw error;
+    const batch = (data as Message[] | null) ?? [];
+    messages.push(...batch);
+    if (batch.length < MESSAGE_FETCH_BATCH_SIZE) return messages;
+  }
+}
+
+async function fetchRerollVariants(sessionId: string, groupId: string): Promise<Message[]> {
+  const { data, error } = await supabase.from('messages')
+    .select('*')
+    .eq('session_id', sessionId)
+    .eq('role', 'assistant')
+    .or(`reroll_group_id.eq.${groupId},and(reroll_group_id.is.null,id.eq.${groupId})`)
+    .order('reroll_index', { ascending: true });
+  if (error) throw error;
+  return (data as Message[] | null) ?? [];
+}
 interface GuestSettings { provider: Provider; model: string; outputTokens: number | null; reasoning?: ReasoningSelection; }
 function loadGuestSettings(): GuestSettings {
   try { return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings; }
@@ -140,14 +196,98 @@ export default function ChatPage() {
   const [summaryGenerating, setSummaryGenerating] = useState(false);
   const [storyNotes, setStoryNotes] = useState<StoryNote[]>([]);
   const [messageActionBusy, setMessageActionBusy] = useState(false);
+  const [visibleTurnLimit, setVisibleTurnLimit] = useState(MESSAGE_TURN_PAGE_SIZE);
+  const [hasOlderServerMessages, setHasOlderServerMessages] = useState(false);
+  const [oldestLoadedAt, setOldestLoadedAt] = useState<string | null>(null);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [totalUserTurnCount, setTotalUserTurnCount] = useState(0);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [selectedCommand, setSelectedCommand] = useState<Command | null>(null);
 
   const [streamingContent, setStreamingContent] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const olderMessagesSentinelRef = useRef<HTMLDivElement>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldAutoScrollRef = useRef(true);
+  const prependScrollHeightRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setVisibleTurnLimit(MESSAGE_TURN_PAGE_SIZE);
+    prependScrollHeightRef.current = null;
+    shouldAutoScrollRef.current = true;
+    setHasOlderServerMessages(false);
+    setOldestLoadedAt(null);
+    setTotalUserTurnCount(0);
+  }, [sessionId]);
+
+  useLayoutEffect(() => {
+    const previousScrollHeight = prependScrollHeightRef.current;
+    const element = scrollRef.current;
+    if (previousScrollHeight === null || !element) return;
+    element.scrollTop += element.scrollHeight - previousScrollHeight;
+    prependScrollHeightRef.current = null;
+  }, [messages.length, oldestLoadedAt, visibleTurnLimit]);
+
+  const loadLatestMessages = useCallback(async () => {
+    if (!sessionId || isGuest) return;
+    const [page, { count, error }] = await Promise.all([
+      fetchMessagePage(sessionId),
+      supabase.from('messages').select('id', { count: 'exact', head: true }).eq('session_id', sessionId).eq('role', 'user').eq('is_hidden', false).eq('is_active_variant', true),
+    ]);
+    if (error) throw error;
+    setMessages(page.messages);
+    setHasOlderServerMessages(page.hasOlder);
+    setOldestLoadedAt(page.oldestCreatedAt);
+    setTotalUserTurnCount(count ?? 0);
+  }, [isGuest, sessionId]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!sessionId || isGuest || !oldestLoadedAt || !hasOlderServerMessages || loadingOlderMessages) return;
+    const element = scrollRef.current;
+    if (element) prependScrollHeightRef.current = element.scrollHeight;
+    setLoadingOlderMessages(true);
+    try {
+      const page = await fetchMessagePage(sessionId, oldestLoadedAt);
+      setMessages((current) => {
+        const loadedIds = new Set(current.map((message) => message.id));
+        return [...page.messages.filter((message) => !loadedIds.has(message.id)), ...current];
+      });
+      setHasOlderServerMessages(page.hasOlder);
+      setOldestLoadedAt(page.oldestCreatedAt);
+    } catch (error) {
+      addError(`이전 대화 불러오기 실패: ${describeUnknownError(error)}`);
+      prependScrollHeightRef.current = null;
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  }, [hasOlderServerMessages, isGuest, loadingOlderMessages, oldestLoadedAt, sessionId]);
+
+  const hasOlderMessagesToReveal = isGuest
+    ? messages.filter((message) => message.role === 'user' && !message.is_hidden && message.is_active_variant !== false).length > visibleTurnLimit
+    : hasOlderServerMessages;
+
+  const revealOlderMessages = useCallback(() => {
+    const element = scrollRef.current;
+    if (!element || !hasOlderMessagesToReveal || prependScrollHeightRef.current !== null) return;
+    if (isGuest) {
+      prependScrollHeightRef.current = element.scrollHeight;
+      setVisibleTurnLimit((current) => current + MESSAGE_TURN_PAGE_SIZE);
+      return;
+    }
+    void loadOlderMessages();
+  }, [hasOlderMessagesToReveal, isGuest, loadOlderMessages]);
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    const sentinel = olderMessagesSentinelRef.current;
+    if (!root || !sentinel || !hasOlderMessagesToReveal) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) revealOlderMessages();
+    }, { root, rootMargin: '80px 0px 0px' });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasOlderMessagesToReveal, revealOlderMessages]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -159,11 +299,11 @@ export default function ChatPage() {
       if (content !== null) { setStreamingContent(content); return; }
       setSending(false);
       setStreamingContent('');
-      void supabase.from('messages').select('*').eq('session_id', sessionId).order('created_at').then(({ data }) => setMessages((data as Message[]) ?? []));
+      void loadLatestMessages().catch((error) => addError(`메시지 새로고침 실패: ${describeUnknownError(error)}`));
     };
     active.listeners.add(listener);
     return () => { active.listeners.delete(listener); };
-  }, [sessionId]);
+  }, [loadLatestMessages, sessionId]);
 
   function addError(raw: string) {
     const short = classifyError(raw);
@@ -180,6 +320,7 @@ export default function ChatPage() {
       if (!gs) return;
       setGuestSession(gs);
       setMessages(gs.messages.map(toMsg));
+      setTotalUserTurnCount(gs.messages.filter((message) => message.role === 'user' && !message.is_hidden).length);
       supabase.from('works').select('*').eq('id', gs.work_id).single()
         .then(({ data }) => setWork(data as Work));
       supabase.from('platform_config').select('system_prompt').eq('id', 1).single()
@@ -195,21 +336,25 @@ export default function ChatPage() {
       const sess = s as Session;
       setSession(sess);
 
-      const [{ data: w }, { data: p }, { data: cfg }, { data: msgs }, { data: kbs }, { data: notes }] = await Promise.all([
+      const [{ data: w }, { data: p }, { data: cfg }, messagePage, { count: userTurnCount }, { data: kbs }, { data: notes }] = await Promise.all([
         supabase.from('works').select('*').eq('id', sess.work_id).single(),
         supabase.from('profiles').select('*').eq('id', user!.id).single(),
         supabase.from('platform_config').select('system_prompt').eq('id', 1).single(),
-        supabase.from('messages').select('*').eq('session_id', sessionId).order('created_at', { ascending: true }),
+        fetchMessagePage(sessionId!),
+        supabase.from('messages').select('id', { count: 'exact', head: true }).eq('session_id', sessionId).eq('role', 'user').eq('is_hidden', false).eq('is_active_variant', true),
         supabase.from('keyword_books').select('*').eq('work_id', sess.work_id).order('sort_order'),
         supabase.from('story_notes').select('*').eq('session_id', sess.id).order('created_at'),
       ]);
       setWork(w as Work);
       setProfile(p as Profile);
       setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
-      const loadedMessages = (msgs as Message[]) ?? [];
+      const loadedMessages = messagePage.messages;
       // A missing in-memory controller does not prove that generation stopped:
       // another tab may still own it. P1 heartbeat handling will decide staleness.
       setMessages(loadedMessages);
+      setHasOlderServerMessages(messagePage.hasOlder);
+      setOldestLoadedAt(messagePage.oldestCreatedAt);
+      setTotalUserTurnCount(userTurnCount ?? 0);
       setKeywordBooks((kbs as KeywordBook[]) ?? []);
       setStoryNotes((notes as StoryNote[]) ?? []);
 
@@ -297,7 +442,16 @@ export default function ChatPage() {
     // Include the hidden initial context in the first archive so important
     // scenario setup is not lost after its short keep_turns window expires.
     const sourceMode = session.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
-    const allActiveMessages = sourceMessages.filter((message) => message.is_active_variant !== false);
+    let completeSourceMessages = sourceMessages;
+    if (archivesToMerge.length === 0) {
+      try {
+        completeSourceMessages = await fetchAllSessionMessages(session.id);
+      } catch (error) {
+        addError(`요약 원문 불러오기 실패: ${describeUnknownError(error)}`);
+        return;
+      }
+    }
+    const allActiveMessages = completeSourceMessages.filter((message) => message.is_active_variant !== false);
     const latestTurn = allActiveMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
     const throughTurn = Math.max(0, Math.min(requestedThroughTurn ?? latestTurn, latestTurn));
     const activeSourceMessages = messagesThroughTurn(allActiveMessages, throughTurn);
@@ -393,7 +547,16 @@ export default function ChatPage() {
     const apiKey = getApiKey(provider);
     if (!apiKey) { addError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
 
-    const activeMessages = messages.filter((message) => message.is_active_variant !== false);
+    let completeMessages = messages;
+    if (!isGuest && sessionId) {
+      try {
+        completeMessages = await fetchAllSessionMessages(sessionId);
+      } catch (error) {
+        addError(`대화 문맥 불러오기 실패: ${describeUnknownError(error)}`);
+        return;
+      }
+    }
+    const activeMessages = completeMessages.filter((message) => message.is_active_variant !== false);
     const rerollTarget = options?.reroll ? [...activeMessages].reverse().find((message) => message.role === 'assistant' && !message.is_hidden) ?? null : null;
     const baseMessages = rerollTarget ? activeMessages.filter((message) => message.id !== rerollTarget.id) : activeMessages;
     let effectiveSummary = session?.summary ?? '';
@@ -415,7 +578,7 @@ export default function ChatPage() {
     }
     if (rerollTarget) {
       rerollGroupId = rerollTarget.reroll_group_id ?? rerollTarget.id;
-      const variants = messages.filter((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === rerollGroupId);
+      const variants = completeMessages.filter((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === rerollGroupId);
       rerollIndex = Math.max(0, ...variants.map((message) => message.reroll_index ?? 1)) + 1;
     }
     const rerollUserMessage = rerollTarget ? [...baseMessages].reverse().find((message) => message.role === 'user' && !message.is_hidden) ?? null : null;
@@ -563,7 +726,8 @@ export default function ChatPage() {
       }
       if (userMsg) {
         currentMessages = [...baseMessages, userMsg as Message];
-        setMessages(currentMessages);
+        setMessages((current) => [...current, userMsg as Message]);
+        setTotalUserTurnCount((current) => current + 1);
       }
     }
 
@@ -605,7 +769,7 @@ export default function ChatPage() {
         }
         setMessages((current) => rerollTarget
           ? [...current.map((message) => message.id === rerollTarget.id ? { ...message, is_active_variant: false, reroll_group_id: rerollGroupId } : message), aiMsg as Message]
-          : messagesAfterResponse);
+          : [...current, aiMsg as Message]);
       }
 
       const newIn = session.total_input_tokens + result.usage.inputTokens;
@@ -633,7 +797,12 @@ export default function ChatPage() {
         if (aiMsg && rerollTarget) {
           await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
         }
-        if (aiMsg) setMessages((m) => [...m, aiMsg as Message]);
+        if (aiMsg) setMessages((current) => [
+          ...current.map((message) => rerollTarget && message.id === rerollTarget.id
+            ? { ...message, is_active_variant: false, reroll_group_id: rerollGroupId }
+            : message),
+          aiMsg as Message,
+        ]);
         if (generationTimedOut) addError('모델 응답이 2분 안에 완료되지 않아 수신한 내용까지만 저장했습니다.');
         else if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
       } else {
@@ -658,13 +827,23 @@ export default function ChatPage() {
     if (messageActionBusy) return;
     setMessageActionBusy(true);
     const target = messages.find((message) => message.id === msgId);
+    let completeMessages = messages;
+    if (!isGuest && session) {
+      try {
+        completeMessages = await fetchAllSessionMessages(session.id);
+      } catch (error) {
+        addError(`대화 정보 불러오기 실패: ${describeUnknownError(error)}`);
+        setMessageActionBusy(false);
+        return;
+      }
+    }
     if (isGuest && guestSession) {
       guestDeleteMessage(guestSession.id, msgId);
     } else {
       const { error } = await supabase.from('messages').delete().eq('id', msgId);
       if (error) { addError(error.message); setMessageActionBusy(false); return; }
       if (target?.role === 'user' && !target.is_hidden && session) {
-        const activeBeforeDelete = messages.filter((message) => message.is_active_variant !== false);
+        const activeBeforeDelete = completeMessages.filter((message) => message.is_active_variant !== false);
         const deletedTurn = activeBeforeDelete
           .slice(0, activeBeforeDelete.findIndex((message) => message.id === msgId) + 1)
           .filter((message) => message.role === 'user' && !message.is_hidden).length;
@@ -687,14 +866,16 @@ export default function ChatPage() {
         setSession((current) => current ? { ...current, summary: nextSummary, summary_last_turn: nextSummaryTurn } : current);
       }
     }
+    const completeAfterDelete = completeMessages.filter((msg) => msg.id !== msgId);
     let next = messages.filter((msg) => msg.id !== msgId);
     if (target?.role === 'assistant' && target.is_active_variant !== false) {
       const groupId = target.reroll_group_id ?? target.id;
-      const replacement = [...next].reverse().find((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === groupId);
+      const replacement = [...completeAfterDelete].reverse().find((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === groupId);
       if (replacement && !isGuest) await supabase.from('messages').update({ is_active_variant: true }).eq('id', replacement.id);
       if (replacement) next = next.map((message) => message.id === replacement.id ? { ...message, is_active_variant: true } : message);
     }
     setMessages(next);
+    if (!isGuest && target?.role === 'user' && !target.is_hidden) setTotalUserTurnCount((current) => Math.max(0, current - 1));
     showToast('메시지를 삭제했습니다.');
     setMessageActionBusy(false);
   }
@@ -718,7 +899,15 @@ export default function ChatPage() {
     if (!session || !user) return;
     if (messageActionBusy || !await showConfirmDialog('새 채팅방으로 분기할까요?', '이 메시지 시점까지의 대화로 새 채팅방을 만듭니다.', '분기')) return;
     setMessageActionBusy(true);
-    const branchSource = messages.filter((item) => item.is_active_variant !== false);
+    let allMessages: Message[];
+    try {
+      allMessages = await fetchAllSessionMessages(session.id);
+    } catch (error) {
+      addError(`분기할 대화 불러오기 실패: ${describeUnknownError(error)}`);
+      setMessageActionBusy(false);
+      return;
+    }
+    const branchSource = allMessages.filter((item) => item.is_active_variant !== false);
     const messageIndex = branchSource.findIndex((item) => item.id === message.id);
     if (messageIndex < 0) { setMessageActionBusy(false); return; }
     const branchMessages = branchSource.slice(0, messageIndex + 1);
@@ -752,10 +941,22 @@ export default function ChatPage() {
 
   async function selectVariant(message: Message, id: string) {
     const groupId = message.reroll_group_id ?? message.id;
-    const group = messages.filter((item) => item.role === 'assistant' && (item.reroll_group_id ?? item.id) === groupId);
-    await supabase.from('messages').update({ is_active_variant: false }).in('id', group.map((item) => item.id));
-    await supabase.from('messages').update({ is_active_variant: true }).eq('id', id);
-    setMessages((current) => current.map((item) => group.some((variant) => variant.id === item.id) ? { ...item, is_active_variant: item.id === id } : item));
+    let group = messages.filter((item) => item.role === 'assistant' && (item.reroll_group_id ?? item.id) === groupId);
+    if (!isGuest && session) {
+      try {
+        group = await fetchRerollVariants(session.id, groupId);
+      } catch (error) {
+        addError(`응답 버전 불러오기 실패: ${describeUnknownError(error)}`);
+        return;
+      }
+    }
+    const groupIds = group.map((item) => item.id);
+    if (!groupIds.includes(id)) { addError('선택할 응답 버전을 찾을 수 없습니다.'); return; }
+    const { error: deactivateError } = await supabase.from('messages').update({ is_active_variant: false }).in('id', groupIds);
+    if (deactivateError) { addError(`응답 버전 변경 실패: ${deactivateError.message}`); return; }
+    const { error: activateError } = await supabase.from('messages').update({ is_active_variant: true }).eq('id', id);
+    if (activateError) { addError(`응답 버전 변경 실패: ${activateError.message}`); return; }
+    setMessages((current) => current.map((item) => groupIds.includes(item.id) ? { ...item, is_active_variant: item.id === id } : item));
   }
 
   function variantsFor(message: Message) {
@@ -768,14 +969,28 @@ export default function ChatPage() {
   const currentSession = isGuest ? guestSession : session;
 
   const hasLocalGeneration = !!sessionId && activeGenerations.has(sessionId);
-  const visibleMessages = messages.filter((m) => !(hasLocalGeneration && m.generation_status === 'streaming') && m.is_active_variant !== false && (!m.is_hidden || debugMode));
+  const displayableMessages = messages.filter((m) => !(hasLocalGeneration && m.generation_status === 'streaming') && m.is_active_variant !== false && (!m.is_hidden || debugMode));
+  const displayableUserTurnCount = displayableMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
+  const hasOlderGuestMessages = isGuest && displayableUserTurnCount > visibleTurnLimit;
+  const hasOlderDisplayMessages = isGuest ? hasOlderGuestMessages : hasOlderServerMessages;
+  let visibleStartIndex = 0;
+  if (hasOlderGuestMessages) {
+    const firstVisibleUserTurn = displayableUserTurnCount - visibleTurnLimit + 1;
+    let seenUserTurns = 0;
+    visibleStartIndex = displayableMessages.findIndex((message) => {
+      if (message.role === 'user' && !message.is_hidden) seenUserTurns += 1;
+      return seenUserTurns === firstVisibleUserTurn;
+    });
+  }
+  const visibleMessages = displayableMessages.slice(Math.max(0, visibleStartIndex));
   const assistantTurnNumbers = new Map<string, number>();
-  let countedUserTurns = 0;
+  const loadedActiveUserTurns = messages.filter((message) => message.role === 'user' && !message.is_hidden && message.is_active_variant !== false).length;
+  let countedUserTurns = isGuest ? 0 : Math.max(0, totalUserTurnCount - loadedActiveUserTurns);
   for (const message of messages.filter((item) => item.is_active_variant !== false)) {
     if (message.role === 'user' && !message.is_hidden) countedUserTurns += 1;
     if (message.role === 'assistant') assistantTurnNumbers.set(message.id, countedUserTurns);
   }
-  const sessionTurnCount = messages.filter((message) => message.role === 'user' && !message.is_hidden && message.is_active_variant !== false).length;
+  const sessionTurnCount = isGuest ? loadedActiveUserTurns : totalUserTurnCount;
 
   if (!currentSession || !work) {
     return <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>;
@@ -801,11 +1016,22 @@ export default function ChatPage() {
           </div>
         </div>
       )}
-      <div ref={scrollRef} onScroll={(event) => { shouldAutoScrollRef.current = isNearScrollBottom(event.currentTarget); }} className="w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
+      <div ref={scrollRef} onScroll={(event) => {
+        const element = event.currentTarget;
+        shouldAutoScrollRef.current = isNearScrollBottom(element);
+        if (element.scrollTop <= 80) revealOlderMessages();
+      }} className="w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
         )}
         <div className="flex w-full flex-col gap-3">
+          {hasOlderDisplayMessages && (
+            <div ref={olderMessagesSentinelRef} className="py-1 text-center text-xs text-slate-500" aria-live="polite">
+              <button type="button" onClick={revealOlderMessages} disabled={loadingOlderMessages} className="disabled:opacity-60">
+                {loadingOlderMessages ? '이전 대화를 불러오는 중…' : '위로 스크롤하거나 눌러서 이전 대화를 불러오세요'}
+              </button>
+            </div>
+          )}
           {visibleMessages.map((m) => (
             <div key={m.id} className="flex w-full min-w-0 flex-col gap-1">
               {m.is_hidden && debugMode && (
