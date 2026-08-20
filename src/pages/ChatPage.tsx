@@ -207,6 +207,7 @@ export default function ChatPage() {
   const [streamingContent, setStreamingContent] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const olderMessagesSentinelRef = useRef<HTMLDivElement>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const prependScrollHeightRef = useRef<number | null>(null);
@@ -226,7 +227,7 @@ export default function ChatPage() {
     if (previousScrollHeight === null || !element) return;
     element.scrollTop += element.scrollHeight - previousScrollHeight;
     prependScrollHeightRef.current = null;
-  }, [messages.length, visibleTurnLimit]);
+  }, [messages.length, oldestLoadedAt, visibleTurnLimit]);
 
   const loadLatestMessages = useCallback(async () => {
     if (!sessionId || isGuest) return;
@@ -261,6 +262,32 @@ export default function ChatPage() {
       setLoadingOlderMessages(false);
     }
   }, [hasOlderServerMessages, isGuest, loadingOlderMessages, oldestLoadedAt, sessionId]);
+
+  const hasOlderMessagesToReveal = isGuest
+    ? messages.filter((message) => message.role === 'user' && !message.is_hidden && message.is_active_variant !== false).length > visibleTurnLimit
+    : hasOlderServerMessages;
+
+  const revealOlderMessages = useCallback(() => {
+    const element = scrollRef.current;
+    if (!element || !hasOlderMessagesToReveal || prependScrollHeightRef.current !== null) return;
+    if (isGuest) {
+      prependScrollHeightRef.current = element.scrollHeight;
+      setVisibleTurnLimit((current) => current + MESSAGE_TURN_PAGE_SIZE);
+      return;
+    }
+    void loadOlderMessages();
+  }, [hasOlderMessagesToReveal, isGuest, loadOlderMessages]);
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    const sentinel = olderMessagesSentinelRef.current;
+    if (!root || !sentinel || !hasOlderMessagesToReveal) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) revealOlderMessages();
+    }, { root, rootMargin: '80px 0px 0px' });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasOlderMessagesToReveal, revealOlderMessages]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -992,21 +1019,18 @@ export default function ChatPage() {
       <div ref={scrollRef} onScroll={(event) => {
         const element = event.currentTarget;
         shouldAutoScrollRef.current = isNearScrollBottom(element);
-        if (element.scrollTop <= 80 && hasOlderDisplayMessages && prependScrollHeightRef.current === null) {
-          if (isGuest) {
-            prependScrollHeightRef.current = element.scrollHeight;
-            setVisibleTurnLimit((current) => current + MESSAGE_TURN_PAGE_SIZE);
-          } else {
-            void loadOlderMessages();
-          }
-        }
+        if (element.scrollTop <= 80) revealOlderMessages();
       }} className="w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
         )}
         <div className="flex w-full flex-col gap-3">
           {hasOlderDisplayMessages && (
-            <div className="py-1 text-center text-xs text-slate-500" aria-live="polite">{loadingOlderMessages ? '이전 대화를 불러오는 중…' : '위로 스크롤해 이전 대화를 불러오세요'}</div>
+            <div ref={olderMessagesSentinelRef} className="py-1 text-center text-xs text-slate-500" aria-live="polite">
+              <button type="button" onClick={revealOlderMessages} disabled={loadingOlderMessages} className="disabled:opacity-60">
+                {loadingOlderMessages ? '이전 대화를 불러오는 중…' : '위로 스크롤하거나 눌러서 이전 대화를 불러오세요'}
+              </button>
+            </div>
           )}
           {visibleMessages.map((m) => (
             <div key={m.id} className="flex w-full min-w-0 flex-col gap-1">
