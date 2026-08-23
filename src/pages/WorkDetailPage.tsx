@@ -323,13 +323,24 @@ export default function WorkDetailPage() {
           </div>
         )}
 
-        <button
-          onClick={startChat}
-          disabled={starting}
-          className="w-full rounded-lg bg-brand py-3 font-semibold text-white disabled:opacity-50"
-        >
-          {starting ? '시작 중…' : '새 채팅 시작'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={startChat}
+            disabled={starting}
+            className="min-w-0 flex-1 rounded-lg bg-brand py-3 font-semibold text-white disabled:opacity-50"
+          >
+            {starting ? '시작 중…' : '새 채팅 시작'}
+          </button>
+          {!isGuest && (
+            <button
+              type="button"
+              onClick={() => navigate(`/multichat/new?workId=${work.id}`)}
+              className="shrink-0 rounded-lg bg-surface2 px-3 py-3 text-sm font-semibold text-slate-200 active:bg-surface"
+            >
+              멀티챗 생성
+            </button>
+          )}
+        </div>
       </div>
       {confirmDelete && (
         <ConfirmDialog
