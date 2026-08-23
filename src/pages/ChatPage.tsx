@@ -26,7 +26,7 @@ import { showConfirmDialog } from '@/lib/dialog';
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 const GENERATION_TIMEOUT_MS = 120_000;
 const DRAFT_SAVE_INTERVAL_MS = 500;
-const MESSAGE_TURN_PAGE_SIZE = 10;
+const MESSAGE_TURN_PAGE_SIZE = 5;
 const MESSAGE_FETCH_BATCH_SIZE = 500;
 interface MessagePage { messages: Message[]; hasOlder: boolean; oldestCreatedAt: string | null; }
 
