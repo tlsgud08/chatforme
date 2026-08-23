@@ -30,6 +30,7 @@ export interface Profile {
 export interface PlatformConfig {
   id: number;
   system_prompt: string;
+  multichat_system_prompt: string;
   updated_at: string;
 }
 
@@ -40,10 +41,24 @@ export interface Work {
   description: string;
   thumbnail_url: string | null;
   main_prompt: string;
+  multichat_prompt: string;
   is_published: boolean;
   visibility: 'public' | 'unlisted' | 'private';
   created_at: string;
   updated_at: string;
+}
+
+export interface MultichatRoom {
+  id: string; invite_code: string; work_id: string; host_user_id: string; title: string;
+  status: 'lobby' | 'active' | 'ended'; current_round: number; model: string;
+  output_tokens: number | null; total_input_tokens: number; total_output_tokens: number;
+  total_cost: number; started_at: string | null; created_at: string; updated_at: string;
+}
+
+export interface MultichatMember {
+  room_id: string; user_id: string; slot: 1 | 2; persona_id: string | null; joined_at: string;
+  profiles?: { display_name: string; avatar_url: string | null } | null;
+  personas?: { name: string; description: string } | null;
 }
 
 export interface WorkEditor {
