@@ -23,12 +23,17 @@ revoke all on function public.is_app_admin() from public;
 revoke all on function public.can_edit_work(uuid) from public;
 grant execute on function public.is_app_admin(), public.can_edit_work(uuid) to authenticated;
 
+-- SQL Editor에서 중간 실패 후 다시 실행해도 기존 정책 때문에 멈추지 않도록
+-- 이 마이그레이션에서 만드는 정책은 모두 먼저 제거한다.
+drop policy if exists "work_editors_select" on public.work_editors;
 create policy "work_editors_select" on public.work_editors for select using (user_id = auth.uid() or public.can_edit_work(work_id));
+drop policy if exists "work_editors_insert" on public.work_editors;
 create policy "work_editors_insert" on public.work_editors for insert with check (
   granted_by = auth.uid()
   and exists (select 1 from public.works w where w.id = work_id and w.creator_id = auth.uid())
   and user_id <> auth.uid()
 );
+drop policy if exists "work_editors_delete" on public.work_editors;
 create policy "work_editors_delete" on public.work_editors for delete using (
   exists (select 1 from public.works w where w.id = work_id and w.creator_id = auth.uid())
 );
@@ -36,6 +41,7 @@ create policy "work_editors_delete" on public.work_editors for delete using (
 drop policy if exists "works_select_by_visibility" on public.works;
 create policy "works_select_by_visibility" on public.works for select using (visibility in ('public', 'unlisted') or public.can_edit_work(id));
 drop policy if exists "works_update_own" on public.works;
+drop policy if exists "works_update_editors" on public.works;
 create policy "works_update_editors" on public.works for update using (public.can_edit_work(id)) with check (public.can_edit_work(id));
 
 create or replace function public.keep_work_creator_immutable()
