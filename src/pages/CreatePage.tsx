@@ -8,7 +8,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import { showToast } from '@/lib/toast';
 
 export default function CreatePage() {
-  const { user, isGuest } = useAuth();
+  const { user, isGuest, isAdmin } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -37,13 +37,22 @@ export default function CreatePage() {
   }
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['my-works', user?.id],
+    queryKey: ['my-works', user?.id, isAdmin],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('works')
-        .select('*')
-        .eq('creator_id', user!.id)
-        .order('updated_at', { ascending: false });
+      let editableIds: string[] = [];
+      if (!isAdmin) {
+        const { data: permissions, error: permissionError } = await supabase
+          .from('work_editors').select('work_id').eq('user_id', user!.id);
+        if (permissionError) throw permissionError;
+        editableIds = (permissions ?? []).map((item) => item.work_id);
+      }
+      let query = supabase.from('works').select('*').order('updated_at', { ascending: false });
+      if (!isAdmin) {
+        query = editableIds.length
+          ? query.or(`creator_id.eq.${user!.id},id.in.(${editableIds.join(',')})`)
+          : query.eq('creator_id', user!.id);
+      }
+      const { data, error } = await query;
       if (error) throw error;
       return data as Work[];
     },
@@ -66,11 +75,9 @@ export default function CreatePage() {
   async function deleteWork() {
     if (!deleteTarget) return;
     setDeleting(true);
-    const { data: deleted, error } = await supabase
-      .from('works').delete()
-      .eq('id', deleteTarget.id)
-      .eq('creator_id', user!.id)
-      .select('id');
+    let deleteQuery = supabase.from('works').delete().eq('id', deleteTarget.id);
+    if (!isAdmin) deleteQuery = deleteQuery.eq('creator_id', user!.id);
+    const { data: deleted, error } = await deleteQuery.select('id');
     setDeleting(false);
     if (error || !deleted?.length) {
       showToast('삭제 실패: ' + (error?.message ?? '삭제 권한을 확인해주세요.'));
@@ -116,7 +123,7 @@ export default function CreatePage() {
       {isLoading ? (
         <p className="text-slate-400">불러오는 중…</p>
       ) : !data || data.length === 0 ? (
-        <p className="text-slate-400">아직 만든 작품이 없습니다.</p>
+        <p className="text-slate-400">수정할 수 있는 작품이 없습니다.</p>
       ) : (
         <ul className="divide-y divide-surface2">
           {data.map((w) => (
@@ -131,13 +138,14 @@ export default function CreatePage() {
                   <p className="truncate font-semibold text-white">{w.title || '(제목 없음)'}</p>
                   <p className="truncate text-xs text-slate-500">
                     {w.visibility === 'public' ? '전체 공개' : w.visibility === 'unlisted' ? '링크 공개' : '비공개'}
+                    {w.creator_id !== user?.id && (isAdmin ? ' · 운영자 권한' : ' · 공동 편집')}
                   </p>
                 </div>
               </Link>
               <Link to={`/works/${w.id}`} className="px-3 py-3 text-slate-500 active:text-white">
                 ↗
               </Link>
-              <button
+              {(w.creator_id === user?.id || isAdmin) && <button
                 type="button"
                 aria-label={`${w.title || '작품'} 메뉴`}
                 aria-expanded={menuId === w.id}
@@ -145,17 +153,17 @@ export default function CreatePage() {
                 className="px-3 py-3 text-xl leading-none text-slate-400 active:text-white"
               >
                 ⋯
-              </button>
+              </button>}
               {menuId === w.id && (
                 <div className="absolute right-3 top-12 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">
                   <button type="button" onClick={() => void duplicateWork(w)} className="w-full px-4 py-3 text-left text-sm text-slate-200 hover:bg-surface2">작품 복제</button>
-                  <button
+                  {(w.creator_id === user?.id || isAdmin) && <button
                     type="button"
                     onClick={() => { setDeleteTarget(w); setMenuId(null); }}
                     className="w-full px-4 py-3 text-left text-sm text-red-400 active:bg-surface2"
                   >
                     작품 삭제
-                  </button>
+                  </button>}
                 </div>
               )}
             </li>
