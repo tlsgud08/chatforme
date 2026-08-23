@@ -7,9 +7,10 @@ import { guestDeleteSession, guestGetSessions, guestUpdateSession } from '@/lib/
 import type { Session } from '@/types/db';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { showToast } from '@/lib/toast';
+import { showConfirmDialog } from '@/lib/dialog';
 
 type SessionRow = Session & { works: { title: string; thumbnail_url: string | null } | null };
-type ViewTab = 'active' | 'archived';
+type ViewTab = 'active' | 'multichat' | 'archived';
 type SelectMode = 'none' | 'archive' | 'delete';
 
 export default function SessionsPage() {
@@ -24,6 +25,8 @@ export default function SessionsPage() {
   const [renameValue, setRenameValue] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string; guest: boolean } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [inviteCode, setInviteCode] = useState('');
+  const [invitePassword, setInvitePassword] = useState('');
   useEffect(() => {
     if (!menuId) return;
     const close = (event: PointerEvent) => { if (!(event.target as Element).closest('[data-popup-menu]')) setMenuId(null); };
@@ -66,8 +69,34 @@ export default function SessionsPage() {
 
       return { sessions, aiCountMap };
     },
-    enabled: !isGuest,
+    enabled: !isGuest && viewTab !== 'multichat',
   });
+
+  const { data: multichats, isLoading: multichatsLoading } = useQuery({
+    queryKey: ['multichats', user?.id],
+    queryFn: async () => { const { data, error } = await supabase.from('multichat_rooms').select('*,works(title,thumbnail_url),multichat_members(count)').order('updated_at',{ascending:false}); if(error) throw error; return data as unknown as Array<{id:string;host_user_id:string;title:string;status:string;current_round:number;invite_code:string;works:{title:string;thumbnail_url:string|null}|null;multichat_members:{count:number}[]}>; },
+    enabled: !isGuest && viewTab === 'multichat',
+  });
+
+  async function joinMultichat(event: React.FormEvent) {
+    event.preventDefault();
+    const { data: roomId, error } = await supabase.rpc('join_multichat', { room_code: inviteCode, room_password: invitePassword });
+    if (error) { showToast('참가 실패: '+error.message); return; }
+    window.location.assign(`/multichat/${roomId}`);
+  }
+
+  async function deleteMultichat(room: { id: string; title: string }) {
+    const confirmed = await showConfirmDialog(
+      '멀티챗 방을 삭제할까요?',
+      `‘${room.title}’의 게임 기록과 파티 메시지가 모두 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`,
+      '삭제',
+    );
+    if (!confirmed) return;
+    const { error } = await supabase.rpc('delete_multichat', { target_room: room.id });
+    if (error) { showToast('멀티챗 삭제 실패: ' + error.message); return; }
+    await queryClient.invalidateQueries({ queryKey: ['multichats', user?.id] });
+    showToast('멀티챗 방을 삭제했습니다.');
+  }
 
   function enterSelectMode(mode: 'archive' | 'delete') {
     setSelectMode(mode);
@@ -248,7 +277,13 @@ export default function SessionsPage() {
           >
             보관함
           </button>
-          <div className="flex gap-2 px-3">
+          <button
+            onClick={() => { setViewTab('multichat'); cancelSelect(); }}
+            className={`flex-1 py-2.5 text-sm ${viewTab === 'multichat' ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
+          >
+            멀티챗
+          </button>
+          {viewTab !== 'multichat' && <div className="flex gap-2 px-3">
             <button
               onClick={() => enterSelectMode('archive')}
               className="rounded-lg bg-surface px-3 py-1.5 text-xs text-slate-300"
@@ -261,7 +296,7 @@ export default function SessionsPage() {
             >
               삭제
             </button>
-          </div>
+          </div>}
         </div>
       ) : (
         <div className="flex items-center gap-3 border-b border-surface2 px-4 py-2.5">
@@ -294,6 +329,14 @@ export default function SessionsPage() {
       )}
 
       <div className="flex-1 overflow-y-auto">
+        {viewTab === 'multichat' && <div className="p-4">
+          <div className="flex gap-2"><Link to="/multichat/new" className="flex-1 rounded-lg bg-brand py-3 text-center text-sm font-semibold text-white">+ 멀티챗 만들기</Link></div>
+          <form onSubmit={joinMultichat} className="mt-3 grid grid-cols-[1fr_1fr_auto] gap-2"><input value={inviteCode} onChange={e=>setInviteCode(e.target.value.toUpperCase())} placeholder="초대 코드" className="min-w-0 rounded-lg bg-surface px-3 py-2 text-sm text-white"/><input type="password" value={invitePassword} onChange={e=>setInvitePassword(e.target.value)} placeholder="비밀번호" className="min-w-0 rounded-lg bg-surface px-3 py-2 text-sm text-white"/><button className="rounded-lg bg-surface2 px-3 text-sm text-white">참가</button></form>
+          {multichatsLoading&&<p className="py-6 text-slate-400">불러오는 중…</p>}
+          <ul className="mt-4 divide-y divide-surface2">{multichats?.map(r=><li key={r.id} className="flex items-center"><Link to={`/multichat/${r.id}`} className="flex min-w-0 flex-1 items-center gap-3 py-4"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2">{r.works?.thumbnail_url&&<img src={r.works.thumbnail_url} className="h-full w-full object-cover" alt=""/>}</div><div className="min-w-0"><p className="truncate font-semibold text-white">{r.title}</p><p className="text-xs text-slate-500">{r.status==='lobby'?'로비':r.status==='active'?`${r.current_round}턴 진행 중`:'종료'} · {r.multichat_members?.[0]?.count??0}/2명</p></div></Link>{r.host_user_id===user?.id&&<button type="button" onClick={()=>void deleteMultichat(r)} className="ml-2 shrink-0 rounded-lg px-3 py-2 text-xs font-semibold text-red-400 active:bg-surface2" aria-label={`${r.title} 삭제`}>삭제</button>}</li>)}</ul>
+          {!multichatsLoading&&!multichats?.length&&<p className="py-8 text-center text-sm text-slate-500">참여 중인 멀티챗이 없습니다.</p>}
+        </div>}
+        {viewTab !== 'multichat' && <>
         {isLoading && <p className="p-6 text-slate-400">불러오는 중…</p>}
         {!isLoading && list.length === 0 && (
           <p className="p-6 text-slate-400">
@@ -340,6 +383,7 @@ export default function SessionsPage() {
             </li>
           ))}
         </ul>
+        </>}
       </div>
       {dialogs()}
     </div>
