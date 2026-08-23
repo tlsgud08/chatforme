@@ -6,7 +6,7 @@ import type { KeywordBook, StartConfig, Work } from '@/types/db';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 
-type Tab = 'basic' | 'prompt' | 'start' | 'keywords' | 'permissions';
+type Tab = 'basic' | 'prompt' | 'multichat' | 'start' | 'keywords' | 'permissions';
 type EditorProfile = { user_id: string; display_name: string; avatar_url: string | null; created_at: string };
 type UserCandidate = { id: string; display_name: string; avatar_url: string | null };
 const MAX_THUMB_BYTES = 5 * 1024 * 1024;
@@ -132,6 +132,7 @@ export default function WorkEditorPage() {
         title: work.title,
         description: work.description,
         main_prompt: work.main_prompt,
+        multichat_prompt: work.multichat_prompt,
         thumbnail_url: work.thumbnail_url,
         visibility: work.visibility,
         is_published: work.visibility === 'public',
@@ -252,6 +253,7 @@ export default function WorkEditorPage() {
         {([
           ['basic', '기본정보'],
           ['prompt', '메인 프롬프트'],
+          ['multichat', '멀티챗'],
           ['start', '시작 설정'],
           ['keywords', '키워드북'],
           ...(isCreator ? [['permissions', '수정 권한'] as [Tab, string]] : []),
@@ -352,6 +354,14 @@ export default function WorkEditorPage() {
               placeholder="롤플레잉 설정, 세계관, 캐릭터 등을 작성하세요."
               className={`w-full resize-none rounded-lg bg-surface px-4 py-3 text-sm leading-relaxed outline-none ring-1 ${work.main_prompt.length > 6000 ? 'ring-amber-500' : 'ring-transparent'}`}
             />
+          </div>
+        )}
+
+        {tab === 'multichat' && (
+          <div>
+            <h2 className="font-semibold text-white">멀티챗 추가 프롬프트</h2>
+            <p className="mt-1 text-xs text-slate-400">멀티챗에서만 메인 프롬프트 뒤에 추가됩니다. 참여자는 user1, user2로 전달되므로 이 이름을 지시문에서 직접 사용할 수 있습니다.</p>
+            <textarea value={work.multichat_prompt ?? ''} onChange={e=>patch({multichat_prompt:e.target.value})} rows={18} placeholder="예: user1과 user2의 행동을 동등하게 반영하세요." className="mt-3 w-full resize-none rounded-lg bg-surface px-4 py-3 text-sm leading-relaxed text-white outline-none" />
           </div>
         )}
 

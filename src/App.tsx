@@ -17,6 +17,8 @@ import FavoritesPage from './pages/FavoritesPage';
 import UserPage from './pages/UserPage';
 import AppToast from './components/AppToast';
 import AppConfirmDialog from './components/AppConfirmDialog';
+import MultichatCreatePage from './pages/MultichatCreatePage';
+import MultichatPage from './pages/MultichatPage';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -41,6 +43,8 @@ export default function App() {
       {/* 전체화면 (탭바 없음) */}
       <Route path="/chat/:sessionId" element={<ChatPage />} />
       <Route path="/search" element={<SearchPage />} />
+      <Route path="/multichat/new" element={<MultichatCreatePage />} />
+      <Route path="/multichat/:roomId" element={<MultichatPage />} />
 
       {/* 나머지는 탭바 레이아웃 */}
       <Route element={<Layout />}>
