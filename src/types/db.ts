@@ -46,6 +46,13 @@ export interface Work {
   updated_at: string;
 }
 
+export interface WorkEditor {
+  work_id: string;
+  user_id: string;
+  granted_by: string;
+  created_at: string;
+}
+
 export interface StartConfig {
   id: string;
   work_id: string;

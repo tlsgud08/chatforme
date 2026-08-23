@@ -6,13 +6,15 @@ import type { KeywordBook, StartConfig, Work } from '@/types/db';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 
-type Tab = 'basic' | 'prompt' | 'start' | 'keywords';
+type Tab = 'basic' | 'prompt' | 'start' | 'keywords' | 'permissions';
+type EditorProfile = { user_id: string; display_name: string; avatar_url: string | null; created_at: string };
+type UserCandidate = { id: string; display_name: string; avatar_url: string | null };
 const MAX_THUMB_BYTES = 5 * 1024 * 1024;
 
 export default function WorkEditorPage() {
   const { workId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
 
   const [tab, setTab] = useState<Tab>('basic');
   const [work, setWork] = useState<Work | null>(null);
@@ -22,10 +24,15 @@ export default function WorkEditorPage() {
   const [keywordBooks, setKeywordBooks] = useState<KeywordBook[]>([]);
   const [kwInputs, setKwInputs] = useState<Record<string, string>>({});
   const [saveAttempted, setSaveAttempted] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [editors, setEditors] = useState<EditorProfile[]>([]);
+  const [userQuery, setUserQuery] = useState('');
+  const [candidates, setCandidates] = useState<UserCandidate[]>([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
 
   useEffect(() => {
     supabase.from('works').select('*').eq('id', workId).single()
-      .then(({ data }) => setWork(data as Work));
+      .then(({ data, error }) => error ? setLoadError('작품을 수정할 권한이 없습니다.') : setWork(data as Work));
     supabase.from('keyword_books').select('*').eq('work_id', workId).order('sort_order')
       .then(({ data }) => setKeywordBooks((data as KeywordBook[]) ?? []));
     supabase.from('start_configs').select('*').eq('work_id', workId).order('sort_order')
@@ -37,6 +44,50 @@ export default function WorkEditorPage() {
         setStartConfigs(configs);
       });
   }, [workId]);
+
+  const isCreator = work?.creator_id === user?.id;
+
+  useEffect(() => {
+    if (!workId || !isCreator) return;
+    void loadEditors();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workId, isCreator]);
+
+  useEffect(() => {
+    if (!workId || !isCreator || !userQuery.trim()) { setCandidates([]); return; }
+    const timer = setTimeout(async () => {
+      setSearchingUsers(true);
+      const { data, error } = await supabase.rpc('search_work_editor_candidates', { target_work_id: workId, search_text: userQuery });
+      setSearchingUsers(false);
+      if (error) { showToast('유저 검색 실패: ' + error.message); return; }
+      const existing = new Set(editors.map((editor) => editor.user_id));
+      setCandidates(((data as UserCandidate[]) ?? []).filter((candidate) => !existing.has(candidate.id)));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [workId, isCreator, userQuery, editors]);
+
+  async function loadEditors() {
+    const { data, error } = await supabase.rpc('get_work_editors', { target_work_id: workId });
+    if (error) { showToast('편집자 목록을 불러오지 못했습니다: ' + error.message); return; }
+    setEditors((data as EditorProfile[]) ?? []);
+  }
+
+  async function grantEditor(candidate: UserCandidate) {
+    if (!work || !user || !isCreator) return;
+    const { error } = await supabase.from('work_editors').insert({ work_id: work.id, user_id: candidate.id, granted_by: user.id });
+    if (error) { showToast('권한 부여 실패: ' + error.message); return; }
+    setUserQuery(''); setCandidates([]);
+    await loadEditors();
+    showToast(`${candidate.display_name || '유저'}님에게 수정 권한을 부여했습니다.`);
+  }
+
+  async function revokeEditor(editor: EditorProfile) {
+    if (!work || !isCreator) return;
+    if (!await showConfirmDialog('수정 권한을 회수할까요?', `${editor.display_name || '이 유저'}는 더 이상 작품을 수정할 수 없습니다.`, '권한 회수')) return;
+    const { error } = await supabase.from('work_editors').delete().eq('work_id', work.id).eq('user_id', editor.user_id);
+    if (error) { showToast('권한 회수 실패: ' + error.message); return; }
+    setEditors((current) => current.filter((item) => item.user_id !== editor.user_id));
+  }
 
   function patch(p: Partial<Work>) {
     setWork((w) => (w ? { ...w, ...p } : w));
@@ -179,12 +230,14 @@ export default function WorkEditorPage() {
     setStartConfigs((cs) => cs.filter((c) => c.id !== id));
   }
 
+  if (loadError) return <div className="p-6 text-center"><p className="text-amber-400">{loadError}</p><button onClick={() => navigate('/create')} className="mt-4 text-sm text-slate-400 underline">목록으로</button></div>;
   if (!work) return <p className="p-6 text-slate-400">불러오는 중…</p>;
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-4 py-3">
         <button onClick={() => navigate('/create')} className="text-sm text-slate-400">← 목록</button>
+        {isAdmin && !isCreator && <span className="rounded-full bg-brand/20 px-2 py-1 text-[11px] text-brand">운영자 편집</span>}
         <button
           onClick={save}
           disabled={saving}
@@ -201,6 +254,7 @@ export default function WorkEditorPage() {
           ['prompt', '메인 프롬프트'],
           ['start', '시작 설정'],
           ['keywords', '키워드북'],
+          ...(isCreator ? [['permissions', '수정 권한'] as [Tab, string]] : []),
         ] as [Tab, string][]).map(([k, label]) => (
           <button
             key={k}
@@ -276,7 +330,7 @@ export default function WorkEditorPage() {
               </div>
             </div>
 
-            <button onClick={remove} className="mt-4 text-sm text-red-400">작품 삭제</button>
+            {(isCreator || isAdmin) && <button onClick={remove} className="mt-4 text-sm text-red-400">작품 삭제</button>}
           </div>
         )}
 
@@ -515,6 +569,45 @@ export default function WorkEditorPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {tab === 'permissions' && isCreator && (
+          <div className="flex flex-col gap-5">
+            <div>
+              <h2 className="text-sm font-semibold text-white">공동 편집자</h2>
+              <p className="mt-1 text-xs leading-relaxed text-slate-400">선택한 유저는 기본 정보, 프롬프트, 시작 설정, 키워드북을 수정할 수 있습니다. 권한 관리와 작품 삭제는 제작자만 할 수 있습니다.</p>
+            </div>
+            <div className="relative">
+              <label className="mb-1 block text-xs text-slate-400">유저 검색</label>
+              <input value={userQuery} onChange={(event) => setUserQuery(event.target.value)} placeholder="표시 이름을 입력하세요"
+                className="w-full rounded-lg bg-surface px-4 py-3 text-sm outline-none ring-1 ring-transparent focus:ring-brand" />
+              {(searchingUsers || userQuery.trim()) && (
+                <div className="mt-2 overflow-hidden rounded-lg border border-surface2 bg-surface">
+                  {searchingUsers ? <p className="p-3 text-xs text-slate-400">검색 중…</p> : candidates.length === 0 ?
+                    <p className="p-3 text-xs text-slate-500">추가할 수 있는 유저가 없습니다.</p> : candidates.map((candidate) => (
+                      <button key={candidate.id} type="button" onClick={() => void grantEditor(candidate)} className="flex w-full items-center gap-3 border-b border-surface2 p-3 text-left last:border-0 hover:bg-surface2">
+                        <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-surface2 text-xs text-slate-300">
+                          {candidate.avatar_url ? <img src={candidate.avatar_url} alt="" className="h-full w-full object-cover" /> : (candidate.display_name || '?').slice(0, 1)}
+                        </span>
+                        <span className="text-sm text-white">{candidate.display_name || '이름 없는 유저'}</span>
+                        <span className="ml-auto text-xs text-brand">추가</span>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="mb-2 text-xs text-slate-400">권한을 가진 유저 {editors.length}명</p>
+              {editors.length === 0 ? <div className="rounded-lg border border-dashed border-surface2 p-6 text-center text-sm text-slate-500">아직 공동 편집자가 없습니다.</div> :
+                <ul className="divide-y divide-surface2 rounded-lg bg-surface px-3">
+                  {editors.map((editor) => <li key={editor.user_id} className="flex items-center gap-3 py-3">
+                    <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-surface2 text-xs text-slate-300">{editor.avatar_url ? <img src={editor.avatar_url} alt="" className="h-full w-full object-cover" /> : (editor.display_name || '?').slice(0, 1)}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-white">{editor.display_name || '이름 없는 유저'}</span>
+                    <button type="button" onClick={() => void revokeEditor(editor)} className="text-xs text-red-400">권한 회수</button>
+                  </li>)}
+                </ul>}
+            </div>
           </div>
         )}
       </div>
