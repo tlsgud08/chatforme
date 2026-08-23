@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
@@ -13,6 +13,8 @@ type WorkOption = { id: string; title: string };
 export default function MultichatCreatePage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedWorkId = searchParams.get('workId') ?? '';
   const [works, setWorks] = useState<WorkOption[]>([]);
   const [workId, setWorkId] = useState('');
   const [title, setTitle] = useState('멀티챗');
@@ -24,7 +26,11 @@ export default function MultichatCreatePage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    void supabase.from('works').select('id,title').or(`visibility.eq.public,creator_id.eq.${user?.id}`).order('updated_at',{ascending:false}).then(({data}) => { const rows=(data as WorkOption[])??[]; setWorks(rows); setWorkId(rows[0]?.id??''); });
+    void supabase.from('works').select('id,title').or(`visibility.eq.public,creator_id.eq.${user?.id}`).order('updated_at',{ascending:false}).then(({data}) => {
+      const rows=(data as WorkOption[])??[];
+      setWorks(rows);
+      setWorkId(rows.some((work) => work.id === requestedWorkId) ? requestedWorkId : rows[0]?.id ?? '');
+    });
     if (user) void supabase.from('profiles').select('favorite_models').eq('id', user.id).single().then(({ data }) => {
       const favorites = Array.isArray(data?.favorite_models) ? data.favorite_models.filter((item): item is string => typeof item === 'string') : [];
       setFavoriteModels(favorites);
@@ -33,7 +39,7 @@ export default function MultichatCreatePage() {
         setReasoning(defaultReasoningFor('openrouter', favorites[0]));
       }
     });
-  }, [user?.id]);
+  }, [user?.id, requestedWorkId]);
 
   async function create(event: React.FormEvent) {
     event.preventDefault(); if (!workId || !title.trim()) return;
@@ -48,7 +54,14 @@ export default function MultichatCreatePage() {
     <h1 className="text-xl font-bold text-white">멀티챗 만들기</h1>
     <p className="mt-1 text-sm text-slate-400">정확히 두 명이 user1, user2가 되어 함께 AI와 대화합니다.</p>
     <form onSubmit={create} className="mt-6 space-y-4">
-      <label className="block text-sm text-slate-300">작품<select value={workId} onChange={e=>setWorkId(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white">{works.map(w=><option key={w.id} value={w.id}>{w.title}</option>)}</select></label>
+      {requestedWorkId && works.some((work) => work.id === workId) ? (
+        <div className="rounded-lg bg-surface p-3">
+          <p className="text-xs text-slate-500">선택 작품</p>
+          <p className="mt-1 font-semibold text-white">{works.find((work) => work.id === workId)?.title}</p>
+        </div>
+      ) : (
+        <label className="block text-sm text-slate-300">작품<select value={workId} onChange={e=>setWorkId(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white">{works.map(w=><option key={w.id} value={w.id}>{w.title}</option>)}</select></label>
+      )}
       <label className="block text-sm text-slate-300">방 이름<input maxLength={60} value={title} onChange={e=>setTitle(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white" /></label>
       <label className="block text-sm text-slate-300">비밀번호 (선택)<input type="password" value={password} onChange={e=>setPassword(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white" /></label>
       <div>

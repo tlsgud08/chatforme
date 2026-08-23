@@ -80,7 +80,7 @@ create policy multichat_party_select on public.multichat_party_messages for sele
 create policy multichat_party_insert on public.multichat_party_messages for insert with check (sender_user_id=auth.uid() and public.is_multichat_member(room_id));
 
 create or replace function public.create_multichat(target_work uuid, room_title text, room_password text, target_model text, target_output_tokens integer default null)
-returns uuid language plpgsql security definer set search_path=public as $$
+returns uuid language plpgsql security definer set search_path=public,extensions as $$
 declare rid uuid;
 begin
   if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
@@ -90,7 +90,7 @@ begin
   return rid;
 end $$;
 
-create or replace function public.join_multichat(room_code text, room_password text) returns uuid language plpgsql security definer set search_path=public as $$
+create or replace function public.join_multichat(room_code text, room_password text) returns uuid language plpgsql security definer set search_path=public,extensions as $$
 declare r multichat_rooms; rid uuid;
 begin
   if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
@@ -117,7 +117,7 @@ begin
  delete from multichat_members where room_id=target_room and user_id=target_user;
 end $$;
 
-create or replace function public.set_multichat_password(target_room uuid,new_password text) returns void language plpgsql security definer set search_path=public as $$
+create or replace function public.set_multichat_password(target_room uuid,new_password text) returns void language plpgsql security definer set search_path=public,extensions as $$
 begin
  if not exists(select 1 from multichat_rooms where id=target_room and host_user_id=auth.uid() and status='lobby') then raise exception '로비의 방장만 비밀번호를 바꿀 수 있습니다.'; end if;
  update multichat_rooms set password_hash=case when coalesce(new_password,'')='' then null else crypt(new_password,gen_salt('bf')) end,updated_at=now() where id=target_room;
