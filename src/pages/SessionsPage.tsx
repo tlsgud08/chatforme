@@ -252,12 +252,6 @@ export default function SessionsPage() {
       {selectMode === 'none' ? (
         <div className="flex items-center border-b border-surface2">
           <button
-            onClick={() => { setViewTab('multichat'); cancelSelect(); }}
-            className={`flex-1 py-2.5 text-sm ${viewTab === 'multichat' ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
-          >
-            멀티챗
-          </button>
-          <button
             onClick={() => setViewTab('active')}
             className={`flex-1 py-2.5 text-sm ${viewTab === 'active' ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
           >
@@ -268,6 +262,12 @@ export default function SessionsPage() {
             className={`flex-1 py-2.5 text-sm ${viewTab === 'archived' ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
           >
             보관함
+          </button>
+          <button
+            onClick={() => { setViewTab('multichat'); cancelSelect(); }}
+            className={`flex-1 py-2.5 text-sm ${viewTab === 'multichat' ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
+          >
+            멀티챗
           </button>
           {viewTab !== 'multichat' && <div className="flex gap-2 px-3">
             <button
