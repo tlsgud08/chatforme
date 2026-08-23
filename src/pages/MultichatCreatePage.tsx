@@ -26,12 +26,25 @@ export default function MultichatCreatePage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    void supabase.from('works').select('id,title').or(`visibility.eq.public,creator_id.eq.${user?.id}`).order('updated_at',{ascending:false}).then(({data}) => {
-      const rows=(data as WorkOption[])??[];
+    let cancelled = false;
+
+    const worksQuery = requestedWorkId
+      ? supabase.from('works').select('id,title').eq('id', requestedWorkId)
+      : supabase.from('works').select('id,title').or(`visibility.eq.public,creator_id.eq.${user?.id}`).order('updated_at',{ascending:false});
+
+    void worksQuery.then(({ data, error }) => {
+      if (cancelled) return;
+      const rows = (data as WorkOption[]) ?? [];
       setWorks(rows);
-      setWorkId(rows.some((work) => work.id === requestedWorkId) ? requestedWorkId : rows[0]?.id ?? '');
+      if (error || rows.length === 0) {
+        setWorkId('');
+        if (requestedWorkId) showToast('선택한 작품을 불러올 수 없습니다.');
+        return;
+      }
+      setWorkId(requestedWorkId || rows[0].id);
     });
     if (user) void supabase.from('profiles').select('favorite_models').eq('id', user.id).single().then(({ data }) => {
+      if (cancelled) return;
       const favorites = Array.isArray(data?.favorite_models) ? data.favorite_models.filter((item): item is string => typeof item === 'string') : [];
       setFavoriteModels(favorites);
       if (favorites.length > 0) {
@@ -39,6 +52,7 @@ export default function MultichatCreatePage() {
         setReasoning(defaultReasoningFor('openrouter', favorites[0]));
       }
     });
+    return () => { cancelled = true; };
   }, [user?.id, requestedWorkId]);
 
   async function create(event: React.FormEvent) {
@@ -54,10 +68,10 @@ export default function MultichatCreatePage() {
     <h1 className="text-xl font-bold text-white">멀티챗 만들기</h1>
     <p className="mt-1 text-sm text-slate-400">정확히 두 명이 user1, user2가 되어 함께 AI와 대화합니다.</p>
     <form onSubmit={create} className="mt-6 space-y-4">
-      {requestedWorkId && works.some((work) => work.id === workId) ? (
+      {requestedWorkId ? (
         <div className="rounded-lg bg-surface p-3">
           <p className="text-xs text-slate-500">선택 작품</p>
-          <p className="mt-1 font-semibold text-white">{works.find((work) => work.id === workId)?.title}</p>
+          <p className="mt-1 font-semibold text-white">{works[0]?.title ?? '작품을 불러오는 중…'}</p>
         </div>
       ) : (
         <label className="block text-sm text-slate-300">작품<select value={workId} onChange={e=>setWorkId(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white">{works.map(w=><option key={w.id} value={w.id}>{w.title}</option>)}</select></label>
