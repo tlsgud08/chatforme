@@ -11,6 +11,10 @@ type EditorProfile = { user_id: string; display_name: string; avatar_url: string
 type UserCandidate = { id: string; display_name: string; avatar_url: string | null };
 const MAX_THUMB_BYTES = 5 * 1024 * 1024;
 
+function characterCount(value: string, max: number) {
+  return `${value.length}/${max} · 공백 제외 ${value.replace(/\s/g, '').length}자`;
+}
+
 export default function WorkEditorPage() {
   const { workId } = useParams();
   const navigate = useNavigate();
@@ -289,7 +293,7 @@ export default function WorkEditorPage() {
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <label className="text-xs text-slate-400">제목</label>
-                <span className={`text-[11px] ${titleOver ? 'text-red-400' : 'text-slate-500'}`}>{work.title.length}/30</span>
+                <span className={`text-[11px] ${titleOver ? 'text-red-400' : 'text-slate-500'}`}>{characterCount(work.title, 30)}</span>
               </div>
               <input
                 value={work.title}
@@ -301,7 +305,7 @@ export default function WorkEditorPage() {
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <label className="text-xs text-slate-400">설명</label>
-                <span className={`text-[11px] ${descOver ? 'text-red-400' : 'text-slate-500'}`}>{work.description.length}/1000</span>
+                <span className={`text-[11px] ${descOver ? 'text-red-400' : 'text-slate-500'}`}>{characterCount(work.description, 1000)}</span>
               </div>
               <textarea
                 value={work.description}
@@ -344,7 +348,7 @@ export default function WorkEditorPage() {
                 {work.main_prompt.length > 6000 ? '⚠️ 6000자 권장 초과' : '6000자 이내 권장 (제한 없음)'}
               </p>
               <span className={`text-[11px] ${work.main_prompt.length > 6000 ? 'text-amber-400' : 'text-slate-500'}`}>
-                {work.main_prompt.length}/6000
+                {characterCount(work.main_prompt, 6000)}
               </span>
             </div>
             <textarea
@@ -408,7 +412,7 @@ export default function WorkEditorPage() {
                   <div>
                     <div className="mb-1 flex justify-between">
                       <label className="text-xs text-slate-400">이름 <span className="text-red-400">*</span></label>
-                      <span className={`text-[11px] ${cfg.name.length > 30 ? 'text-red-400' : 'text-slate-500'}`}>{cfg.name.length}/30</span>
+                      <span className={`text-[11px] ${cfg.name.length > 30 ? 'text-red-400' : 'text-slate-500'}`}>{characterCount(cfg.name, 30)}</span>
                     </div>
                     <input
                       value={cfg.name}
@@ -422,7 +426,7 @@ export default function WorkEditorPage() {
                   <div>
                     <div className="mb-1 flex justify-between">
                       <label className="text-xs text-slate-400">시작 메시지 (AI 첫 출력, 유저에게 보임) <span className="text-red-400">*</span></label>
-                      <span className={`text-[11px] ${cfg.initial_message.length > 1000 ? 'text-red-400' : 'text-slate-500'}`}>{cfg.initial_message.length}/1000</span>
+                      <span className={`text-[11px] ${cfg.initial_message.length > 1000 ? 'text-red-400' : 'text-slate-500'}`}>{characterCount(cfg.initial_message, 1000)}</span>
                     </div>
                     <textarea
                       value={cfg.initial_message}
@@ -437,7 +441,7 @@ export default function WorkEditorPage() {
                   <div>
                     <div className="mb-1 flex justify-between">
                       <label className="text-xs text-slate-400">시작 기본 정보 (AI에게만 전달, 유저에게 숨김)</label>
-                      <span className={`text-[11px] ${cfg.initial_context.length > 1000 ? 'text-red-400' : 'text-slate-500'}`}>{cfg.initial_context.length}/1000</span>
+                      <span className={`text-[11px] ${cfg.initial_context.length > 1000 ? 'text-red-400' : 'text-slate-500'}`}>{characterCount(cfg.initial_context, 1000)}</span>
                     </div>
                     <textarea
                       value={cfg.initial_context}
@@ -550,7 +554,7 @@ export default function WorkEditorPage() {
                   <div>
                     <div className="mb-1 flex justify-between">
                       <label className="text-xs text-slate-400">활성화 시 주입 내용</label>
-                      <span className={`text-[11px] ${kb.content.length > 500 ? 'text-red-400' : 'text-slate-500'}`}>{kb.content.length}/500</span>
+                      <span className={`text-[11px] ${kb.content.length > 500 ? 'text-red-400' : 'text-slate-500'}`}>{characterCount(kb.content, 500)}</span>
                     </div>
                     <textarea
                       value={kb.content}
