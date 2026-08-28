@@ -6,6 +6,7 @@ import { capabilitiesFor, defaultReasoningFor, EFFORT_LABELS } from '@/lib/llm/m
 import { getOpenRouterModel, isModelVerified } from '@/lib/llm/modelDiscovery';
 import type { ReasoningSelection } from '@/lib/llm/types';
 import { cacheFavoriteModels, loadCustomModels, loadFavoriteModels, modelsFor, removeCustomModel, saveCustomModel, toggleFavoriteModel } from '@/lib/modelPreferences';
+import Dropdown from '@/components/Dropdown';
 
 interface Props {
   provider: Provider;
@@ -195,10 +196,15 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
       {!hideReasoning && (capability.supportedEfforts.length > 0 ? (
         <>
           <label className="mt-1 text-xs text-slate-400">OpenRouter 추론 수준</label>
-          <select value={reasoning.effort ?? ''} onChange={(event) => onReasoningChange({ effort: event.target.value || undefined })} className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none">
-            {!capability.defaultEffort && <option value="">OpenRouter 기본값 (별도 전송 안 함)</option>}
-            {capability.supportedEfforts.map((effort) => <option key={effort} value={effort}>{EFFORT_LABELS[effort] ?? effort}{effort === capability.defaultEffort ? ' · 기본값' : ''}</option>)}
-          </select>
+          <Dropdown
+            ariaLabel="OpenRouter 추론 수준"
+            value={reasoning.effort ?? ''}
+            onChange={(effort) => onReasoningChange({ effort: effort || undefined })}
+            options={[
+              ...(!capability.defaultEffort ? [{ value: '', label: 'OpenRouter 기본값 (별도 전송 안 함)' }] : []),
+              ...capability.supportedEfforts.map((effort) => ({ value: effort, label: `${EFFORT_LABELS[effort] ?? effort}${effort === capability.defaultEffort ? ' · 기본값' : ''}` })),
+            ]}
+          />
           <p className="text-[11px] text-slate-500">{reasoning.effort ? `전송값: reasoning.effort=${reasoning.effort}` : '추론 수준을 별도로 전송하지 않습니다.'}</p>
         </>
       ) : (

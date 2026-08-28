@@ -7,6 +7,7 @@ import type { ReasoningSelection } from '@/lib/llm/types';
 import { loadFavoriteModels, modelsFor } from '@/lib/modelPreferences';
 import { showToast } from '@/lib/toast';
 import ModelSelector from '@/components/ModelSelector';
+import Dropdown from '@/components/Dropdown';
 
 type WorkOption = { id: string; title: string };
 
@@ -74,7 +75,7 @@ export default function MultichatCreatePage() {
           <p className="mt-1 font-semibold text-white">{works[0]?.title ?? '작품을 불러오는 중…'}</p>
         </div>
       ) : (
-        <label className="block text-sm text-slate-300">작품<select value={workId} onChange={e=>setWorkId(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white">{works.map(w=><option key={w.id} value={w.id}>{w.title}</option>)}</select></label>
+        <label className="block text-sm text-slate-300">작품<Dropdown className="mt-2" ariaLabel="작품 선택" value={workId} onChange={setWorkId} options={works.map((work) => ({ value: work.id, label: work.title }))} /></label>
       )}
       <label className="block text-sm text-slate-300">방 이름<input maxLength={60} value={title} onChange={e=>setTitle(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white" /></label>
       <label className="block text-sm text-slate-300">비밀번호 (선택)<input type="password" value={password} onChange={e=>setPassword(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white" /></label>
