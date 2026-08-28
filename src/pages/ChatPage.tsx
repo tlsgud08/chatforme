@@ -152,6 +152,10 @@ function describeUnknownError(error: unknown): string {
   return String(error);
 }
 
+function isUniqueViolation(error: unknown): boolean {
+  return !!error && typeof error === 'object' && 'code' in error && error.code === '23505';
+}
+
 function isNearScrollBottom(element: HTMLDivElement): boolean {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
 }
@@ -195,7 +199,7 @@ export default function ChatPage() {
   const [sessionReasoning, setSessionReasoning] = useState<ReasoningSelection>(() => defaultReasoningFor('openrouter', modelsFor('openrouter')[0]));
   const [summaryGenerating, setSummaryGenerating] = useState(false);
   const [storyNotes, setStoryNotes] = useState<StoryNote[]>([]);
-  const [messageActionBusy, setMessageActionBusy] = useState(false);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [visibleTurnLimit, setVisibleTurnLimit] = useState(MESSAGE_TURN_PAGE_SIZE);
   const [hasOlderServerMessages, setHasOlderServerMessages] = useState(false);
   const [oldestLoadedAt, setOldestLoadedAt] = useState<string | null>(null);
@@ -211,6 +215,9 @@ export default function ChatPage() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const prependScrollHeightRef = useRef<number | null>(null);
+  const sendInFlightRef = useRef(false);
+  const deleteInFlightRef = useRef(false);
+  const branchInFlightRef = useRef(false);
 
   useEffect(() => {
     setVisibleTurnLimit(MESSAGE_TURN_PAGE_SIZE);
@@ -538,7 +545,7 @@ export default function ChatPage() {
   }
 
   async function send(options?: { reroll?: boolean }) {
-    if (!work || sending || (sessionId && activeGenerations.has(sessionId))) return;
+    if (!work || sendInFlightRef.current || (sessionId && activeGenerations.has(sessionId))) return;
 
     const guestSettings = loadGuestSettings();
     const provider: Provider = 'openrouter';
@@ -547,12 +554,31 @@ export default function ChatPage() {
     const apiKey = getApiKey(provider);
     if (!apiKey) { addError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
 
+    // React state is not a synchronous lock: two clicks in the same render can
+    // both observe `sending === false`. Lock before the first await and snapshot
+    // the composer so a delayed context fetch cannot send a newer draft.
+    sendInFlightRef.current = true;
+    const submittedInput = input.trim();
+    const submittedCommand = selectedCommand;
+    if (!options?.reroll) { setInput(''); setSelectedCommand(null); }
+    setSending(true);
+    setStreamingContent('');
+    const releaseSend = () => {
+      sendInFlightRef.current = false;
+      setSending(false);
+      setStreamingContent('');
+      abortControllerRef.current = null;
+      if (sessionId) publishGeneration(sessionId, null);
+    };
+
     let completeMessages = messages;
     if (!isGuest && sessionId) {
       try {
         completeMessages = await fetchAllSessionMessages(sessionId);
       } catch (error) {
         addError(`대화 문맥 불러오기 실패: ${describeUnknownError(error)}`);
+        if (!options?.reroll) { setInput(submittedInput); setSelectedCommand(submittedCommand); }
+        releaseSend();
         return;
       }
     }
@@ -587,13 +613,10 @@ export default function ChatPage() {
       const { data: command } = await supabase.from('commands').select('prompt').eq('id', rerollUserMessage.command_id).maybeSingle();
       rerollCommandPrompt = command?.prompt?.trim() ?? '';
     }
-    const text = options?.reroll ? rerollUserMessage?.content ?? '' : input.trim();
-    const commandName = options?.reroll ? rerollUserMessage?.command_name : selectedCommand?.name;
-    const commandPrompt = options?.reroll ? rerollCommandPrompt : selectedCommand?.prompt.trim() ?? '';
+    const text = options?.reroll ? rerollUserMessage?.content ?? '' : submittedInput;
+    const commandName = options?.reroll ? rerollUserMessage?.command_name : submittedCommand?.name;
+    const commandPrompt = options?.reroll ? rerollCommandPrompt : submittedCommand?.prompt.trim() ?? '';
     const promptText = commandPrompt ? `${text}${text ? '\n\n' : ''}[선택한 명령어 /${commandName}]\n${commandPrompt}` : text;
-    if (!options?.reroll) { setInput(''); setSelectedCommand(null); }
-    setSending(true);
-    setStreamingContent('');
     const controller = new AbortController();
     abortControllerRef.current = controller;
     let generationTimedOut = false;
@@ -691,15 +714,12 @@ export default function ChatPage() {
         }
       } finally {
         if (generationTimeout) clearTimeout(generationTimeout);
-        setSending(false);
-        setStreamingContent('');
-        abortControllerRef.current = null;
-        if (sessionId) publishGeneration(sessionId, null);
+        releaseSend();
       }
       return;
     }
 
-    if (!session || !profile) { setSending(false); setStreamingContent(''); if (sessionId) publishGeneration(sessionId, null); return; }
+    if (!session || !profile) { releaseSend(); return; }
 
     // A reroll re-sends the original user turn as the latest message, so remove
     // that same row from history to avoid sending it twice.
@@ -713,15 +733,21 @@ export default function ChatPage() {
         .from('messages')
         .insert({
           session_id: session.id, role: 'user', content: text, turn_index: turnIndex,
-          command_id: selectedCommand?.id ?? null, command_name: selectedCommand?.name ?? null,
-          command_prompt: selectedCommand?.prompt.trim() ?? null,
+          command_id: submittedCommand?.id ?? null, command_name: submittedCommand?.name ?? null,
+          command_prompt: submittedCommand?.prompt.trim() ?? null,
         })
         .select('*').single();
       if (userMessageError) {
+        if (isUniqueViolation(userMessageError)) {
+          addError('이미 같은 턴의 메시지가 전송되었습니다. 대화를 새로고침했습니다.');
+          await loadLatestMessages().catch((error) => addError(`메시지 새로고침 실패: ${describeUnknownError(error)}`));
+          releaseSend();
+          return;
+        }
         addError(userMessageError.message);
-        setSending(false);
-        abortControllerRef.current = null;
-        if (sessionId) publishGeneration(sessionId, null);
+        setInput(submittedInput);
+        setSelectedCommand(submittedCommand);
+        releaseSend();
         return;
       }
       if (userMsg) {
@@ -745,7 +771,14 @@ export default function ChatPage() {
         input_tokens: 0, output_tokens: 0, cost: 0, reroll_group_id: rerollGroupId,
         reroll_index: rerollIndex, is_active_variant: true, generation_status: 'streaming',
       }).select('id').single();
-      if (draftError || !draft) throw draftError ?? new Error('응답 임시 저장 공간을 만들 수 없습니다.');
+      if (draftError || !draft) {
+        if (isUniqueViolation(draftError)) {
+          addError('이 턴의 응답이 이미 생성 중이거나 저장되었습니다. 대화를 새로고침했습니다.');
+          await loadLatestMessages().catch((error) => addError(`메시지 새로고침 실패: ${describeUnknownError(error)}`));
+          return;
+        }
+        throw draftError ?? new Error('응답 임시 저장 공간을 만들 수 없습니다.');
+      }
       draftMessageId = draft.id;
       startGenerationTimeout();
       const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
@@ -815,33 +848,41 @@ export default function ChatPage() {
       }
     } finally {
       if (generationTimeout) clearTimeout(generationTimeout);
-      setSending(false);
-      setStreamingContent('');
-      abortControllerRef.current = null;
-      if (sessionId) publishGeneration(sessionId, null);
+      releaseSend();
     }
   }
 
   async function deleteMsg(msgId: string) {
-    if (!await showConfirmDialog('이 메시지를 삭제할까요?', '삭제한 메시지는 복구할 수 없습니다.', '삭제')) return;
-    if (messageActionBusy) return;
-    setMessageActionBusy(true);
     const target = messages.find((message) => message.id === msgId);
+    const targetSessionId = target?.session_id;
+    if (!target || deleteInFlightRef.current) return;
+    deleteInFlightRef.current = true;
+    if (!await showConfirmDialog('이 메시지를 삭제할까요?', '삭제한 메시지는 복구할 수 없습니다.', '삭제')) {
+      deleteInFlightRef.current = false;
+      return;
+    }
+    setDeletingMessageId(msgId);
     let completeMessages = messages;
     if (!isGuest && session) {
       try {
         completeMessages = await fetchAllSessionMessages(session.id);
       } catch (error) {
         addError(`대화 정보 불러오기 실패: ${describeUnknownError(error)}`);
-        setMessageActionBusy(false);
+        setDeletingMessageId(null);
+        deleteInFlightRef.current = false;
         return;
       }
     }
     if (isGuest && guestSession) {
       guestDeleteMessage(guestSession.id, msgId);
     } else {
-      const { error } = await supabase.from('messages').delete().eq('id', msgId);
-      if (error) { addError(error.message); setMessageActionBusy(false); return; }
+      const { data: deleted, error } = await supabase.from('messages').delete().eq('id', msgId).eq('session_id', targetSessionId).select('id');
+      if (error || !deleted?.length) {
+        addError(error?.message ?? '삭제할 메시지를 찾지 못했습니다.');
+        setDeletingMessageId(null);
+        deleteInFlightRef.current = false;
+        return;
+      }
       if (target?.role === 'user' && !target.is_hidden && session) {
         const activeBeforeDelete = completeMessages.filter((message) => message.is_active_variant !== false);
         const deletedTurn = activeBeforeDelete
@@ -877,7 +918,8 @@ export default function ChatPage() {
     setMessages(next);
     if (!isGuest && target?.role === 'user' && !target.is_hidden) setTotalUserTurnCount((current) => Math.max(0, current - 1));
     showToast('메시지를 삭제했습니다.');
-    setMessageActionBusy(false);
+    setDeletingMessageId(null);
+    deleteInFlightRef.current = false;
   }
 
   async function saveEdit(msgId: string) {
@@ -897,23 +939,24 @@ export default function ChatPage() {
 
   async function branchFrom(message: Message) {
     if (!session || !user) return;
-    if (messageActionBusy || !await showConfirmDialog('새 채팅방으로 분기할까요?', '이 메시지 시점까지의 대화로 새 채팅방을 만듭니다.', '분기')) return;
-    setMessageActionBusy(true);
+    if (branchInFlightRef.current) return;
+    branchInFlightRef.current = true;
+    if (!await showConfirmDialog('새 채팅방으로 분기할까요?', '이 메시지 시점까지의 대화로 새 채팅방을 만듭니다.', '분기')) { branchInFlightRef.current = false; return; }
     let allMessages: Message[];
     try {
       allMessages = await fetchAllSessionMessages(session.id);
     } catch (error) {
       addError(`분기할 대화 불러오기 실패: ${describeUnknownError(error)}`);
-      setMessageActionBusy(false);
+      branchInFlightRef.current = false;
       return;
     }
     const branchSource = allMessages.filter((item) => item.is_active_variant !== false);
     const messageIndex = branchSource.findIndex((item) => item.id === message.id);
-    if (messageIndex < 0) { setMessageActionBusy(false); return; }
+    if (messageIndex < 0) { branchInFlightRef.current = false; return; }
     const branchMessages = branchSource.slice(0, messageIndex + 1);
     const branchTurns = branchMessages.filter((item) => item.role === 'user' && !item.is_hidden).length;
     const { data: versionsData, error: versionsError } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).eq('is_active', true).lte('summarized_through_turn', branchTurns).order('created_at');
-    if (versionsError && versionsError.code !== 'PGRST205') { addError(versionsError.message); setMessageActionBusy(false); return; }
+    if (versionsError && versionsError.code !== 'PGRST205') { addError(versionsError.message); branchInFlightRef.current = false; return; }
     const versions = (versionsData as SummaryVersion[] | null) ?? [];
     const branchSummary = versions.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
     const branchSummaryTurn = versions.length ? versions[versions.length - 1].summarized_through_turn : 0;
@@ -930,12 +973,13 @@ export default function ChatPage() {
       summary_cost_currency_override: session.summary_cost_currency_override,
       summary_cost_threshold_override: session.summary_cost_threshold_override,
     }).select('id').single();
-    if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); setMessageActionBusy(false); return; }
+    if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); branchInFlightRef.current = false; return; }
     const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, command_id, command_name, command_prompt }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, command_id, command_name, command_prompt }));
     if (copiedMessages.length) await supabase.from('messages').insert(copiedMessages);
     if (versions.length) await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost })));
     if (storyNotes.length) await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content })));
     showToast('새 채팅방으로 분기했습니다.');
+    branchInFlightRef.current = false;
     navigate(`/chat/${newSession.id}`);
   }
 
@@ -1113,7 +1157,7 @@ export default function ChatPage() {
                     <div className={`flex min-w-0 items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); setEditingCommandName(m.command_name); }} className="text-xs text-slate-500">편집</button>
                       <button onClick={() => void branchFrom(m)} className="text-xs text-slate-500">분기</button>
-                      <button disabled={messageActionBusy} onClick={() => void deleteMsg(m.id)} className="text-xs text-[#DA7F88] disabled:opacity-50">삭제</button>
+                      <button disabled={deletingMessageId === m.id} onClick={() => void deleteMsg(m.id)} className="text-xs text-[#DA7F88] disabled:opacity-50">삭제</button>
                       {m.role === 'assistant' && <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
                         {showCost && <span className="text-right text-[10px] text-slate-500">{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`} {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
                         {showCacheTokens && <span className="text-right text-[10px] text-slate-500">캐시 읽기 {m.cache_read_tokens == null ? '미보고' : m.cache_read_tokens.toLocaleString()} · 쓰기 {m.cache_write_tokens == null ? '미보고' : m.cache_write_tokens.toLocaleString()}</span>}
