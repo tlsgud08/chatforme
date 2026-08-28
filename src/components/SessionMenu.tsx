@@ -9,7 +9,6 @@ import type { ErrorEntry } from '@/pages/ChatPage';
 import { formatKrw, type ExchangeRate } from '@/lib/exchangeRate';
 import { showConfirmDialog } from '@/lib/dialog';
 import OutputTokenSelector, { normalizeOutputTokens } from './OutputTokenSelector';
-import Dropdown from './Dropdown';
 
 interface OpenRouterCredit {
   usage: number;
@@ -404,13 +403,16 @@ export default function SessionMenu({
             <label className="flex items-center justify-between text-xs text-slate-300"><span>최근 응답 가격 조건 사용</span><input type="checkbox" checked={session.summary_cost_enabled_override ?? profile?.summary_cost_enabled ?? false} onChange={(e) => void saveSummarySettings({ summary_cost_enabled_override: e.target.checked })} /></label>
             <p className="mt-1 text-[10px] text-slate-500">최근 5개 AI 응답 중 3개 이상이 기준 가격을 넘을 때만 생성합니다.</p>
             <div className="mt-2 grid grid-cols-[90px_1fr] gap-2">
-              <Dropdown ariaLabel="요약 가격 통화" value={session.summary_cost_currency_override ?? profile?.summary_cost_currency ?? 'USD'} onChange={(summary_cost_currency_override) => void saveSummarySettings({ summary_cost_currency_override: summary_cost_currency_override as 'USD' | 'KRW' })} options={[{ value: 'USD', label: '달러 ($)' }, { value: 'KRW', label: '원화 (₩)' }]} />
+              <select value={session.summary_cost_currency_override ?? profile?.summary_cost_currency ?? 'USD'} onChange={(e) => void saveSummarySettings({ summary_cost_currency_override: e.target.value as 'USD' | 'KRW' })} className="rounded-lg bg-surface2 px-2 py-2 text-xs outline-none"><option value="USD">달러 ($)</option><option value="KRW">원화 (₩)</option></select>
               <input type="number" min={0} step="any" aria-label="요약 가격 기준" value={session.summary_cost_threshold_override ?? profile?.summary_cost_threshold ?? 0} onChange={(e) => void saveSummarySettings({ summary_cost_threshold_override: Math.max(0, Number(e.target.value) || 0) })} className="rounded-lg bg-surface2 px-3 py-2 text-xs outline-none" />
             </div>
             <button type="button" onClick={() => void saveSummarySettings({ summary_cost_enabled_override: null, summary_cost_currency_override: null, summary_cost_threshold_override: null })} className="mt-2 text-[11px] text-slate-400 underline">전역 가격 조건 사용</button>
           </div>
           <label className="mt-3 block text-xs text-slate-400">요약 입력 범위</label>
-          <Dropdown className="mt-1" ariaLabel="요약 입력 범위" value={session.summary_source_mode_override ?? profile?.summary_source_mode ?? 'incremental'} onChange={(summary_source_mode_override) => void saveSummarySettings({ summary_source_mode_override: summary_source_mode_override as 'incremental' | 'full' })} options={[{ value: 'incremental', label: '이전 요약 + 이후 메시지' }, { value: 'full', label: '이전 요약 제외 + 세션 전체 메시지' }]} />
+          <select value={session.summary_source_mode_override ?? profile?.summary_source_mode ?? 'incremental'} onChange={(e) => void saveSummarySettings({ summary_source_mode_override: e.target.value as 'incremental' | 'full' })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none">
+            <option value="incremental">이전 요약 + 이후 메시지</option>
+            <option value="full">이전 요약 제외 + 세션 전체 메시지</option>
+          </select>
           <label className="mt-3 block text-xs text-slate-400">요약 생성 기준 턴</label>
           <input
             type="number"

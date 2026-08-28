@@ -7,7 +7,6 @@ import { guestCreateSession, guestAddMessage } from '@/lib/guest';
 import { formatCount } from '@/lib/works';
 import type { Persona, Profile, StartConfig, Work } from '@/types/db';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import Dropdown from '@/components/Dropdown';
 import { showToast } from '@/lib/toast';
 
 export default function WorkDetailPage() {
@@ -292,7 +291,15 @@ export default function WorkDetailPage() {
         {!isGuest && personas.length > 0 && (
           <div>
             <label className="mb-1 block text-xs text-slate-400">페르소나</label>
-            <Dropdown ariaLabel="페르소나 선택" value={selectedPersonaId} onChange={setSelectedPersonaId} options={personas.map((p) => ({ value: p.id, label: p.name }))} />
+            <select
+              value={selectedPersonaId}
+              onChange={(e) => setSelectedPersonaId(e.target.value)}
+              className="w-full rounded-lg bg-surface px-4 py-2.5 text-sm outline-none"
+            >
+              {personas.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
           </div>
         )}
         {!isGuest && personas.length === 0 && (
@@ -304,7 +311,15 @@ export default function WorkDetailPage() {
         {startConfigs.length > 0 && (
           <div>
             <label className="mb-1 block text-xs text-slate-400">시작 설정</label>
-            <Dropdown ariaLabel="시작 설정 선택" value={selectedConfigId} onChange={setSelectedConfigId} options={startConfigs.map((c, index) => ({ value: c.id, label: c.name || `설정 ${index + 1}` }))} />
+            <select
+              value={selectedConfigId}
+              onChange={(e) => setSelectedConfigId(e.target.value)}
+              className="w-full rounded-lg bg-surface px-4 py-2.5 text-sm outline-none"
+            >
+              {startConfigs.map((c) => (
+                <option key={c.id} value={c.id}>{c.name || `설정 ${startConfigs.indexOf(c) + 1}`}</option>
+              ))}
+            </select>
           </div>
         )}
 

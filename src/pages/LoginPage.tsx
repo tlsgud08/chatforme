@@ -13,10 +13,6 @@ export default function LoginPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    if (!email.trim()) { setError('이메일을 입력해주세요.'); return; }
-    if (!/^\S+@\S+\.\S+$/.test(email)) { setError('올바른 이메일 주소를 입력해주세요.'); return; }
-    if (!password) { setError('비밀번호를 입력해주세요.'); return; }
-    if (mode === 'signup' && !masterPassword) { setError('마스터 비밀번호를 입력해주세요.'); return; }
     setBusy(true);
     try {
       if (mode === 'signin') await signInWithEmail(email, password);
@@ -38,9 +34,10 @@ export default function LoginPage() {
         <p className="mt-1 text-sm text-slate-400">AI 롤플레잉 채팅</p>
       </div>
 
-      <form onSubmit={submit} noValidate className="flex flex-col gap-3">
+      <form onSubmit={submit} className="flex flex-col gap-3">
         <input
           type="email"
+          required
           placeholder="이메일"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -49,6 +46,7 @@ export default function LoginPage() {
         {mode === 'signup' && (
           <input
             type="password"
+            required
             autoComplete="off"
             placeholder="마스터 비밀번호"
             value={masterPassword}
@@ -58,6 +56,7 @@ export default function LoginPage() {
         )}
         <input
           type="password"
+          required
           placeholder="비밀번호"
           value={password}
           onChange={(e) => setPassword(e.target.value)}

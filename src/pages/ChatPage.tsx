@@ -22,7 +22,6 @@ import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
 import { showToast } from '@/lib/toast';
 import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
-import Dropdown from '@/components/Dropdown';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 const GENERATION_TIMEOUT_MS = 120_000;
@@ -1118,7 +1117,7 @@ export default function ChatPage() {
                       {m.role === 'assistant' && <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
                         {showCost && <span className="text-right text-[10px] text-slate-500">{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`} {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
                         {showCacheTokens && <span className="text-right text-[10px] text-slate-500">캐시 읽기 {m.cache_read_tokens == null ? '미보고' : m.cache_read_tokens.toLocaleString()} · 쓰기 {m.cache_write_tokens == null ? '미보고' : m.cache_write_tokens.toLocaleString()}</span>}
-                        {variantsFor(m).length > 1 && <Dropdown className="w-36" ariaLabel="리롤 답변 선택" value={m.id} onChange={(variantId) => void selectVariant(m, variantId)} options={variantsFor(m).map((variant, index, variants) => ({ value: variant.id, label: `답변 비교 ${index + 1}/${variants.length}` }))} />}
+                        {variantsFor(m).length > 1 && <select aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
                         <span className="text-[10px] font-medium text-slate-500">{assistantTurnNumbers.get(m.id) ?? 0}턴</span>
                         {!isGuest && m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성">↻</button>}
                       </div>}

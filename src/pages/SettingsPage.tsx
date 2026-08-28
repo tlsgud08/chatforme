@@ -10,7 +10,6 @@ import { loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import type { Profile, Provider } from '@/types/db';
 import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 import OutputTokenSelector from '@/components/OutputTokenSelector';
-import Dropdown from '@/components/Dropdown';
 
 export default function SettingsPage() {
   const { user, isGuest, signOut } = useAuth();
@@ -268,10 +267,13 @@ export default function SettingsPage() {
             <div className="rounded-lg border border-surface2 p-3">
               <label className="flex items-center justify-between text-xs text-slate-300"><span>최근 응답 가격 조건 사용</span><input type="checkbox" checked={profile.summary_cost_enabled ?? false} onChange={(e) => setProfile({ ...profile, summary_cost_enabled: e.target.checked })} /></label>
               <p className="mt-1 text-[11px] text-slate-500">턴 조건을 만족하고, 최근 5개 AI 응답 중 3개 이상이 기준 가격을 넘을 때 요약합니다.</p>
-              <div className="mt-2 grid grid-cols-[100px_1fr] gap-2"><Dropdown ariaLabel="요약 가격 통화" value={profile.summary_cost_currency ?? 'USD'} onChange={(summary_cost_currency) => setProfile({ ...profile, summary_cost_currency: summary_cost_currency as 'USD' | 'KRW' })} options={[{ value: 'USD', label: '달러 ($)' }, { value: 'KRW', label: '원화 (₩)' }]} /><input type="number" min={0} step="any" value={profile.summary_cost_threshold ?? 0} onChange={(e) => setProfile({ ...profile, summary_cost_threshold: Math.max(0, Number(e.target.value) || 0) })} className="rounded-lg bg-surface2 px-3 py-2 text-xs text-white" /></div>
+              <div className="mt-2 grid grid-cols-[100px_1fr] gap-2"><select value={profile.summary_cost_currency ?? 'USD'} onChange={(e) => setProfile({ ...profile, summary_cost_currency: e.target.value as 'USD' | 'KRW' })} className="rounded-lg bg-surface2 px-2 py-2 text-xs text-white"><option value="USD">달러 ($)</option><option value="KRW">원화 (₩)</option></select><input type="number" min={0} step="any" value={profile.summary_cost_threshold ?? 0} onChange={(e) => setProfile({ ...profile, summary_cost_threshold: Math.max(0, Number(e.target.value) || 0) })} className="rounded-lg bg-surface2 px-3 py-2 text-xs text-white" /></div>
             </div>
             <label className="text-xs text-slate-400">요약 입력 범위
-              <Dropdown className="mt-1" ariaLabel="요약 입력 범위" value={profile.summary_source_mode ?? 'incremental'} onChange={(summary_source_mode) => setProfile({ ...profile, summary_source_mode: summary_source_mode as 'incremental' | 'full' })} options={[{ value: 'incremental', label: '이전 요약 + 이후 메시지' }, { value: 'full', label: '이전 요약 제외 + 세션 전체 메시지' }]} />
+              <select value={profile.summary_source_mode ?? 'incremental'} onChange={(e) => setProfile({ ...profile, summary_source_mode: e.target.value as 'incremental' | 'full' })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none">
+                <option value="incremental">이전 요약 + 이후 메시지</option>
+                <option value="full">이전 요약 제외 + 세션 전체 메시지</option>
+              </select>
             </label>
             <label className="text-xs text-slate-400">Summary level (0~10)
               <input type="number" min={0} max={10} value={profile.summary_level ?? 5} onChange={(e) => setProfile({ ...profile, summary_level: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
