@@ -72,6 +72,15 @@ async function fetchAllSessionMessages(sessionId: string): Promise<Message[]> {
   }
 }
 
+function orderMessagesByTurn(messages: Message[]): Message[] {
+  return [...messages].sort((left, right) => {
+    if (left.turn_index !== right.turn_index) return left.turn_index - right.turn_index;
+    if (left.role !== right.role) return left.role === 'user' ? -1 : 1;
+    const createdAtOrder = left.created_at.localeCompare(right.created_at);
+    return createdAtOrder || left.id.localeCompare(right.id);
+  });
+}
+
 async function fetchRerollVariants(sessionId: string, groupId: string): Promise<Message[]> {
   const { data, error } = await supabase.from('messages')
     .select('*')
@@ -950,21 +959,27 @@ export default function ChatPage() {
       branchInFlightRef.current = false;
       return;
     }
-    const branchSource = allMessages.filter((item) => item.is_active_variant !== false);
+    // A previous branch may have given every copied row the same created_at.
+    // turn_index is the stable conversation order, including across branches.
+    const branchSource = orderMessagesByTurn(allMessages.filter((item) => item.is_active_variant !== false));
     const messageIndex = branchSource.findIndex((item) => item.id === message.id);
     if (messageIndex < 0) { branchInFlightRef.current = false; return; }
     const branchMessages = branchSource.slice(0, messageIndex + 1);
     const branchTurns = branchMessages.filter((item) => item.role === 'user' && !item.is_hidden).length;
-    const { data: versionsData, error: versionsError } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).eq('is_active', true).lte('summarized_through_turn', branchTurns).order('created_at');
+    const { data: versionsData, error: versionsError } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).eq('is_active', true).lte('summarized_through_turn', branchTurns).order('summarized_through_turn').order('created_at');
     if (versionsError && versionsError.code !== 'PGRST205') { addError(versionsError.message); branchInFlightRef.current = false; return; }
     const versions = (versionsData as SummaryVersion[] | null) ?? [];
     const branchSummary = versions.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
-    const branchSummaryTurn = versions.length ? versions[versions.length - 1].summarized_through_turn : 0;
+    const branchSummaryTurn = Math.max(0, ...versions.map((version) => version.summarized_through_turn));
+    const totalInputTokens = branchMessages.reduce((total, item) => total + item.input_tokens, 0);
+    const totalOutputTokens = branchMessages.reduce((total, item) => total + item.output_tokens, 0);
+    const totalCost = branchMessages.reduce((total, item) => total + item.cost, 0);
     const { data: newSession, error } = await supabase.from('sessions').insert({
       user_id: user.id, work_id: session.work_id, title: `${session.title} (분기)`, persona_id: session.persona_id,
       start_config_id: session.start_config_id, user_note: session.user_note, output_tokens_override: session.output_tokens_override,
       summary: branchSummary, auto_summary_enabled: session.auto_summary_enabled, summary_interval: session.summary_interval,
       summary_last_turn: branchSummaryTurn, summary_model_override: session.summary_model_override,
+      total_input_tokens: totalInputTokens, total_output_tokens: totalOutputTokens, total_cost: totalCost,
       summary_reasoning_override: session.summary_reasoning_override, summary_interval_override: session.summary_interval_override,
       summary_level_override: session.summary_level_override, summary_allow_omission_override: session.summary_allow_omission_override,
       summary_parameters_enabled_override: session.summary_parameters_enabled_override,
@@ -974,10 +989,17 @@ export default function ChatPage() {
       summary_cost_threshold_override: session.summary_cost_threshold_override,
     }).select('id').single();
     if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); branchInFlightRef.current = false; return; }
-    const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, command_id, command_name, command_prompt }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, command_id, command_name, command_prompt }));
-    if (copiedMessages.length) await supabase.from('messages').insert(copiedMessages);
-    if (versions.length) await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost })));
-    if (storyNotes.length) await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content })));
+    const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at }));
+    const { error: messagesError } = copiedMessages.length ? await supabase.from('messages').insert(copiedMessages) : { error: null };
+    const { error: summariesError } = !messagesError && versions.length ? await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost, created_at: version.created_at }))) : { error: null };
+    const { error: notesError } = !messagesError && !summariesError && storyNotes.length ? await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content, created_at: note.created_at, updated_at: note.updated_at }))) : { error: null };
+    const copyError = messagesError ?? summariesError ?? notesError;
+    if (copyError) {
+      await supabase.from('sessions').delete().eq('id', newSession.id);
+      addError(`분기 채팅방 복사에 실패했습니다: ${copyError.message}`);
+      branchInFlightRef.current = false;
+      return;
+    }
     showToast('새 채팅방으로 분기했습니다.');
     branchInFlightRef.current = false;
     navigate(`/chat/${newSession.id}`);
