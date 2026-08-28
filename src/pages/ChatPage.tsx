@@ -152,6 +152,10 @@ function describeUnknownError(error: unknown): string {
   return String(error);
 }
 
+function isUniqueViolation(error: unknown): boolean {
+  return !!error && typeof error === 'object' && 'code' in error && error.code === '23505';
+}
+
 function isNearScrollBottom(element: HTMLDivElement): boolean {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
 }
@@ -734,6 +738,12 @@ export default function ChatPage() {
         })
         .select('*').single();
       if (userMessageError) {
+        if (isUniqueViolation(userMessageError)) {
+          addError('이미 같은 턴의 메시지가 전송되었습니다. 대화를 새로고침했습니다.');
+          await loadLatestMessages().catch((error) => addError(`메시지 새로고침 실패: ${describeUnknownError(error)}`));
+          releaseSend();
+          return;
+        }
         addError(userMessageError.message);
         setInput(submittedInput);
         setSelectedCommand(submittedCommand);
@@ -761,7 +771,14 @@ export default function ChatPage() {
         input_tokens: 0, output_tokens: 0, cost: 0, reroll_group_id: rerollGroupId,
         reroll_index: rerollIndex, is_active_variant: true, generation_status: 'streaming',
       }).select('id').single();
-      if (draftError || !draft) throw draftError ?? new Error('응답 임시 저장 공간을 만들 수 없습니다.');
+      if (draftError || !draft) {
+        if (isUniqueViolation(draftError)) {
+          addError('이 턴의 응답이 이미 생성 중이거나 저장되었습니다. 대화를 새로고침했습니다.');
+          await loadLatestMessages().catch((error) => addError(`메시지 새로고침 실패: ${describeUnknownError(error)}`));
+          return;
+        }
+        throw draftError ?? new Error('응답 임시 저장 공간을 만들 수 없습니다.');
+      }
       draftMessageId = draft.id;
       startGenerationTimeout();
       const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
