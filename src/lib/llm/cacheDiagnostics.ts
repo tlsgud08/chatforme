@@ -23,15 +23,15 @@ export function diagnosticSources(
   messages: { role: 'user' | 'assistant'; content: string }[],
 ): DiagnosticSource[] {
   const stable: DiagnosticSource[] = [
-    { key: 'core', label: 'core', content: parts.core },
-    { key: 'persona', label: 'persona', content: parts.persona },
-    { key: 'userNote', label: 'userNote', content: parts.userNote },
-    { key: 'summary', label: 'summary', content: parts.summary },
-    { key: 'storyNotes', label: 'storyNotes', content: parts.storyNotes ?? '' },
+    { key: 'core', label: 'System Prompt + Main Prompt', content: parts.core },
+    { key: 'persona', label: '{PC} Information', content: parts.persona },
+    { key: 'userNote', label: 'User Notes', content: parts.userNote },
+    { key: 'summary', label: 'Previous Story Summary', content: parts.summary },
+    { key: 'storyNotes', label: 'Story Notes', content: parts.storyNotes ?? '' },
   ];
   const history = messages.slice(0, -1).map((message, index) => ({
     key: `history:${index}:${message.role}`,
-    label: `history ${message.role} #${Math.floor(index / 2) + 1}`,
+    label: `${message.role === 'user' ? 'User' : 'Assistant'} History #${Math.floor(index / 2) + 1}`,
     content: message.content,
   }));
   const current = messages.at(-1);
@@ -40,8 +40,8 @@ export function diagnosticSources(
     ...history,
     // Active keywords stay a system instruction, but are physically placed after
     // stable history so their volatility cannot invalidate that prefix.
-    { key: 'activeKeywords', label: 'activeKeywords', content: parts.keywords },
-    ...(current ? [{ key: 'currentUserInput', label: 'current user input', content: current.content }] : []),
+    { key: 'activeKeywords', label: 'Active Keywords', content: parts.keywords },
+    ...(current ? [{ key: 'currentUserInput', label: 'Current User Input', content: current.content }] : []),
   ];
 }
 

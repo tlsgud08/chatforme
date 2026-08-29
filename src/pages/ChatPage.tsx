@@ -500,7 +500,7 @@ export default function ChatPage() {
     const throughTurn = Math.max(0, Math.min(requestedThroughTurn ?? latestTurn, latestTurn));
     const activeSourceMessages = messagesThroughTurn(allActiveMessages, throughTurn);
     let previous = archivesToMerge.length > 0
-      ? archivesToMerge.join('\n\n--- 통합 대상 요약 구분 ---\n\n')
+      ? archivesToMerge.join('\n\n--- Summary to Merge ---\n\n')
       : '';
     let previousTurn = 0;
     if (archivesToMerge.length === 0 && sourceMode === 'incremental' && throughTurn > 0) {
@@ -524,8 +524,8 @@ export default function ChatPage() {
     if (candidates.length === 0 && archivesToMerge.length === 0) { addError('새로 요약할 대화가 없습니다.'); return; }
     setSummaryGenerating(true);
     try {
-      const dialogue = candidates.map((message) => `[${message.is_hidden ? '숨김 시작 설정' : message.role === 'user' ? '사용자' : 'AI'}]\n${message.content}`).join('\n\n');
-      const input = `${previous ? `=== 이전 요약 노트${archivesToMerge.length > 1 ? ' (선택한 복수 노트를 하나로 통합)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== 새로 요약할 대화 ===\n${dialogue}` : '=== 요청 ===\n선택한 요약 노트들을 누락과 단절 없이 하나의 최신 요약 노트로 통합하세요.'}`;
+      const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${message.content}`).join('\n\n');
+      const input = `${previous ? `=== Previous Summary Notes${archivesToMerge.length > 1 ? ' (merge the selected notes into one)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== Dialogue to Summarize ===\n${dialogue}` : '=== Request ===\nMerge the selected summary notes into one up-to-date summary without omissions or discontinuities.'}`;
       const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
       const allowOmission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
       const parametersEnabled = !profile.summary_prompt?.trim() || (session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true);
@@ -634,7 +634,7 @@ export default function ChatPage() {
         const prior = (data as SummaryVersion[] | null) ?? [];
         const selectedPrior = prior.filter((version) => version.is_active);
         const restored = selectedPrior.length ? selectedPrior : prior.slice(0, 1);
-        effectiveSummary = restored.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
+        effectiveSummary = restored.map((version) => version.content).join('\n\n--- Additional Summary Note ---\n\n');
         effectiveSummaryTurn = restored.reduce((latest, version) => Math.max(latest, version.summarized_through_turn), 0);
         rerollVersionIds = restored.map((version) => version.id);
       }
@@ -653,7 +653,7 @@ export default function ChatPage() {
     const text = options?.reroll ? rerollUserMessage?.content ?? '' : submittedInput;
     const commandName = options?.reroll ? rerollUserMessage?.command_name : submittedCommand?.name;
     const commandPrompt = options?.reroll ? rerollCommandPrompt : submittedCommand?.prompt.trim() ?? '';
-    const promptText = commandPrompt ? `${text}${text ? '\n\n' : ''}[선택한 명령어 /${commandName}]\n${commandPrompt}` : text;
+    const promptText = commandPrompt ? `${text}${text ? '\n\n' : ''}[Selected Command /${commandName}]\n${commandPrompt}` : text;
     const controller = new AbortController();
     abortControllerRef.current = controller;
     let generationTimedOut = false;
@@ -940,7 +940,7 @@ export default function ChatPage() {
           await supabase.from('summary_versions').update({ is_active: true }).eq('id', fallback.id);
           remainingActive = [fallback];
         }
-        const nextSummary = remainingActive.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
+        const nextSummary = remainingActive.map((version) => version.content).join('\n\n--- Additional Summary Note ---\n\n');
         const nextSummaryTurn = Math.max(0, ...remainingActive.map((version) => version.summarized_through_turn));
         await supabase.from('sessions').update({ summary: nextSummary, summary_last_turn: nextSummaryTurn }).eq('id', session.id);
         setSession((current) => current ? { ...current, summary: nextSummary, summary_last_turn: nextSummaryTurn } : current);
@@ -999,7 +999,7 @@ export default function ChatPage() {
     const { data: versionsData, error: versionsError } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).eq('is_active', true).lte('summarized_through_turn', branchTurns).order('summarized_through_turn').order('created_at');
     if (versionsError && versionsError.code !== 'PGRST205') { addError(versionsError.message); branchInFlightRef.current = false; return; }
     const versions = (versionsData as SummaryVersion[] | null) ?? [];
-    const branchSummary = versions.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
+    const branchSummary = versions.map((version) => version.content).join('\n\n--- Additional Summary Note ---\n\n');
     const branchSummaryTurn = Math.max(0, ...versions.map((version) => version.summarized_through_turn));
     const totalInputTokens = branchMessages.reduce((total, item) => total + item.input_tokens, 0);
     const totalOutputTokens = branchMessages.reduce((total, item) => total + item.output_tokens, 0);
