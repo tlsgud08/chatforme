@@ -20,7 +20,7 @@ function normalizeMessages(messages: ChatMessage[]): ChatMessage[] {
     }
   }
   if (result.length > 0 && result[0].role !== 'user') {
-    result.unshift({ role: 'user', content: '(계속)' });
+    result.unshift({ role: 'user', content: '(Continue)' });
   }
   return result;
 }

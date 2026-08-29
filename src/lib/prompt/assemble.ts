@@ -26,30 +26,33 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
   // L1: core — 플랫폼 시스템 + 메인 프롬프트 (세션 내 불변)
   const coreParts: string[] = [];
   if (input.systemPrompt.trim()) coreParts.push(input.systemPrompt.trim());
-  if (input.mainPrompt.trim()) coreParts.push(section('작품 설정', input.mainPrompt));
+  if (input.mainPrompt.trim()) coreParts.push(section('Main Prompt', input.mainPrompt));
 
   // L2: persona — 희소 변경
   let persona = '';
   if (input.persona && (input.persona.name || input.persona.description)) {
-    persona = section('사용자 페르소나', `이름: ${input.persona.name}\n${input.persona.description}`);
+    persona = section(
+      '{PC} Information',
+      `{PC} = ${input.persona.name}\n{PC} Name: ${input.persona.name}\n{PC} Description: ${input.persona.description}`,
+    );
   }
 
   // L3: userNote — 종종 변경
   let userNote = '';
   if (input.userNote && input.userNote.trim()) {
-    userNote = section('유저 노트', input.userNote);
+    userNote = section('User Notes', input.userNote);
   }
 
   // L4: summary — 재요약 시 변경
-  const summary = input.summary?.trim() ? section('지난 줄거리 요약', input.summary) : '';
+  const summary = input.summary?.trim() ? section('Previous Story Summary', input.summary) : '';
   const storyNotes = input.storyNotes?.length
-    ? section('스토리 메모', input.storyNotes.join('\n\n'))
+    ? section('Story Notes', input.storyNotes.join('\n\n'))
     : '';
 
   // Dynamic: keywords — 메시지마다 변경, 캐싱 안 함
   let keywords = '';
   if (input.keywordBookContents && input.keywordBookContents.length > 0) {
-    keywords = section('활성 키워드', input.keywordBookContents.join('\n\n'));
+    keywords = section('Active Keywords', input.keywordBookContents.join('\n\n'));
   }
 
   const messages: ChatMessage[] = [
