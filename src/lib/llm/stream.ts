@@ -42,6 +42,8 @@ export interface StreamResult {
   cacheCreationTokens: number | null;
   cacheReadTokens: number | null;
   cost: number;
+  generationId: string | null;
+  upstreamProvider: string | null;
 }
 
 export async function readOpenAIStream(
@@ -56,6 +58,8 @@ export async function readOpenAIStream(
   let cost = 0;
   let receivedDone = false;
   let finishReason: string | null = null;
+  let generationId: string | null = null;
+  let upstreamProvider: string | null = null;
 
   await readLines(body, (line) => {
     const trimmed = line.trim();
@@ -64,6 +68,8 @@ export async function readOpenAIStream(
     if (data === '[DONE]') { receivedDone = true; return; }
     try {
       const parsed = JSON.parse(data);
+      if (typeof parsed.id === 'string') generationId = parsed.id;
+      if (typeof parsed.provider === 'string') upstreamProvider = parsed.provider;
       if (parsed.error) {
         const message = parsed.error.message ?? parsed.error.code ?? JSON.stringify(parsed.error);
         throw new Error(`OpenRouter 스트리밍 오류: ${message}`);
@@ -95,5 +101,5 @@ export async function readOpenAIStream(
   if (!receivedDone) throw new Error(`스트리밍 연결이 정상 완료 신호 없이 종료되었습니다${finishReason ? ` (finish_reason: ${finishReason})` : ''}.`);
   if (!fullText.trim()) throw new Error('모델이 빈 응답을 반환했습니다.');
 
-  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost };
+  return { text: fullText, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost, generationId, upstreamProvider };
 }

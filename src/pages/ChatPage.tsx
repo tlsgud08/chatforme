@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
-import { PROVIDER_LABELS, type ReasoningSelection } from '@/lib/llm/types';
+import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '@/lib/llm/types';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import { assemblePrompt } from '@/lib/prompt/assemble';
@@ -176,6 +176,33 @@ function shouldSubmitOnEnter() {
   return !mobileUserAgent && !touchPhoneLayout;
 }
 
+function CacheDiagnosticPanel({ diagnostic }: { diagnostic: CacheDiagnostic }) {
+  const ratio = diagnostic.cacheReadRatio == null ? '미보고' : `${(diagnostic.cacheReadRatio * 100).toFixed(1)}%`;
+  return (
+    <details className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 text-[10px] text-slate-400">
+      <summary className="cursor-pointer font-semibold text-amber-300">캐시 진단 (Estimated) · read ratio {ratio}</summary>
+      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+        <span>prompt_tokens</span><span>{diagnostic.promptTokens.toLocaleString()}</span>
+        <span>cached_tokens</span><span>{diagnostic.cachedTokens?.toLocaleString() ?? '미보고'}</span>
+        <span>cache_write_tokens</span><span>{diagnostic.cacheWriteTokens?.toLocaleString() ?? '미보고'}</span>
+        <span>model / upstream</span><span className="break-all">{diagnostic.model} / {diagnostic.upstreamProvider ?? '미보고'}</span>
+        <span>history</span><span>{diagnostic.historyChange}</span>
+        <span>session</span><span className="break-all">{diagnostic.sessionId}</span>
+        <span>request / generation</span><span className="break-all">{diagnostic.requestId} / {diagnostic.generationId ?? '미보고'}</span>
+      </div>
+      <div className="mt-2 border-t border-amber-500/20 pt-2 font-mono">
+        {diagnostic.components.map((component) => (
+          <div key={component.key} className="grid grid-cols-[1fr_auto_auto] gap-2">
+            <span className="truncate" title={`${component.label} · ${component.fingerprint}`}>{component.label}</span>
+            <span>{component.change}</span><span>{component.cacheStatus}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-slate-500">system 내부 구성 요소, role/separator 및 provider tokenizer 오버헤드를 근사한 경계이며 실제 provider breakpoint가 아닙니다.</p>
+    </details>
+  );
+}
+
 export default function ChatPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -194,6 +221,7 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [cacheDiagnostics, setCacheDiagnostics] = useState<Record<string, CacheDiagnostic>>({});
   const [showCost, setShowCost] = useState(() => localStorage.getItem('chatforme.showCost') !== '0');
   const [showCostKrw, setShowCostKrw] = useState(() => localStorage.getItem('inuchat.showCostKrw') === '1');
   const [showCacheTokens, setShowCacheTokens] = useState(() => localStorage.getItem('inuchat.showCacheTokens') === '1');
@@ -506,7 +534,7 @@ export default function ChatPage() {
       const summaryCore = [profile.summary_prompt?.trim() || DEFAULT_SUMMARY_PROMPT, parameterBlock, extraNote].filter(Boolean).join('\n\n');
       const result = await generate('openrouter', {
         apiKey,
-        sessionId: session.id,
+        sessionId: `${session.id}:summary`,
         model: session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
         reasoning: normalizeReasoning(session.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
         systemParts: { core: summaryCore, persona: '', userNote: '', summary: '', keywords: '' },
@@ -692,6 +720,7 @@ export default function ChatPage() {
           is_hidden: false, created_at: new Date().toISOString(),
         };
         guestAddMessage(guestSession.id, aiMsg);
+        setCacheDiagnostics((current) => ({ ...current, [aiMsg.id]: result.cacheDiagnostic }));
         setMessages((m) => [...m, toMsg(aiMsg)]);
         const newIn = guestSession.total_input_tokens + result.usage.inputTokens;
         const newOut = guestSession.total_output_tokens + result.usage.outputTokens;
@@ -804,6 +833,7 @@ export default function ChatPage() {
       if (finalMessageError || !aiMsg) throw finalMessageError ?? new Error('최종 응답을 저장하지 못했습니다.');
       const messagesAfterResponse = aiMsg ? [...currentMessages, aiMsg as Message] : currentMessages;
       if (aiMsg) {
+        setCacheDiagnostics((current) => ({ ...current, [aiMsg.id]: result.cacheDiagnostic }));
         if (rerollTarget) await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
         if (rerollVersionIds) {
           await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id);
@@ -1175,6 +1205,7 @@ export default function ChatPage() {
                   {m.role === 'assistant' && m.generation_status === 'interrupted' && m.content && (
                     <p className="text-xs text-amber-400">응답이 중간에 중단되어 수신한 내용까지만 저장되었습니다.</p>
                   )}
+                  {debugMode && m.role === 'assistant' && cacheDiagnostics[m.id] && <CacheDiagnosticPanel diagnostic={cacheDiagnostics[m.id]} />}
                   {!m.is_hidden && (
                     <div className={`flex min-w-0 items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); setEditingCommandName(m.command_name); }} className="text-xs text-slate-500">편집</button>
