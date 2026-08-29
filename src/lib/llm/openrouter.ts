@@ -1,6 +1,7 @@
 import type { GenerateOptions, GenerateResult, LLMAdapter, SystemParts } from './types';
 import { readOpenAIStream } from './stream';
 import { openRouterReasoningPayload } from './reasoningPayloads';
+import { createCacheDiagnostic, diagnosticSources } from './cacheDiagnostics';
 
 const MAX_SESSION_ID_LENGTH = 64;
 
@@ -8,9 +9,9 @@ function openRouterSessionId(value: string): string {
   return value.trim().slice(0, MAX_SESSION_ID_LENGTH);
 }
 
-// 정적인 것부터 동적인 것 순으로 concat — prefix caching 최적화
+// Stable system instructions remain a single message at the front of the payload.
 function buildSystem(parts: SystemParts): string {
-  return [parts.core, parts.persona, parts.userNote, parts.summary, parts.keywords]
+  return [parts.core, parts.persona, parts.userNote, parts.summary, parts.storyNotes]
     .filter(Boolean)
     .join('\n\n');
 }
@@ -20,10 +21,16 @@ export const openrouterAdapter: LLMAdapter = {
   provider: 'openrouter',
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
     const system = buildSystem(opts.systemParts);
+    const history = opts.messages.slice(0, -1);
+    const currentInput = opts.messages.at(-1);
     const messages = [
       ...(system ? [{ role: 'system' as const, content: system }] : []),
-      ...opts.messages,
+      ...history,
+      ...(opts.systemParts.keywords ? [{ role: 'system' as const, content: opts.systemParts.keywords }] : []),
+      ...(currentInput ? [currentInput] : []),
     ];
+    const sources = diagnosticSources(opts.systemParts, opts.messages);
+    const requestId = crypto.randomUUID();
 
     const streaming = !!opts.onChunk;
 
@@ -55,17 +62,16 @@ export const openrouterAdapter: LLMAdapter = {
 
     if (streaming) {
       if (!res.body) throw new Error('OpenRouter 스트리밍 응답 본문이 없습니다.');
-      const { text, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost } =
+      const { text, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost, generationId, upstreamProvider } =
         await readOpenAIStream(res.body, opts.onChunk!);
-      return { text, usage: { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost } };
+      const usage = { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost };
+      return { text, usage, cacheDiagnostic: await createCacheDiagnostic({ sessionId: opts.sessionId, model: opts.model, sources, usage, requestId: res.headers.get('x-request-id') ?? requestId, generationId, upstreamProvider }) };
     }
 
     const data = await res.json();
     const text: string = data.choices?.[0]?.message?.content ?? '';
 
-    return {
-      text,
-      usage: {
+    const usage = {
         inputTokens: data.usage?.prompt_tokens ?? 0,
         outputTokens: data.usage?.completion_tokens ?? 0,
         cacheCreationTokens: data.usage?.prompt_tokens_details?.cache_write_tokens
@@ -76,7 +82,11 @@ export const openrouterAdapter: LLMAdapter = {
           ?? data.usage?.cache_read_input_tokens
           ?? null,
         cost: data.usage?.cost ?? 0,
-      },
+      };
+    return {
+      text,
+      usage,
+      cacheDiagnostic: await createCacheDiagnostic({ sessionId: opts.sessionId, model: opts.model, sources, usage, requestId: res.headers.get('x-request-id') ?? requestId, generationId: typeof data.id === 'string' ? data.id : null, upstreamProvider: typeof data.provider === 'string' ? data.provider : null }),
     };
   },
 };

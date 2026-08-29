@@ -10,7 +10,34 @@ export interface SystemParts {
   persona: string;
   userNote: string;
   summary: string;
+  storyNotes?: string;
   keywords: string;
+}
+
+export type PromptComponentStatus = 'CACHED' | 'PARTIAL' | 'UNCACHED';
+
+export interface PromptDiagnosticComponent {
+  key: string;
+  label: string;
+  estimatedTokens: number;
+  fingerprint: string;
+  change: 'SAME' | 'CHANGED' | 'NEW';
+  cacheStatus: PromptComponentStatus;
+}
+
+export interface CacheDiagnostic {
+  estimated: true;
+  promptTokens: number;
+  cachedTokens: number | null;
+  cacheWriteTokens: number | null;
+  cacheReadRatio: number | null;
+  model: string;
+  upstreamProvider: string | null;
+  sessionId: string;
+  requestId: string;
+  generationId: string | null;
+  historyChange: 'SAME' | 'CHANGED' | 'TRUNCATED' | 'EXTENDED' | 'NEW';
+  components: PromptDiagnosticComponent[];
 }
 
 /** Native provider values. An effort with the same label is not comparable across providers. */
@@ -43,6 +70,7 @@ export interface Usage {
 export interface GenerateResult {
   text: string;
   usage: Usage;
+  cacheDiagnostic: CacheDiagnostic;
 }
 
 export interface LLMAdapter {

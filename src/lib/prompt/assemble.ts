@@ -41,12 +41,10 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
   }
 
   // L4: summary — 재요약 시 변경
-  const memoryParts: string[] = [];
-  if (input.summary && input.summary.trim()) {
-    memoryParts.push(section('지난 줄거리 요약', input.summary));
-  }
-  if (input.storyNotes?.length) memoryParts.push(section('스토리 메모', input.storyNotes.join('\n\n')));
-  const summary = memoryParts.join('\n\n');
+  const summary = input.summary?.trim() ? section('지난 줄거리 요약', input.summary) : '';
+  const storyNotes = input.storyNotes?.length
+    ? section('스토리 메모', input.storyNotes.join('\n\n'))
+    : '';
 
   // Dynamic: keywords — 메시지마다 변경, 캐싱 안 함
   let keywords = '';
@@ -60,7 +58,7 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
   ];
 
   return {
-    systemParts: { core: coreParts.join('\n\n'), persona, userNote, summary, keywords },
+    systemParts: { core: coreParts.join('\n\n'), persona, userNote, summary, storyNotes, keywords },
     messages,
   };
 }
