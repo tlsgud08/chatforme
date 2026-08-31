@@ -99,9 +99,17 @@ function loadGuestSettings(): GuestSettings {
 
 const sessionSettingsKey = (id: string) => `chatforme.session.${id}.settings`;
 interface SessionSettings { provider: Provider; model: string; reasoning: ReasoningSelection; }
-function loadSessionSettings(id: string, profile: Profile | null): SessionSettings {
+function loadSessionSettings(session: Session, profile: Profile | null): SessionSettings {
+  if (session.model_override) {
+    const model = toOpenRouterModel('openrouter', session.model_override);
+    return {
+      provider: 'openrouter',
+      model,
+      reasoning: normalizeReasoning(session.reasoning_override, 'openrouter', model),
+    };
+  }
   try {
-    const raw = localStorage.getItem(sessionSettingsKey(id));
+    const raw = localStorage.getItem(sessionSettingsKey(session.id));
     if (raw) {
       const parsed = JSON.parse(raw) as SessionSettings;
       if (parsed.model) {
@@ -255,6 +263,7 @@ export default function ChatPage() {
   const sendInFlightRef = useRef(false);
   const deleteInFlightRef = useRef(false);
   const branchInFlightRef = useRef(false);
+  const settingsSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     setVisibleTurnLimit(MESSAGE_TURN_PAGE_SIZE);
@@ -359,6 +368,7 @@ export default function ChatPage() {
   }
 
   useEffect(() => {
+    let cancelled = false;
     if (isGuest) {
       const gs = guestGetSession(sessionId!);
       if (!gs) return;
@@ -371,14 +381,15 @@ export default function ChatPage() {
         .then(({ data }) => setSystemPrompt((data as { system_prompt: string } | null)?.system_prompt ?? ''));
       supabase.from('keyword_books').select('*').eq('work_id', gs.work_id).order('sort_order')
         .then(({ data }) => setKeywordBooks((data as KeywordBook[]) ?? []));
-      return;
+      return () => { cancelled = true; };
     }
 
     (async () => {
       const { data: s } = await supabase.from('sessions').select('*').eq('id', sessionId).single();
-      if (!s) return;
+      if (!s || cancelled) return;
       const sess = s as Session;
       setSession(sess);
+      settingsSessionIdRef.current = null;
 
       const [{ data: w }, { data: p }, { data: cfg }, messagePage, { count: userTurnCount }, { data: kbs }, { data: notes }] = await Promise.all([
         supabase.from('works').select('*').eq('id', sess.work_id).single(),
@@ -389,8 +400,13 @@ export default function ChatPage() {
         supabase.from('keyword_books').select('*').eq('work_id', sess.work_id).order('sort_order'),
         supabase.from('story_notes').select('*').eq('session_id', sess.id).order('created_at'),
       ]);
+      if (cancelled) return;
       setWork(w as Work);
       setProfile(p as Profile);
+      const savedSettings = loadSessionSettings(sess, p as Profile);
+      setSessionModel(savedSettings.model);
+      setSessionReasoning(savedSettings.reasoning);
+      settingsSessionIdRef.current = sess.id;
       setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
       const loadedMessages = messagePage.messages;
       // A missing in-memory controller does not prove that generation stopped:
@@ -404,30 +420,32 @@ export default function ChatPage() {
 
       if (sess.persona_id) {
         const { data: pn } = await supabase.from('personas').select('*').eq('id', sess.persona_id).single();
-        if (pn) setPersona(pn as Persona);
+        if (pn && !cancelled) setPersona(pn as Persona);
       }
       if (sess.start_config_id) {
         const { data: sc } = await supabase.from('start_configs').select('*').eq('id', sess.start_config_id).single();
-        if (sc) setStartConfig(sc as StartConfig);
+        if (sc && !cancelled) setStartConfig(sc as StartConfig);
       }
     })();
+    return () => { cancelled = true; };
   }, [sessionId, user, isGuest]);
 
   useEffect(() => {
-    if (!isGuest && profile && sessionId) {
-      const s = loadSessionSettings(sessionId, profile);
-      setSessionModel(s.model);
-      setSessionReasoning(s.reasoning);
-    }
-  }, [profile, sessionId, isGuest]);
-
-  useEffect(() => {
-    if (isGuest || !sessionId || !sessionModel) return;
+    if (isGuest || !sessionId || !sessionModel || settingsSessionIdRef.current !== sessionId) return;
     localStorage.setItem(sessionSettingsKey(sessionId), JSON.stringify({
       provider: 'openrouter',
       model: sessionModel,
       reasoning: sessionReasoning,
     }));
+    const timer = window.setTimeout(() => {
+      void supabase.from('sessions').update({
+        model_override: sessionModel,
+        reasoning_override: sessionReasoning,
+      }).eq('id', sessionId).then(({ error }) => {
+        if (error) addError(`모델 설정 저장 실패: ${describeUnknownError(error)}`);
+      });
+    }, 200);
+    return () => window.clearTimeout(timer);
   }, [isGuest, sessionId, sessionModel, sessionReasoning]);
 
   useEffect(() => {
