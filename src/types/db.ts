@@ -109,6 +109,8 @@ export interface Session {
   start_config_id: string | null;
   user_note: string;
   output_tokens_override: number | null;
+  model_override: string | null;
+  reasoning_override: import('@/lib/llm/types').ReasoningSelection | null;
   summary: string;
   total_input_tokens: number;
   total_output_tokens: number;
