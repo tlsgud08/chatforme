@@ -690,6 +690,25 @@ export default function ChatPage() {
     let draftMessageId: string | null = null;
     let lastDraftSave = 0;
     let draftSaveQueue = Promise.resolve();
+    const commitRerollVariant = async (newMessageId: string) => {
+      if (!rerollTarget || !rerollGroupId) return;
+      const previousVariantIds = completeMessages
+        .filter((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === rerollGroupId && message.id !== newMessageId)
+        .map((message) => message.id);
+      if (!previousVariantIds.length) return;
+      const { error } = await supabase.from('messages')
+        .update({ is_active_variant: false, reroll_group_id: rerollGroupId })
+        .in('id', previousVariantIds);
+      if (!error) return;
+
+      // Never leave the newly generated answer active alongside the answer it
+      // was meant to replace. Prefer removing the new row; if that fails, make
+      // one final attempt to mark it inactive before reporting the failure.
+      const { error: cleanupError } = await supabase.from('messages').delete().eq('id', newMessageId);
+      if (cleanupError) await supabase.from('messages').update({ is_active_variant: false }).eq('id', newMessageId);
+      draftMessageId = null;
+      throw new Error(`리롤 답변 전환 실패: ${error.message}`);
+    };
     const onChunk = (t: string) => {
       partialText = t;
       if (sessionId) publishGeneration(sessionId, t);
@@ -852,10 +871,14 @@ export default function ChatPage() {
       const messagesAfterResponse = aiMsg ? [...currentMessages, aiMsg as Message] : currentMessages;
       if (aiMsg) {
         setCacheDiagnostics((current) => ({ ...current, [aiMsg.id]: result.cacheDiagnostic }));
-        if (rerollTarget) await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
+        await commitRerollVariant(aiMsg.id);
         if (rerollVersionIds) {
-          await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id);
-          if (rerollVersionIds.length) await supabase.from('summary_versions').update({ is_active: true }).in('id', rerollVersionIds);
+          const { error: deactivateSummaryError } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id);
+          if (deactivateSummaryError) throw deactivateSummaryError;
+          if (rerollVersionIds.length) {
+            const { error: activateSummaryError } = await supabase.from('summary_versions').update({ is_active: true }).in('id', rerollVersionIds);
+            if (activateSummaryError) throw activateSummaryError;
+          }
         }
         setMessages((current) => rerollTarget
           ? [...current.map((message) => message.id === rerollTarget.id ? { ...message, is_active_variant: false, reroll_group_id: rerollGroupId } : message), aiMsg as Message]
@@ -885,7 +908,12 @@ export default function ChatPage() {
         await draftSaveQueue.catch(() => {});
         const { data: aiMsg } = draftMessageId ? await supabase.from('messages').update({ content: partialText, generation_status: 'interrupted' }).eq('id', draftMessageId).select('*').single() : { data: null };
         if (aiMsg && rerollTarget) {
-          await supabase.from('messages').update({ is_active_variant: false, reroll_group_id: rerollGroupId }).eq('id', rerollTarget.id);
+          try {
+            await commitRerollVariant(aiMsg.id);
+          } catch (rerollError) {
+            addError(describeUnknownError(rerollError));
+            return;
+          }
         }
         if (aiMsg) setMessages((current) => [
           ...current.map((message) => rerollTarget && message.id === rerollTarget.id
@@ -912,7 +940,7 @@ export default function ChatPage() {
   async function deleteMsg(msgId: string) {
     const target = messages.find((message) => message.id === msgId);
     const targetSessionId = target?.session_id;
-    if (!target || deleteInFlightRef.current) return;
+    if (!target || deleteInFlightRef.current || sendInFlightRef.current) return;
     deleteInFlightRef.current = true;
     if (!await showConfirmDialog('이 메시지를 삭제할까요?', '삭제한 메시지는 복구할 수 없습니다.', '삭제')) {
       deleteInFlightRef.current = false;
@@ -933,35 +961,65 @@ export default function ChatPage() {
     if (isGuest && guestSession) {
       guestDeleteMessage(guestSession.id, msgId);
     } else {
+      if (target.role === 'user' && !target.is_hidden && session) {
+        const activeBeforeDelete = completeMessages.filter((message) => message.is_active_variant !== false);
+        const targetIndex = activeBeforeDelete.findIndex((message) => message.id === msgId);
+        const deletedTurn = activeBeforeDelete
+          .slice(0, targetIndex + 1)
+          .filter((message) => message.role === 'user' && !message.is_hidden).length;
+        const { data: versionsData, error: versionsError } = await supabase.from('summary_versions').select('*').eq('session_id', session.id);
+        if (versionsError) {
+          addError(`요약 정보 확인 실패: ${versionsError.message}`);
+          setDeletingMessageId(null);
+          deleteInFlightRef.current = false;
+          return;
+        }
+        const versions = (versionsData as SummaryVersion[] | null) ?? [];
+        const invalidVersions = versions.filter((version) => version.summarized_through_turn >= deletedTurn);
+        const remainingVersions = versions
+          .filter((version) => version.summarized_through_turn < deletedTurn)
+          .sort((a, b) => a.summarized_through_turn - b.summarized_through_turn);
+        const remainingActive = remainingVersions.filter((version) => version.is_active);
+        const fallback = remainingActive.length ? remainingActive : remainingVersions.slice(-1);
+        const nextSummary = fallback.map((version) => version.content).join('\n\n--- Additional Summary Note ---\n\n');
+        const nextSummaryTurn = Math.max(0, ...fallback.map((version) => version.summarized_through_turn));
+
+        // Clear the derived summary before mutating its source message. This
+        // ordering can discard a summary if the later delete fails, but it can
+        // never leave deleted user text in a prompt.
+        const { error: summaryError } = await supabase.from('sessions').update({ summary: nextSummary, summary_last_turn: nextSummaryTurn }).eq('id', session.id);
+        if (summaryError) {
+          addError(`요약 초기화 실패: ${summaryError.message}`);
+          setDeletingMessageId(null);
+          deleteInFlightRef.current = false;
+          return;
+        }
+        if (invalidVersions.length) {
+          const { error: deleteVersionsError } = await supabase.from('summary_versions').delete().in('id', invalidVersions.map((version) => version.id));
+          if (deleteVersionsError) {
+            addError(`이전 요약 삭제 실패: ${deleteVersionsError.message}`);
+            setDeletingMessageId(null);
+            deleteInFlightRef.current = false;
+            return;
+          }
+        }
+        if (fallback.length && !fallback.every((version) => version.is_active)) {
+          const { error: activateVersionError } = await supabase.from('summary_versions').update({ is_active: true }).in('id', fallback.map((version) => version.id));
+          if (activateVersionError) {
+            addError(`이전 요약 복원 실패: ${activateVersionError.message}`);
+            setDeletingMessageId(null);
+            deleteInFlightRef.current = false;
+            return;
+          }
+        }
+        setSession((current) => current ? { ...current, summary: nextSummary, summary_last_turn: nextSummaryTurn } : current);
+      }
       const { data: deleted, error } = await supabase.from('messages').delete().eq('id', msgId).eq('session_id', targetSessionId).select('id');
       if (error || !deleted?.length) {
         addError(error?.message ?? '삭제할 메시지를 찾지 못했습니다.');
         setDeletingMessageId(null);
         deleteInFlightRef.current = false;
         return;
-      }
-      if (target?.role === 'user' && !target.is_hidden && session) {
-        const activeBeforeDelete = completeMessages.filter((message) => message.is_active_variant !== false);
-        const deletedTurn = activeBeforeDelete
-          .slice(0, activeBeforeDelete.findIndex((message) => message.id === msgId) + 1)
-          .filter((message) => message.role === 'user' && !message.is_hidden).length;
-        const { data: versionsData } = await supabase.from('summary_versions').select('*').eq('session_id', session.id);
-        const versions = (versionsData as SummaryVersion[] | null) ?? [];
-        const invalidVersions = versions.filter((version) => version.summarized_through_turn >= deletedTurn);
-        if (invalidVersions.length) await supabase.from('summary_versions').delete().in('id', invalidVersions.map((version) => version.id));
-        const remainingVersions = versions
-          .filter((version) => version.summarized_through_turn < deletedTurn)
-          .sort((a, b) => a.summarized_through_turn - b.summarized_through_turn);
-        let remainingActive = remainingVersions.filter((version) => version.is_active);
-        if (remainingActive.length === 0 && remainingVersions.length > 0) {
-          const fallback = remainingVersions.at(-1)!;
-          await supabase.from('summary_versions').update({ is_active: true }).eq('id', fallback.id);
-          remainingActive = [fallback];
-        }
-        const nextSummary = remainingActive.map((version) => version.content).join('\n\n--- Additional Summary Note ---\n\n');
-        const nextSummaryTurn = Math.max(0, ...remainingActive.map((version) => version.summarized_through_turn));
-        await supabase.from('sessions').update({ summary: nextSummary, summary_last_turn: nextSummaryTurn }).eq('id', session.id);
-        setSession((current) => current ? { ...current, summary: nextSummary, summary_last_turn: nextSummaryTurn } : current);
       }
     }
     const completeAfterDelete = completeMessages.filter((msg) => msg.id !== msgId);
@@ -981,12 +1039,29 @@ export default function ChatPage() {
 
   async function saveEdit(msgId: string) {
     const content = editingContent.trim();
-    if (!content) return;
+    if (!content || sendInFlightRef.current) return;
     const original = messages.find((message) => message.id === msgId);
     const commandId = editingCommandName ? original?.command_id ?? null : null;
     if (isGuest && guestSession) {
       guestUpdateMessage(guestSession.id, msgId, content);
     } else {
+      if (original?.role === 'user' && !original.is_hidden && session) {
+        const completeMessages = await fetchAllSessionMessages(session.id).catch((error) => {
+          addError(`대화 정보 불러오기 실패: ${describeUnknownError(error)}`);
+          return null;
+        });
+        if (!completeMessages) return;
+        const activeMessages = completeMessages.filter((message) => message.is_active_variant !== false);
+        const originalIndex = activeMessages.findIndex((message) => message.id === msgId);
+        const editedTurn = activeMessages.slice(0, originalIndex + 1).filter((message) => message.role === 'user' && !message.is_hidden).length;
+        if (editedTurn <= (session.summary_last_turn ?? 0)) {
+          const { error: clearSummaryError } = await supabase.from('sessions').update({ summary: '', summary_last_turn: 0 }).eq('id', session.id);
+          if (clearSummaryError) { addError(`요약 초기화 실패: ${clearSummaryError.message}`); return; }
+          const { error: deleteVersionsError } = await supabase.from('summary_versions').delete().eq('session_id', session.id).gte('summarized_through_turn', editedTurn);
+          if (deleteVersionsError) { addError(`이전 요약 삭제 실패: ${deleteVersionsError.message}`); return; }
+          setSession((current) => current ? { ...current, summary: '', summary_last_turn: 0 } : current);
+        }
+      }
       const { error } = await supabase.from('messages').update({ content, command_id: commandId, command_name: editingCommandName }).eq('id', msgId);
       if (error) { addError(`메시지 편집 실패: ${error.message}`); return; }
     }
@@ -1163,7 +1238,7 @@ export default function ChatPage() {
                   <div className="flex items-center justify-end gap-2">
                     {editingCommandName && <button onClick={() => setEditingCommandName(null)} className="mr-auto rounded-lg border border-indigo-400/60 bg-indigo-500/15 px-3 py-1.5 text-xs font-semibold text-indigo-300" aria-label={`/${editingCommandName} 명령어 제거`}>×　/{editingCommandName}</button>}
                     <button onClick={() => setEditingId(null)} className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300">취소</button>
-                    <button onClick={() => saveEdit(m.id)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white">저장</button>
+                    <button disabled={sending} onClick={() => saveEdit(m.id)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">저장</button>
                   </div>
                 </div>
               ) : (
@@ -1226,9 +1301,9 @@ export default function ChatPage() {
                   {debugMode && m.role === 'assistant' && cacheDiagnostics[m.id] && <CacheDiagnosticPanel diagnostic={cacheDiagnostics[m.id]} />}
                   {!m.is_hidden && (
                     <div className={`flex min-w-0 items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <button onClick={() => { setEditingId(m.id); setEditingContent(m.content); setEditingCommandName(m.command_name); }} className="text-xs text-slate-500">편집</button>
+                      <button disabled={sending} onClick={() => { setEditingId(m.id); setEditingContent(m.content); setEditingCommandName(m.command_name); }} className="text-xs text-slate-500 disabled:opacity-50">편집</button>
                       <button onClick={() => void branchFrom(m)} className="text-xs text-slate-500">분기</button>
-                      <button disabled={deletingMessageId === m.id} onClick={() => void deleteMsg(m.id)} className="text-xs text-[#DA7F88] disabled:opacity-50">삭제</button>
+                      <button disabled={sending || deletingMessageId === m.id} onClick={() => void deleteMsg(m.id)} className="text-xs text-[#DA7F88] disabled:opacity-50">삭제</button>
                       {m.role === 'assistant' && <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
                         {showCost && <span className="text-right text-[10px] text-slate-500">{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`} {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
                         {showCacheTokens && <span className="text-right text-[10px] text-slate-500">캐시 읽기 {m.cache_read_tokens == null ? '미보고' : m.cache_read_tokens.toLocaleString()} · 쓰기 {m.cache_write_tokens == null ? '미보고' : m.cache_write_tokens.toLocaleString()}</span>}
