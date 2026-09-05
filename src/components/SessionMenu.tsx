@@ -16,8 +16,6 @@ interface OpenRouterCredit {
   remaining: number | null;
 }
 
-const MAX_NOTE = 2000;
-
 interface Props {
   session: Session;
   profile: Profile | null;
@@ -112,9 +110,8 @@ export default function SessionMenu({
   }, [user]);
 
   async function saveNote() {
-    const trimmed = note.slice(0, MAX_NOTE);
-    await supabase.from('sessions').update({ user_note: trimmed }).eq('id', session.id);
-    onUpdate({ user_note: trimmed });
+    await supabase.from('sessions').update({ user_note: note }).eq('id', session.id);
+    onUpdate({ user_note: note });
     flash('유저 노트를 저장했습니다.');
   }
 
@@ -357,14 +354,13 @@ export default function SessionMenu({
         {/* 유저 노트 */}
         <section>
           <label className="mb-1 block text-xs text-slate-400">
-            유저 노트 ({note.length}/{MAX_NOTE})
+            유저 노트 ({note.length}자 · 제한 없음)
           </label>
           <p className="mb-2 text-[11px] text-slate-500">
             이 세션에서만 AI에게 전달되는 메모입니다.
           </p>
           <textarea
             value={note}
-            maxLength={MAX_NOTE}
             onChange={(e) => setNote(e.target.value)}
             rows={8}
             placeholder="예: 내 캐릭터는 항상 존댓말을 쓴다."
