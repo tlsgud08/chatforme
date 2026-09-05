@@ -68,7 +68,7 @@ create table if not exists public.sessions (
   work_id uuid not null references public.works(id) on delete cascade,
   title text not null default '',
   persona_id uuid references public.personas(id) on delete set null,
-  user_note text not null default '',          -- 세션별 유저 노트, 최대 2000자 (앱에서 검증)
+  user_note text not null default '',          -- 세션별 유저 노트 (글자 수 제한 없음)
   output_tokens_override int,                  -- null이면 프로필 기본값 사용
   summary text not null default '',            -- 요약 메모리 (Phase 3에서 채움)
   total_input_tokens bigint not null default 0,
