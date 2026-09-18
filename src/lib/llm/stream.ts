@@ -7,12 +7,12 @@ async function readLines(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  const READ_TIMEOUT_MS = 120_000;
+  const READ_TIMEOUT_MS = 8 * 60_000;
   try {
     while (true) {
       let timeout: ReturnType<typeof setTimeout> | undefined;
       const stalled = new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error('스트리밍 응답이 120초 동안 도착하지 않았습니다.')), READ_TIMEOUT_MS);
+        timeout = setTimeout(() => reject(new Error('스트리밍 응답이 8분 동안 도착하지 않았습니다.')), READ_TIMEOUT_MS);
       });
       let result: ReadableStreamReadResult<Uint8Array>;
       try {

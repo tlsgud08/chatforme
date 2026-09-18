@@ -24,7 +24,7 @@ import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
-const GENERATION_TIMEOUT_MS = 120_000;
+const GENERATION_TIMEOUT_MS = 8 * 60_000;
 const DRAFT_SAVE_INTERVAL_MS = 500;
 const MESSAGE_TURN_PAGE_SIZE = 5;
 const MESSAGE_FETCH_BATCH_SIZE = 500;
@@ -679,7 +679,7 @@ export default function ChatPage() {
     const startGenerationTimeout = () => {
       generationTimeout = setTimeout(() => {
         generationTimedOut = true;
-        controller.abort('모델 응답이 2분 안에 완료되지 않아 생성을 중단했습니다.');
+        controller.abort('모델 응답이 8분 안에 완료되지 않아 생성을 중단했습니다.');
       }, GENERATION_TIMEOUT_MS);
     };
     if (sessionId) activeGenerations.set(sessionId, { controller, content: '', listeners: new Set() });
@@ -774,7 +774,7 @@ export default function ChatPage() {
           };
           guestAddMessage(guestSession.id, aiMsg);
           setMessages((m) => [...m, toMsg(aiMsg)]);
-          if (generationTimedOut) addError('모델 응답이 2분 안에 완료되지 않아 수신한 내용까지만 저장했습니다.');
+          if (generationTimedOut) addError('모델 응답이 8분 안에 완료되지 않아 수신한 내용까지만 저장했습니다.');
           else if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
         } else {
           const interrupted: GuestMessage = {
@@ -784,7 +784,7 @@ export default function ChatPage() {
           };
           guestAddMessage(guestSession.id, interrupted);
           setMessages((current) => [...current, toMsg(interrupted)]);
-          if (generationTimedOut) addError('모델 응답이 2분 안에 완료되지 않아 생성을 중단했습니다.');
+          if (generationTimedOut) addError('모델 응답이 8분 안에 완료되지 않아 생성을 중단했습니다.');
           else if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
         }
       } finally {
@@ -921,14 +921,14 @@ export default function ChatPage() {
             : message),
           aiMsg as Message,
         ]);
-        if (generationTimedOut) addError('모델 응답이 2분 안에 완료되지 않아 수신한 내용까지만 저장했습니다.');
+        if (generationTimedOut) addError('모델 응답이 8분 안에 완료되지 않아 수신한 내용까지만 저장했습니다.');
         else if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
       } else {
         const { data: interrupted } = draftMessageId
           ? await supabase.from('messages').update({ generation_status: 'interrupted' }).eq('id', draftMessageId).select('*').single()
           : { data: null };
         if (interrupted) setMessages((current) => [...current, interrupted as Message]);
-        if (generationTimedOut) addError('모델 응답이 2분 안에 완료되지 않아 생성을 중단했습니다.');
+        if (generationTimedOut) addError('모델 응답이 8분 안에 완료되지 않아 생성을 중단했습니다.');
         else if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
       }
     } finally {
