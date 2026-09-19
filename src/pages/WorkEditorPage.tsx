@@ -15,6 +15,15 @@ function characterCount(value: string, max: number) {
   return `${value.length}/${max} · 공백 제외 ${value.replace(/\s/g, '').length}자`;
 }
 
+function saveErrorMessage(error: unknown) {
+  if (error instanceof TypeError && /fetch|network/i.test(error.message)) {
+    return '네트워크 연결이 불안정합니다. 잠시 후 다시 저장해 주세요.';
+  }
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) return String(error.message);
+  return '알 수 없는 오류가 발생했습니다.';
+}
+
 export default function WorkEditorPage() {
   const { workId } = useParams();
   const navigate = useNavigate();
@@ -130,42 +139,49 @@ export default function WorkEditorPage() {
       return;
     }
     setSaving(true);
-    const { error } = await supabase
-      .from('works')
-      .update({
-        title: work.title,
-        description: work.description,
-        main_prompt: work.main_prompt,
-        multichat_prompt: work.multichat_prompt,
-        thumbnail_url: work.thumbnail_url,
-        visibility: work.visibility,
-        is_published: work.visibility === 'public',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', work.id);
-    if (error) { setSaving(false); showToast('저장 실패: ' + error.message); return; }
+    try {
+      const { error } = await supabase
+        .from('works')
+        .update({
+          title: work.title,
+          description: work.description,
+          main_prompt: work.main_prompt,
+          multichat_prompt: work.multichat_prompt ?? '',
+          thumbnail_url: work.thumbnail_url,
+          visibility: work.visibility,
+          is_published: work.visibility === 'public',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', work.id);
+      if (error) throw error;
 
-    await Promise.all([
-      ...startConfigs.map((cfg) =>
-        supabase.from('start_configs').update({
-          name: cfg.name,
-          initial_message: cfg.initial_message,
-          initial_context: cfg.initial_context,
-          keep_turns: cfg.keep_turns,
-          is_default: cfg.is_default,
-        }).eq('id', cfg.id)
-      ),
-      ...keywordBooks.map((kb) =>
-        supabase.from('keyword_books').update({
-          name: kb.name,
-          keywords: kb.keywords,
-          content: kb.content,
-          activation_turns: kb.activation_turns,
-        }).eq('id', kb.id)
-      ),
-    ]);
-    setSaving(false);
-    showToast('저장되었습니다.');
+      const relatedResults = await Promise.all([
+        ...startConfigs.map((cfg) =>
+          supabase.from('start_configs').update({
+            name: cfg.name,
+            initial_message: cfg.initial_message,
+            initial_context: cfg.initial_context,
+            keep_turns: cfg.keep_turns,
+            is_default: cfg.is_default,
+          }).eq('id', cfg.id)
+        ),
+        ...keywordBooks.map((kb) =>
+          supabase.from('keyword_books').update({
+            name: kb.name,
+            keywords: kb.keywords,
+            content: kb.content,
+            activation_turns: kb.activation_turns,
+          }).eq('id', kb.id)
+        ),
+      ]);
+      const relatedError = relatedResults.find((result) => result.error)?.error;
+      if (relatedError) throw relatedError;
+      showToast('저장되었습니다.');
+    } catch (error) {
+      showToast('저장 실패: ' + saveErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function uploadThumb(file: File) {
