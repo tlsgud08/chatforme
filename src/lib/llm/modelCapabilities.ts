@@ -69,7 +69,7 @@ export function defaultReasoningFor(provider: Provider, modelId: string): Reason
 
 export function validateReasoning(provider: Provider, modelId: string, selection: ReasoningSelection): ModelCapabilities {
   const capability = capabilitiesFor(provider, modelId);
-  if (selection.effort && !capability.supportedEfforts.includes(selection.effort)) {
+  if (selection.effort && selection.effort !== 'off' && !capability.supportedEfforts.includes(selection.effort)) {
     throw new Error(`${modelId}은(는) OpenRouter 추론 단계 '${selection.effort}'을 지원하지 않습니다.`);
   }
   return capability;

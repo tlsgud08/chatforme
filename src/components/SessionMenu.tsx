@@ -8,7 +8,8 @@ import type { Persona, Profile, Session, StoryNote, SummaryVersion } from '@/typ
 import type { ErrorEntry } from '@/pages/ChatPage';
 import { formatKrw, type ExchangeRate } from '@/lib/exchangeRate';
 import { showConfirmDialog } from '@/lib/dialog';
-import OutputTokenSelector, { normalizeOutputTokens } from './OutputTokenSelector';
+import { normalizeOutputTokens } from './OutputTokenSelector';
+import OutputSettingsEditor, { type OutputSettingsValue } from './OutputSettingsEditor';
 
 interface OpenRouterCredit {
   usage: number;
@@ -86,8 +87,15 @@ export default function SessionMenu({
       .finally(() => setCreditLoading(false));
   }, []);
   const inheritedTokens = normalizeOutputTokens(profile?.default_output_tokens ?? null);
-  const [outputTokens, setOutputTokens] = useState<number | null>(() => normalizeOutputTokens(session.output_tokens_override ?? profile?.default_output_tokens ?? null));
-  const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_tokens_override !== null);
+  const [outputSettings, setOutputSettings] = useState<OutputSettingsValue>(() => ({
+    outputTokens: normalizeOutputTokens(session.output_settings_override_enabled ? session.output_tokens_override : profile?.default_output_tokens ?? null),
+    reasoning: (session.output_settings_override_enabled ? session.reasoning_override : null) ?? profile?.default_reasoning ?? { ...sessionReasoning, send: profile?.default_reasoning_enabled ?? true },
+    temperature: (session.output_settings_override_enabled ? session.temperature_override : null) ?? profile?.default_temperature ?? 1,
+    temperatureSend: (session.output_settings_override_enabled ? session.temperature_enabled_override : null) ?? profile?.default_temperature_enabled ?? false,
+    frequencyPenalty: (session.output_settings_override_enabled ? session.frequency_penalty_override : null) ?? profile?.default_frequency_penalty ?? 0,
+    frequencyPenaltySend: (session.output_settings_override_enabled ? session.frequency_penalty_enabled_override : null) ?? profile?.default_frequency_penalty_enabled ?? false,
+  }));
+  const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_settings_override_enabled ?? session.output_tokens_override !== null);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [savedMsg, setSavedMsg] = useState('');
   const [logOpen, setLogOpen] = useState(false);
@@ -116,19 +124,38 @@ export default function SessionMenu({
   }
 
   async function saveOverride() {
-    const { error } = await supabase.from('sessions').update({ output_tokens_override: outputTokens }).eq('id', session.id);
-    if (error) { flash(`출력량 저장 실패: ${error.message}`); return; }
+    const patch = {
+      output_tokens_override: outputSettings.outputTokens,
+      output_settings_override_enabled: true,
+      reasoning_override: outputSettings.reasoning,
+      temperature_override: outputSettings.temperature,
+      temperature_enabled_override: outputSettings.temperatureSend,
+      frequency_penalty_override: outputSettings.frequencyPenalty,
+      frequency_penalty_enabled_override: outputSettings.frequencyPenaltySend,
+    };
+    const { error } = await supabase.from('sessions').update(patch).eq('id', session.id);
+    if (error) { flash(`출력 설정 저장 실패: ${error.message}`); return; }
     setHasExplicitOverride(true);
-    onUpdate({ output_tokens_override: outputTokens });
-    flash('출력량을 저장했습니다.');
+    onReasoningChange(outputSettings.reasoning);
+    onUpdate(patch);
+    flash('출력 설정을 저장했습니다.');
   }
 
   async function resetOverride() {
-    const { error } = await supabase.from('sessions').update({ output_tokens_override: null }).eq('id', session.id);
+    const patch = { output_settings_override_enabled: false, output_tokens_override: null, reasoning_override: null, temperature_override: null, temperature_enabled_override: null, frequency_penalty_override: null, frequency_penalty_enabled_override: null };
+    const { error } = await supabase.from('sessions').update(patch).eq('id', session.id);
     if (error) { flash(`출력량 초기화 실패: ${error.message}`); return; }
-    setOutputTokens(inheritedTokens);
+    setOutputSettings({
+      outputTokens: inheritedTokens,
+      reasoning: profile?.default_reasoning ?? { ...sessionReasoning, send: profile?.default_reasoning_enabled ?? true },
+      temperature: profile?.default_temperature ?? 1,
+      temperatureSend: profile?.default_temperature_enabled ?? false,
+      frequencyPenalty: profile?.default_frequency_penalty ?? 0,
+      frequencyPenaltySend: profile?.default_frequency_penalty_enabled ?? false,
+    });
     setHasExplicitOverride(false);
-    onUpdate({ output_tokens_override: null });
+    onReasoningChange(profile?.default_reasoning ?? { ...sessionReasoning, send: profile?.default_reasoning_enabled ?? true });
+    onUpdate(patch);
   }
 
   async function selectPersona(persona: Persona | null) {
@@ -336,14 +363,16 @@ export default function SessionMenu({
               onModelChange={onModelChange}
               onReasoningChange={onReasoningChange}
               favoritesOnly
+              hideReasoning
             />
           </div>
         </section>
 
-        {/* 출력량 */}
+        {/* 출력 설정 */}
         <section>
-          <OutputTokenSelector label={`이 채팅방 출력량${hasExplicitOverride ? '' : ' (전역 기본값)'}`} value={outputTokens} onChange={setOutputTokens} />
-          <button type="button" onClick={() => void saveOverride()} className="mt-3 w-full rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">출력량 저장</button>
+          <h3 className="mb-3 text-sm font-semibold text-slate-300">출력 설정{hasExplicitOverride ? '' : ' (전역 기본값)'}</h3>
+          <OutputSettingsEditor value={outputSettings} onChange={setOutputSettings} tokenLabel="이 채팅방 출력량" />
+          <button type="button" onClick={() => void saveOverride()} className="mt-4 w-full rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">출력 저장</button>
           {hasExplicitOverride && (
             <button onClick={resetOverride} className="mt-1 text-xs text-slate-400 underline">
               기본값으로 되돌리기

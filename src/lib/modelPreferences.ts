@@ -89,10 +89,10 @@ function migrateReasoning(value: unknown, provider: Provider, model: string): Re
 export function normalizeReasoning(value: unknown, provider: Provider, model: string): ReasoningSelection {
   const migrated = migrateReasoning(value, provider, model);
   const capability = modelsForProvider(provider).find((item) => item.modelId === model);
-  if (!capability || (migrated.effort && !capability.supportedEfforts.includes(migrated.effort))) {
-    return defaultReasoningFor(provider, model);
+  if (!capability || (migrated.effort && migrated.effort !== 'off' && !capability.supportedEfforts.includes(migrated.effort))) {
+    return { ...defaultReasoningFor(provider, model), send: migrated.send };
   }
-  return { effort: migrated.effort };
+  return { effort: migrated.effort, send: migrated.send };
 }
 
 export function loadDefaultReasoning(provider: Provider, model: string): ReasoningSelection {

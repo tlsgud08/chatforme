@@ -105,7 +105,7 @@ function loadSessionSettings(session: Session, profile: Profile | null): Session
     return {
       provider: 'openrouter',
       model,
-      reasoning: normalizeReasoning(session.reasoning_override, 'openrouter', model),
+      reasoning: normalizeReasoning((session.output_settings_override_enabled ? session.reasoning_override : null) ?? profile?.default_reasoning ?? { ...loadDefaultReasoning('openrouter', model), send: profile?.default_reasoning_enabled ?? true }, 'openrouter', model),
     };
   }
   try {
@@ -119,7 +119,7 @@ function loadSessionSettings(session: Session, profile: Profile | null): Session
     }
   } catch {}
   const model = toOpenRouterModel(profile?.default_provider, profile?.default_model || modelsFor('openrouter')[0]);
-  return { provider: 'openrouter', model, reasoning: loadDefaultReasoning('openrouter', model) };
+  return { provider: 'openrouter', model, reasoning: normalizeReasoning(profile?.default_reasoning ?? { ...loadDefaultReasoning('openrouter', model), send: profile?.default_reasoning_enabled ?? true }, 'openrouter', model) };
 }
 
 function toMsg(m: GuestMessage): Message {
@@ -606,6 +606,12 @@ export default function ChatPage() {
     const provider: Provider = 'openrouter';
     const model = isGuest ? toOpenRouterModel(guestSettings.provider, guestSettings.model || modelsFor(provider)[0]) : (sessionModel || modelsFor(provider)[0]);
     const reasoning = isGuest ? normalizeReasoning(guestSettings.reasoning, provider, model) : sessionReasoning;
+    const sampling = isGuest ? undefined : {
+      temperature: (session?.output_settings_override_enabled ? session.temperature_override : null) ?? profile?.default_temperature ?? 1,
+      temperatureSend: (session?.output_settings_override_enabled ? session.temperature_enabled_override : null) ?? profile?.default_temperature_enabled ?? false,
+      frequencyPenalty: (session?.output_settings_override_enabled ? session.frequency_penalty_override : null) ?? profile?.default_frequency_penalty ?? 0,
+      frequencyPenaltySend: (session?.output_settings_override_enabled ? session.frequency_penalty_enabled_override : null) ?? profile?.default_frequency_penalty_enabled ?? false,
+    };
     const apiKey = getApiKey(provider);
     if (!apiKey) { addError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
 
@@ -748,7 +754,7 @@ export default function ChatPage() {
       const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
       try {
         startGenerationTimeout();
-        const result = await generate(provider, { apiKey, model, sessionId: guestSession.id, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
+        const result = await generate(provider, { apiKey, model, sessionId: guestSession.id, reasoning, sampling, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
         const aiMsg: GuestMessage = {
           id: crypto.randomUUID(), session_id: guestSession.id, role: 'assistant',
           content: result.text, turn_index: turnIndex,
@@ -839,7 +845,7 @@ export default function ChatPage() {
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
       latestUserMessage: promptText,
     });
-    const maxOutputTokens = session.output_tokens_override ?? profile.default_output_tokens;
+    const maxOutputTokens = session.output_settings_override_enabled ? session.output_tokens_override : profile.default_output_tokens;
     try {
       const { data: draft, error: draftError } = await supabase.from('messages').insert({
         session_id: session.id, role: 'assistant', content: '', turn_index: turnIndex,
@@ -856,7 +862,7 @@ export default function ChatPage() {
       }
       draftMessageId = draft.id;
       startGenerationTimeout();
-      const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
+      const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
       await draftSaveQueue;
       const { data: aiMsg, error: finalMessageError } = await supabase
         .from('messages')
@@ -1099,7 +1105,14 @@ export default function ChatPage() {
     const totalCost = branchMessages.reduce((total, item) => total + item.cost, 0);
     const { data: newSession, error } = await supabase.from('sessions').insert({
       user_id: user.id, work_id: session.work_id, title: `${session.title} (분기)`, persona_id: session.persona_id,
-      start_config_id: session.start_config_id, user_note: session.user_note, output_tokens_override: session.output_tokens_override,
+      start_config_id: session.start_config_id, user_note: session.user_note,
+      output_settings_override_enabled: session.output_settings_override_enabled,
+      output_tokens_override: session.output_tokens_override,
+      temperature_override: session.temperature_override,
+      temperature_enabled_override: session.temperature_enabled_override,
+      frequency_penalty_override: session.frequency_penalty_override,
+      frequency_penalty_enabled_override: session.frequency_penalty_enabled_override,
+      reasoning_override: session.reasoning_override,
       summary: branchSummary, auto_summary_enabled: session.auto_summary_enabled, summary_interval: session.summary_interval,
       summary_last_turn: branchSummaryTurn, summary_model_override: session.summary_model_override,
       total_input_tokens: totalInputTokens, total_output_tokens: totalOutputTokens, total_cost: totalCost,
