@@ -94,7 +94,7 @@ async function fetchRerollVariants(sessionId: string, groupId: string): Promise<
 interface GuestSettings { provider: Provider; model: string; outputTokens: number | null; reasoning?: ReasoningSelection; }
 function loadGuestSettings(): GuestSettings {
   try { return JSON.parse(localStorage.getItem(GUEST_SETTINGS_KEY) ?? '{}') as GuestSettings; }
-  catch { return { provider: 'openrouter', model: '', outputTokens: 1024 }; }
+  catch { return { provider: 'openrouter', model: '', outputTokens: 8000 }; }
 }
 
 const sessionSettingsKey = (id: string) => `chatforme.session.${id}.settings`;
@@ -751,7 +751,7 @@ export default function ChatPage() {
         history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
         latestUserMessage: promptText,
       });
-      const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 1024;
+      const maxOutputTokens = guestSession.output_tokens_override ?? guestSettings.outputTokens ?? 8000;
       try {
         startGenerationTimeout();
         const result = await generate(provider, { apiKey, model, sessionId: guestSession.id, reasoning, sampling, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });

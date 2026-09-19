@@ -22,6 +22,20 @@ export default function OutputSettingsEditor({ value, onChange, tokenLabel }: Pr
   return (
     <div className="flex flex-col gap-5">
       <ParameterRow
+        title="추론"
+        description="Off는 추론을 명시적으로 끄며, 전송 해제는 파라미터 자체를 보내지 않습니다."
+        checked={value.reasoning.send !== false}
+        onChecked={(send) => update({ reasoning: { ...value.reasoning, send } })}
+      >
+        <input aria-label="추론 수준" type="range" min={0} max={3} step={1} value={reasoningIndex} onChange={(e) => update({ reasoning: { send: value.reasoning.send !== false, effort: REASONING_LEVELS[Number(e.target.value)] } })} className="w-full" />
+        <div className="mt-1 flex justify-between text-xs font-semibold text-slate-400" aria-hidden="true">
+          {REASONING_LABELS.map((label) => <span key={label}>{label}</span>)}
+        </div>
+      </ParameterRow>
+
+      <OutputTokenSelector label={tokenLabel} value={value.outputTokens} onChange={(outputTokens) => update({ outputTokens })} />
+
+      <ParameterRow
         title="Temperature"
         description="낮을수록 일관되고, 높을수록 다양한 답변을 만듭니다."
         checked={value.temperatureSend}
@@ -40,20 +54,6 @@ export default function OutputSettingsEditor({ value, onChange, tokenLabel }: Pr
         <input aria-label="Frequency penalty" type="range" min={-2} max={2} step={0.1} value={value.frequencyPenalty} onChange={(e) => update({ frequencyPenalty: Number(e.target.value) })} className="w-full" />
         <Scale left="-2" center={value.frequencyPenalty.toFixed(1)} right="2" />
       </ParameterRow>
-
-      <ParameterRow
-        title="추론"
-        description="Off는 추론을 명시적으로 끄며, 전송 해제는 파라미터 자체를 보내지 않습니다."
-        checked={value.reasoning.send !== false}
-        onChecked={(send) => update({ reasoning: { ...value.reasoning, send } })}
-      >
-        <input aria-label="추론 수준" type="range" min={0} max={3} step={1} value={reasoningIndex} onChange={(e) => update({ reasoning: { send: value.reasoning.send !== false, effort: REASONING_LEVELS[Number(e.target.value)] } })} className="w-full" />
-        <div className="mt-1 flex justify-between text-xs font-semibold text-slate-400" aria-hidden="true">
-          {REASONING_LABELS.map((label) => <span key={label}>{label}</span>)}
-        </div>
-      </ParameterRow>
-
-      <OutputTokenSelector label={tokenLabel} value={value.outputTokens} onChange={(outputTokens) => update({ outputTokens })} />
     </div>
   );
 }
@@ -62,11 +62,13 @@ function ParameterRow({ title, description, checked, onChecked, children }: { ti
   return (
     <div>
       <div className="mb-1 flex items-center justify-between gap-3">
-        <label className="text-xs font-semibold text-slate-300">{title}</label>
+        <label className={`text-xs font-semibold text-slate-300 transition-opacity ${checked ? '' : 'opacity-40'}`}>{title}</label>
         <label className="flex items-center gap-1.5 text-xs text-slate-400"><input type="checkbox" checked={checked} onChange={(e) => onChecked(e.target.checked)} /> 전송</label>
       </div>
-      <p className="mb-2 text-[11px] text-slate-500">{description}</p>
-      {children}
+      <div className={`transition-opacity ${checked ? '' : 'opacity-35'}`}>
+        <p className="mb-2 text-[11px] text-slate-500">{description}</p>
+        {children}
+      </div>
     </div>
   );
 }

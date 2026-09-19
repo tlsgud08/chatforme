@@ -1,4 +1,7 @@
 -- Sampling controls belong to profiles by default and can be overridden per room.
+alter table public.profiles alter column default_output_tokens set default 8000;
+update public.profiles set default_output_tokens = 8000 where default_output_tokens = 1024;
+
 alter table public.profiles
   add column if not exists default_temperature real not null default 1 check (default_temperature between 0 and 2),
   add column if not exists default_temperature_enabled boolean not null default false,
