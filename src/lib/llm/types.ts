@@ -44,6 +44,15 @@ export interface CacheDiagnostic {
 export interface ReasoningSelection {
   effort?: string;
   mode?: string;
+  /** When false the reasoning field is omitted. `effort: 'off'` is an explicit disable. */
+  send?: boolean;
+}
+
+export interface SamplingSettings {
+  temperature: number;
+  temperatureSend: boolean;
+  frequencyPenalty: number;
+  frequencyPenaltySend: boolean;
 }
 
 export interface GenerateOptions {
@@ -55,6 +64,7 @@ export interface GenerateOptions {
   messages: ChatMessage[];
   maxOutputTokens: number | null;
   reasoning: ReasoningSelection;
+  sampling?: SamplingSettings;
   onChunk?: (text: string) => void;
   signal?: AbortSignal;
 }

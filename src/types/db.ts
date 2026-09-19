@@ -9,6 +9,12 @@ export interface Profile {
   avatar_url: string | null;
   bio: string | null;
   default_output_tokens: number | null;
+  default_temperature: number;
+  default_temperature_enabled: boolean;
+  default_frequency_penalty: number;
+  default_frequency_penalty_enabled: boolean;
+  default_reasoning_enabled: boolean;
+  default_reasoning: import('@/lib/llm/types').ReasoningSelection | null;
   default_provider: Provider;
   default_model: string;
   summary_prompt: string | null;
@@ -109,8 +115,13 @@ export interface Session {
   start_config_id: string | null;
   user_note: string;
   output_tokens_override: number | null;
+  output_settings_override_enabled: boolean;
   model_override: string | null;
   reasoning_override: import('@/lib/llm/types').ReasoningSelection | null;
+  temperature_override: number | null;
+  temperature_enabled_override: boolean | null;
+  frequency_penalty_override: number | null;
+  frequency_penalty_enabled_override: boolean | null;
   summary: string;
   total_input_tokens: number;
   total_output_tokens: number;
