@@ -9,7 +9,7 @@ import ModelSelector from '@/components/ModelSelector';
 import { loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import type { Profile, Provider } from '@/types/db';
 import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
-import OutputTokenSelector from '@/components/OutputTokenSelector';
+import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/OutputSettingsEditor';
 
 export default function SettingsPage() {
   const { user, isGuest, signOut } = useAuth();
@@ -24,6 +24,7 @@ export default function SettingsPage() {
   const [masterPasswordConfirm, setMasterPasswordConfirm] = useState('');
   const [theme, setTheme] = useState<Theme>(loadTheme());
   const [checkingModels, setCheckingModels] = useState(false);
+  const [defaultOutputSettings, setDefaultOutputSettings] = useState<OutputSettingsValue | null>(null);
 
   const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
@@ -41,6 +42,14 @@ export default function SettingsPage() {
       .then(({ data }) => {
         const loaded = data as Profile;
         setProfile({ ...loaded, default_provider: 'openrouter', default_model: toOpenRouterModel(loaded.default_provider, loaded.default_model) });
+        setDefaultOutputSettings({
+          outputTokens: loaded.default_output_tokens,
+          reasoning: { ...(loaded.default_reasoning ?? loadDefaultReasoning('openrouter', loaded.default_model)), send: loaded.default_reasoning_enabled ?? true },
+          temperature: loaded.default_temperature ?? 1,
+          temperatureSend: loaded.default_temperature_enabled ?? false,
+          frequencyPenalty: loaded.default_frequency_penalty ?? 0,
+          frequencyPenaltySend: loaded.default_frequency_penalty_enabled ?? false,
+        });
       });
     if (user.email === ADMIN_EMAIL && ADMIN_EMAIL) {
       supabase
@@ -86,13 +95,20 @@ export default function SettingsPage() {
 
   async function saveProfile() {
     if (!profile) return;
+    const output = defaultOutputSettings;
     await supabase
       .from('profiles')
       .update({
         display_name: profile.display_name,
         default_provider: 'openrouter',
         default_model: profile.default_model,
-        default_output_tokens: profile.default_output_tokens,
+        default_output_tokens: output?.outputTokens ?? profile.default_output_tokens,
+        default_temperature: output?.temperature ?? 1,
+        default_temperature_enabled: output?.temperatureSend ?? false,
+        default_frequency_penalty: output?.frequencyPenalty ?? 0,
+        default_frequency_penalty_enabled: output?.frequencyPenaltySend ?? false,
+        default_reasoning_enabled: output?.reasoning.send !== false,
+        default_reasoning: output?.reasoning ?? defaultReasoning,
         summary_prompt: profile.summary_prompt,
         summary_model: profile.summary_model,
         summary_reasoning: summaryReasoning,
@@ -107,7 +123,7 @@ export default function SettingsPage() {
         summary_cost_threshold: profile.summary_cost_threshold,
       })
       .eq('id', profile.id);
-    saveDefaultReasoning(defaultReasoning);
+    saveDefaultReasoning(output?.reasoning ?? defaultReasoning);
     flash('프로필을 저장했습니다.');
   }
 
@@ -229,12 +245,9 @@ export default function SettingsPage() {
               reasoning={defaultReasoning}
               onModelChange={(model) => setProfile({ ...profile, default_model: model })}
               onReasoningChange={setDefaultReasoning}
+              hideReasoning
             />
-            <OutputTokenSelector
-              label="기본 출력량"
-              value={profile.default_output_tokens}
-              onChange={(default_output_tokens) => setProfile({ ...profile, default_output_tokens })}
-            />
+            {defaultOutputSettings && <OutputSettingsEditor value={defaultOutputSettings} onChange={(value) => { setDefaultOutputSettings(value); setDefaultReasoning(value.reasoning); }} tokenLabel="기본 출력량" />}
             <button onClick={saveProfile} className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">
               저장
             </button>
