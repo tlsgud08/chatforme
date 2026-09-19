@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import OutputTokenSelector from './OutputTokenSelector';
 import type { ReasoningSelection, SamplingSettings } from '@/lib/llm/types';
 
@@ -14,6 +15,8 @@ interface Props {
 
 const REASONING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
 const REASONING_LABELS = ['Off', '낮음', '중간', '높음'];
+const TEMPERATURE_RANGE = { min: 0.8, max: 1.2 } as const;
+const FREQUENCY_PENALTY_RANGE = { min: 0, max: 0.5 } as const;
 
 export default function OutputSettingsEditor({ value, onChange, tokenLabel }: Props) {
   const reasoningIndex = Math.max(0, REASONING_LEVELS.indexOf((value.reasoning.effort ?? 'medium') as typeof REASONING_LEVELS[number]));
@@ -41,8 +44,12 @@ export default function OutputSettingsEditor({ value, onChange, tokenLabel }: Pr
         checked={value.temperatureSend}
         onChecked={(temperatureSend) => update({ temperatureSend })}
       >
-        <input aria-label="Temperature" type="range" min={0} max={2} step={0.1} value={value.temperature} onChange={(e) => update({ temperature: Number(e.target.value) })} className="w-full" />
-        <Scale left="0" center={value.temperature.toFixed(1)} right="2" />
+        <NumberParameterControl
+          label="Temperature"
+          value={value.temperature}
+          {...TEMPERATURE_RANGE}
+          onChange={(temperature) => update({ temperature })}
+        />
       </ParameterRow>
 
       <ParameterRow
@@ -51,9 +58,71 @@ export default function OutputSettingsEditor({ value, onChange, tokenLabel }: Pr
         checked={value.frequencyPenaltySend}
         onChecked={(frequencyPenaltySend) => update({ frequencyPenaltySend })}
       >
-        <input aria-label="Frequency penalty" type="range" min={-2} max={2} step={0.1} value={value.frequencyPenalty} onChange={(e) => update({ frequencyPenalty: Number(e.target.value) })} className="w-full" />
-        <Scale left="-2" center={value.frequencyPenalty.toFixed(1)} right="2" />
+        <NumberParameterControl
+          label="Frequency penalty"
+          value={value.frequencyPenalty}
+          {...FREQUENCY_PENALTY_RANGE}
+          onChange={(frequencyPenalty) => update({ frequencyPenalty })}
+        />
       </ParameterRow>
+    </div>
+  );
+}
+
+function NumberParameterControl({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
+  const boundedValue = Math.min(max, Math.max(min, value));
+  const setBoundedValue = (nextValue: number) => onChange(Math.min(max, Math.max(min, nextValue)));
+  const [draft, setDraft] = useState(String(boundedValue));
+
+  useEffect(() => setDraft(String(boundedValue)), [boundedValue]);
+
+  const commitDraft = () => {
+    const nextValue = Number(draft);
+    if (!Number.isFinite(nextValue)) {
+      setDraft(String(boundedValue));
+      return;
+    }
+    const nextBoundedValue = Math.min(max, Math.max(min, nextValue));
+    setDraft(String(nextBoundedValue));
+    onChange(nextBoundedValue);
+  };
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-3">
+      <div>
+        <input
+          aria-label={`${label} 슬라이더`}
+          type="range"
+          min={min}
+          max={max}
+          step={0.05}
+          value={boundedValue}
+          onChange={(e) => {
+            const nextValue = Number(e.target.value);
+            setDraft(e.target.value);
+            setBoundedValue(nextValue);
+          }}
+          className="w-full"
+        />
+        <Scale left={String(min)} center={boundedValue.toFixed(2)} right={String(max)} />
+      </div>
+      <input
+        aria-label={`${label} 직접 입력`}
+        type="number"
+        min={min}
+        max={max}
+        step="any"
+        value={draft}
+        onChange={(e) => {
+          const nextDraft = e.target.value;
+          const nextValue = e.target.valueAsNumber;
+          setDraft(nextDraft);
+          if (Number.isFinite(nextValue) && nextValue >= min && nextValue <= max) onChange(nextValue);
+        }}
+        onBlur={commitDraft}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-right text-sm text-slate-100 outline-none focus:border-brand"
+      />
     </div>
   );
 }
