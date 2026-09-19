@@ -240,6 +240,7 @@ export default function ChatPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
   const [editingCommandName, setEditingCommandName] = useState<string | null>(null);
+  const [editingSavingId, setEditingSavingId] = useState<string | null>(null);
   const [sessionModel, setSessionModel] = useState('');
   const [sessionReasoning, setSessionReasoning] = useState<ReasoningSelection>(() => defaultReasoningFor('openrouter', modelsFor('openrouter')[0]));
   const [summaryGenerating, setSummaryGenerating] = useState(false);
@@ -261,6 +262,7 @@ export default function ChatPage() {
   const shouldAutoScrollRef = useRef(true);
   const prependScrollHeightRef = useRef<number | null>(null);
   const sendInFlightRef = useRef(false);
+  const editInFlightRef = useRef(false);
   const deleteInFlightRef = useRef(false);
   const branchInFlightRef = useRef(false);
   const settingsSessionIdRef = useRef<string | null>(null);
@@ -1045,34 +1047,45 @@ export default function ChatPage() {
 
   async function saveEdit(msgId: string) {
     const content = editingContent.trim();
-    if (!content || sendInFlightRef.current) return;
+    if (!content || sendInFlightRef.current || editInFlightRef.current) return;
     const original = messages.find((message) => message.id === msgId);
-    const commandId = editingCommandName ? original?.command_id ?? null : null;
-    if (isGuest && guestSession) {
-      guestUpdateMessage(guestSession.id, msgId, content);
-    } else {
-      if (original?.role === 'user' && !original.is_hidden && session) {
-        const completeMessages = await fetchAllSessionMessages(session.id).catch((error) => {
-          addError(`대화 정보 불러오기 실패: ${describeUnknownError(error)}`);
-          return null;
-        });
-        if (!completeMessages) return;
-        const activeMessages = completeMessages.filter((message) => message.is_active_variant !== false);
-        const originalIndex = activeMessages.findIndex((message) => message.id === msgId);
-        const editedTurn = activeMessages.slice(0, originalIndex + 1).filter((message) => message.role === 'user' && !message.is_hidden).length;
-        if (editedTurn <= (session.summary_last_turn ?? 0)) {
-          const { error: clearSummaryError } = await supabase.from('sessions').update({ summary: '', summary_last_turn: 0 }).eq('id', session.id);
-          if (clearSummaryError) { addError(`요약 초기화 실패: ${clearSummaryError.message}`); return; }
-          const { error: deleteVersionsError } = await supabase.from('summary_versions').delete().eq('session_id', session.id).gte('summarized_through_turn', editedTurn);
-          if (deleteVersionsError) { addError(`이전 요약 삭제 실패: ${deleteVersionsError.message}`); return; }
-          setSession((current) => current ? { ...current, summary: '', summary_last_turn: 0 } : current);
+    if (!original) { addError('메시지 편집 실패: 편집할 메시지를 찾지 못했습니다.'); return; }
+    const commandId = editingCommandName ? original.command_id ?? null : null;
+    editInFlightRef.current = true;
+    setEditingSavingId(msgId);
+    try {
+      if (isGuest) {
+        if (!guestSession) throw new Error('비회원 대화 정보를 불러오지 못했습니다.');
+        guestUpdateMessage(guestSession.id, msgId, content);
+      } else {
+        if (original.role === 'user' && !original.is_hidden && session) {
+          const completeMessages = await fetchAllSessionMessages(session.id).catch((error) => {
+            addError(`대화 정보 불러오기 실패: ${describeUnknownError(error)}`);
+            return null;
+          });
+          if (!completeMessages) return;
+          const activeMessages = completeMessages.filter((message) => message.is_active_variant !== false);
+          const originalIndex = activeMessages.findIndex((message) => message.id === msgId);
+          const editedTurn = activeMessages.slice(0, originalIndex + 1).filter((message) => message.role === 'user' && !message.is_hidden).length;
+          if (editedTurn <= (session.summary_last_turn ?? 0)) {
+            const { error: clearSummaryError } = await supabase.from('sessions').update({ summary: '', summary_last_turn: 0 }).eq('id', session.id);
+            if (clearSummaryError) { addError(`요약 초기화 실패: ${clearSummaryError.message}`); return; }
+            const { error: deleteVersionsError } = await supabase.from('summary_versions').delete().eq('session_id', session.id).gte('summarized_through_turn', editedTurn);
+            if (deleteVersionsError) { addError(`이전 요약 삭제 실패: ${deleteVersionsError.message}`); return; }
+            setSession((current) => current ? { ...current, summary: '', summary_last_turn: 0 } : current);
+          }
         }
+        const { error } = await supabase.from('messages').update({ content, command_id: commandId, command_name: editingCommandName }).eq('id', msgId);
+        if (error) throw error;
       }
-      const { error } = await supabase.from('messages').update({ content, command_id: commandId, command_name: editingCommandName }).eq('id', msgId);
-      if (error) { addError(`메시지 편집 실패: ${error.message}`); return; }
+      setMessages((m) => m.map((msg) => msg.id === msgId ? { ...msg, content, command_id: commandId, command_name: editingCommandName } : msg));
+      setEditingId(null);
+    } catch (error) {
+      addError(`메시지 편집 실패: ${describeUnknownError(error)}`);
+    } finally {
+      editInFlightRef.current = false;
+      setEditingSavingId(null);
     }
-    setMessages((m) => m.map((msg) => msg.id === msgId ? { ...msg, content, command_id: commandId, command_name: editingCommandName } : msg));
-    setEditingId(null);
   }
 
   async function branchFrom(message: Message) {
@@ -1250,8 +1263,8 @@ export default function ChatPage() {
                   />
                   <div className="flex items-center justify-end gap-2">
                     {editingCommandName && <button onClick={() => setEditingCommandName(null)} className="mr-auto rounded-lg border border-indigo-400/60 bg-indigo-500/15 px-3 py-1.5 text-xs font-semibold text-indigo-300" aria-label={`/${editingCommandName} 명령어 제거`}>×　/{editingCommandName}</button>}
-                    <button onClick={() => setEditingId(null)} className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300">취소</button>
-                    <button disabled={sending} onClick={() => saveEdit(m.id)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">저장</button>
+                    <button disabled={editingSavingId === m.id} onClick={() => setEditingId(null)} className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300 disabled:opacity-50">취소</button>
+                    <button disabled={sending || editingSavingId === m.id} onClick={() => saveEdit(m.id)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{editingSavingId === m.id ? '저장 중…' : '저장'}</button>
                   </div>
                 </div>
               ) : (
