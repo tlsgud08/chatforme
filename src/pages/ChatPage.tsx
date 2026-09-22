@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import MarkdownImage from '@/components/MarkdownImage';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
@@ -1302,7 +1303,7 @@ export default function ChatPage() {
                         td: ({ children }) => <td className="break-words border border-slate-500/60 px-2 py-1.5 align-top [overflow-wrap:anywhere]">{children}</td>,
                         del: ({ children }) => <del className="opacity-70">{children}</del>,
                         img: ({ src, alt }) => showImages ? (
-                          <img src={src} alt={alt ?? ''} className="my-2 block h-auto max-w-full" loading="lazy" />
+                          <MarkdownImage src={src} alt={alt ?? ''} />
                         ) : (
                           <a
                             href={typeof src === 'string' ? src : undefined}
