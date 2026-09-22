@@ -23,7 +23,7 @@ const externalImageStrategy = new CacheFirst({
   plugins: [
     new CacheableResponsePlugin({ statuses: [0, 200] }),
     new ExpirationPlugin({
-      maxEntries: 200,
+      maxEntries: 400,
       maxAgeSeconds: 60 * 60 * 24 * 30,
       purgeOnQuotaError: true,
     }),
