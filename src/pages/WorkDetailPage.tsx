@@ -151,15 +151,10 @@ export default function WorkDetailPage() {
         start_config_id: selectedConfigId || null,
         summary_model_override: profile?.summary_model || profile?.default_model || null,
         summary_reasoning_override: profile?.summary_reasoning ?? null,
-        summary_interval_override: profile?.summary_interval ?? 30,
         summary_level_override: profile?.summary_level ?? 5,
         summary_allow_omission_override: profile?.summary_allow_omission ?? true,
         summary_parameters_enabled_override: profile?.summary_parameters_enabled ?? true,
         summary_source_mode_override: profile?.summary_source_mode ?? 'incremental',
-        auto_summary_enabled: false,
-        summary_cost_enabled_override: profile?.summary_cost_enabled ?? false,
-        summary_cost_currency_override: profile?.summary_cost_currency ?? 'USD',
-        summary_cost_threshold_override: profile?.summary_cost_threshold ?? 0,
       })
       .select('id').single();
 

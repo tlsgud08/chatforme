@@ -877,7 +877,6 @@ export default function ChatPage() {
         })
         .eq('id', draftMessageId).select('*').single();
       if (finalMessageError || !aiMsg) throw finalMessageError ?? new Error('최종 응답을 저장하지 못했습니다.');
-      const messagesAfterResponse = aiMsg ? [...currentMessages, aiMsg as Message] : currentMessages;
       if (aiMsg) {
         setCacheDiagnostics((current) => ({ ...current, [aiMsg.id]: result.cacheDiagnostic }));
         await commitRerollVariant(aiMsg.id);
@@ -902,15 +901,6 @@ export default function ChatPage() {
         .eq('id', session.id);
       if (totalsError) throw totalsError;
       setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn });
-      const unsummarizedTurns = messagesAfterSummary(messagesAfterResponse, effectiveSummaryTurn).filter((message) => message.role === 'user' && !message.is_hidden).length;
-      const costGateEnabled = session.summary_cost_enabled_override ?? profile?.summary_cost_enabled ?? false;
-      const costCurrency = session.summary_cost_currency_override ?? profile?.summary_cost_currency ?? 'USD';
-      const costThreshold = session.summary_cost_threshold_override ?? profile?.summary_cost_threshold ?? 0;
-      const recentAssistantCosts = messagesAfterResponse.filter((message) => message.role === 'assistant' && message.is_active_variant !== false).slice(-5).map((message) => costCurrency === 'KRW' ? message.cost * exchange.rate : message.cost);
-      const costGatePassed = !costGateEnabled || recentAssistantCosts.filter((cost) => cost >= costThreshold).length >= 3;
-      if (!rerollTarget && session.auto_summary_enabled && unsummarizedTurns >= (session.summary_interval_override ?? profile?.summary_interval ?? 30) && costGatePassed) {
-        await generateSummary(messagesAfterResponse);
-      }
     } catch (err) {
       const isAbort = controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError');
       if (partialText) {
@@ -1127,16 +1117,13 @@ export default function ChatPage() {
       frequency_penalty_override: session.frequency_penalty_override,
       frequency_penalty_enabled_override: session.frequency_penalty_enabled_override,
       reasoning_override: session.reasoning_override,
-      summary: branchSummary, auto_summary_enabled: session.auto_summary_enabled, summary_interval: session.summary_interval,
+      summary: branchSummary,
       summary_last_turn: branchSummaryTurn, summary_model_override: session.summary_model_override,
       total_input_tokens: totalInputTokens, total_output_tokens: totalOutputTokens, total_cost: totalCost,
-      summary_reasoning_override: session.summary_reasoning_override, summary_interval_override: session.summary_interval_override,
+      summary_reasoning_override: session.summary_reasoning_override,
       summary_level_override: session.summary_level_override, summary_allow_omission_override: session.summary_allow_omission_override,
       summary_parameters_enabled_override: session.summary_parameters_enabled_override,
       summary_source_mode_override: session.summary_source_mode_override,
-      summary_cost_enabled_override: session.summary_cost_enabled_override,
-      summary_cost_currency_override: session.summary_cost_currency_override,
-      summary_cost_threshold_override: session.summary_cost_threshold_override,
     }).select('id').single();
     if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); branchInFlightRef.current = false; return; }
     const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at }));
