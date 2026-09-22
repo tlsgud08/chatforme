@@ -25,6 +25,9 @@ export default function SettingsPage() {
   const [theme, setTheme] = useState<Theme>(loadTheme());
   const [checkingModels, setCheckingModels] = useState(false);
   const [defaultOutputSettings, setDefaultOutputSettings] = useState<OutputSettingsValue | null>(null);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
@@ -148,6 +151,44 @@ export default function SettingsPage() {
     setMasterPassword('');
     setMasterPasswordConfirm('');
     flash('회원가입 마스터 비밀번호를 변경했습니다.');
+  }
+
+  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user?.email) {
+      flash('이메일 계정 정보를 확인할 수 없습니다.');
+      return;
+    }
+    if (!currentPassword || !newPassword) {
+      flash('현재 비밀번호와 새 비밀번호를 모두 입력하세요.');
+      return;
+    }
+    if (currentPassword === newPassword) {
+      flash('새 비밀번호는 현재 비밀번호와 달라야 합니다.');
+      return;
+    }
+
+    setChangingPassword(true);
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password: currentPassword,
+    });
+    if (signInError) {
+      setChangingPassword(false);
+      flash('현재 비밀번호가 올바르지 않습니다.');
+      return;
+    }
+
+    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+    setChangingPassword(false);
+    if (updateError) {
+      flash(`비밀번호 변경 실패: ${updateError.message}`);
+      return;
+    }
+
+    setCurrentPassword('');
+    setNewPassword('');
+    flash('비밀번호를 변경했습니다.');
   }
 
   function flash(msg: string) {
@@ -352,6 +393,50 @@ export default function SettingsPage() {
           <p className="mb-2 mt-5 text-xs font-semibold text-yellow-400">멀티챗 전용 추가 프롬프트</p>
           <p className="mb-2 text-xs text-slate-500">일반 전역 프롬프트 뒤에 추가됩니다. 참여자를 user1, user2로 지칭할 수 있습니다.</p>
           <textarea value={multichatSystemPrompt} onChange={e=>setMultichatSystemPrompt(e.target.value)} rows={6} placeholder="예: user1과 user2의 입력을 하나의 동시 행동으로 처리하세요." className="w-full resize-y rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none" />
+        </section>
+      )}
+
+      {!isGuest && user && (
+        <section className="border-t border-slate-700 pt-6">
+          <h2 className="mb-1 font-semibold text-white">비밀번호 변경</h2>
+          <p className="mb-3 text-xs text-slate-500">
+            현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.
+          </p>
+          <form onSubmit={(event) => void changePassword(event)} className="flex flex-col gap-2">
+            <label className="text-xs text-slate-400">
+              현재 비밀번호
+              <input
+                type="password"
+                required
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                placeholder="현재 비밀번호"
+                disabled={changingPassword}
+                className="mt-1 w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none disabled:opacity-50"
+              />
+            </label>
+            <label className="text-xs text-slate-400">
+              새 비밀번호
+              <input
+                type="password"
+                required
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                placeholder="새 비밀번호"
+                disabled={changingPassword}
+                className="mt-1 w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none disabled:opacity-50"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={changingPassword}
+              className="mt-1 rounded-lg bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {changingPassword ? '변경 중…' : '비밀번호 변경'}
+            </button>
+          </form>
         </section>
       )}
 
