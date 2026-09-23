@@ -718,6 +718,18 @@ export default function ChatPage() {
       draftMessageId = null;
       throw new Error(`리롤 답변 전환 실패: ${error.message}`);
     };
+    const applyGeneratedMessage = (generatedMessage: Message) => {
+      setMessages((current) => {
+        const withoutDuplicate = current.filter((message) => message.id !== generatedMessage.id);
+        if (!rerollTarget || !rerollGroupId) return [...withoutDuplicate, generatedMessage];
+        return [
+          ...withoutDuplicate.map((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === rerollGroupId
+            ? { ...message, is_active_variant: false, reroll_group_id: rerollGroupId }
+            : message),
+          generatedMessage,
+        ];
+      });
+    };
     const onChunk = (t: string) => {
       partialText = t;
       if (sessionId) publishGeneration(sessionId, t);
@@ -888,9 +900,7 @@ export default function ChatPage() {
             if (activateSummaryError) throw activateSummaryError;
           }
         }
-        setMessages((current) => rerollTarget
-          ? [...current.map((message) => message.id === rerollTarget.id ? { ...message, is_active_variant: false, reroll_group_id: rerollGroupId } : message), aiMsg as Message]
-          : [...current, aiMsg as Message]);
+        applyGeneratedMessage(aiMsg as Message);
       }
 
       const newIn = session.total_input_tokens + result.usage.inputTokens;
@@ -914,19 +924,22 @@ export default function ChatPage() {
             return;
           }
         }
-        if (aiMsg) setMessages((current) => [
-          ...current.map((message) => rerollTarget && message.id === rerollTarget.id
-            ? { ...message, is_active_variant: false, reroll_group_id: rerollGroupId }
-            : message),
-          aiMsg as Message,
-        ]);
+        if (aiMsg) applyGeneratedMessage(aiMsg as Message);
         if (generationTimedOut) addError('모델 응답이 8분 안에 완료되지 않아 수신한 내용까지만 저장했습니다.');
         else if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
       } else {
         const { data: interrupted } = draftMessageId
           ? await supabase.from('messages').update({ generation_status: 'interrupted' }).eq('id', draftMessageId).select('*').single()
           : { data: null };
-        if (interrupted) setMessages((current) => [...current, interrupted as Message]);
+        if (interrupted && rerollTarget) {
+          try {
+            await commitRerollVariant(interrupted.id);
+          } catch (rerollError) {
+            addError(describeUnknownError(rerollError));
+            return;
+          }
+        }
+        if (interrupted) applyGeneratedMessage(interrupted as Message);
         if (generationTimedOut) addError('모델 응답이 8분 안에 완료되지 않아 생성을 중단했습니다.');
         else if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
       }
