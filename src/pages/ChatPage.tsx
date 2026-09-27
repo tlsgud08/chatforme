@@ -693,7 +693,13 @@ export default function ChatPage() {
     };
     if (sessionId) activeGenerations.set(sessionId, { controller, content: '', listeners: new Set() });
     const now = new Date().toISOString();
-    const turnIndex = baseMessages.filter((m) => !m.is_hidden).length;
+    // A turn is one user/assistant exchange. Counting every message made the
+    // persisted index advance by two and made a branch continue at a seemingly
+    // unrelated number. Rerolls must retain the turn they replace; a new user
+    // message advances from the greatest persisted logical turn.
+    const turnIndex = rerollTarget
+      ? rerollTarget.turn_index
+      : Math.max(0, ...baseMessages.filter((message) => !message.is_hidden).map((message) => message.turn_index)) + 1;
     let partialText = '';
     let lastPaint = 0;
     let draftMessageId: string | null = null;
@@ -1139,7 +1145,14 @@ export default function ChatPage() {
       summary_source_mode_override: session.summary_source_mode_override,
     }).select('id').single();
     if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); branchInFlightRef.current = false; return; }
-    const copiedMessages = branchMessages.map(({ role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at }) => ({ session_id: newSession.id, role, content, turn_index, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at }));
+    // Normalize legacy message-based indexes while copying. The branch starts
+    // with contiguous conversation turns, so its last turn and session-list
+    // conversation count stay identical and subsequent sends continue at N+1.
+    let copiedTurnIndex = 0;
+    const copiedMessages = branchMessages.map(({ role, content, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at }) => {
+      if (role === 'user' && !is_hidden) copiedTurnIndex += 1;
+      return { session_id: newSession.id, role, content, turn_index: copiedTurnIndex, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at };
+    });
     const { error: messagesError } = copiedMessages.length ? await supabase.from('messages').insert(copiedMessages) : { error: null };
     const { error: summariesError } = !messagesError && versions.length ? await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost, created_at: version.created_at }))) : { error: null };
     const { error: notesError } = !messagesError && !summariesError && storyNotes.length ? await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content, created_at: note.created_at, updated_at: note.updated_at }))) : { error: null };

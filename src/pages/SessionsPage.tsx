@@ -53,19 +53,26 @@ export default function SessionsPage() {
       const sessions = (data as SessionRow[]) ?? [];
       if (sessions.length === 0) return { sessions, aiCountMap: {} as Record<string, number> };
 
-      const sessionIds = sessions.map((s) => s.id);
-      const { data: msgRows } = await supabase
-        .from('messages')
-        .select('session_id')
-        .in('session_id', sessionIds)
-        .eq('role', 'assistant')
-        .eq('is_hidden', false)
-        .gt('turn_index', 0);
-
       const aiCountMap: Record<string, number> = {};
-      for (const m of (msgRows ?? []) as { session_id: string }[]) {
-        aiCountMap[m.session_id] = (aiCountMap[m.session_id] ?? 0) + 1;
-      }
+      // Supabase limits row-returning queries (commonly to 1,000 rows). A
+      // single query across every session therefore silently produced partial
+      // counts, including zeroes for sessions beyond that response window.
+      // Exact head counts avoid transferring messages and are not row-capped.
+      // An exchange is counted only after its AI message exists, matching the
+      // last AI turn shown inside the chat (an unanswered user message is not a
+      // completed conversation yet).
+      await Promise.all(sessions.map(async (session) => {
+        const { count, error: countError } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('session_id', session.id)
+          .eq('role', 'assistant')
+          .eq('is_hidden', false)
+          .eq('is_active_variant', true)
+          .gt('turn_index', 0);
+        if (countError) throw countError;
+        aiCountMap[session.id] = count ?? 0;
+      }));
 
       return { sessions, aiCountMap };
     },
