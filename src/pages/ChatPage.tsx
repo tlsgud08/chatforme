@@ -134,12 +134,24 @@ interface ActiveGeneration {
 }
 const activeGenerations = new Map<string, ActiveGeneration>();
 
+interface ActiveSummaryGeneration {
+  listeners: Set<() => void>;
+}
+const activeSummaryGenerations = new Map<string, ActiveSummaryGeneration>();
+
 function publishGeneration(id: string, content: string | null) {
   const active = activeGenerations.get(id);
   if (!active) return;
   if (content !== null) active.content = content;
   active.listeners.forEach((listener) => listener(content));
   if (content === null) activeGenerations.delete(id);
+}
+
+function finishSummaryGeneration(id: string) {
+  const active = activeSummaryGenerations.get(id);
+  if (!active) return;
+  activeSummaryGenerations.delete(id);
+  active.listeners.forEach((listener) => listener());
 }
 
 export interface ErrorEntry {
@@ -361,6 +373,22 @@ export default function ChatPage() {
     return () => { active.listeners.delete(listener); };
   }, [loadLatestMessages, sessionId]);
 
+  useEffect(() => {
+    if (!sessionId || isGuest) return;
+    const active = activeSummaryGenerations.get(sessionId);
+    setSummaryGenerating(!!active);
+    if (!active) return;
+    const listener = () => {
+      setSummaryGenerating(false);
+      void supabase.from('sessions').select('*').eq('id', sessionId).single().then(({ data }) => {
+        if (data) setSession(data as Session);
+      });
+      void loadLatestMessages().catch((error) => addError(`메시지 새로고침 실패: ${describeUnknownError(error)}`));
+    };
+    active.listeners.add(listener);
+    return () => { active.listeners.delete(listener); };
+  }, [isGuest, loadLatestMessages, sessionId]);
+
   function addError(raw: string) {
     const short = classifyError(raw);
     const entry: ErrorEntry = { id: crypto.randomUUID(), short, detail: raw, at: new Date().toISOString() };
@@ -501,50 +529,47 @@ export default function ChatPage() {
   }
 
   async function generateSummary(sourceMessages = messages, archivesToMerge: string[] = [], requestedThroughTurn?: number) {
-    if (!session || !profile || summaryGenerating) return;
+    if (!session || !profile || summaryGenerating || activeSummaryGenerations.has(session.id)) return;
     const apiKey = getApiKey('openrouter');
     if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return; }
-    // Include the hidden initial context in the first archive so important
-    // scenario setup is not lost after its short keep_turns window expires.
-    const sourceMode = session.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
-    let completeSourceMessages = sourceMessages;
-    if (archivesToMerge.length === 0) {
-      try {
-        completeSourceMessages = await fetchAllSessionMessages(session.id);
-      } catch (error) {
-        addError(`요약 원문 불러오기 실패: ${describeUnknownError(error)}`);
-        return;
-      }
-    }
-    const allActiveMessages = completeSourceMessages.filter((message) => message.is_active_variant !== false);
-    const latestTurn = allActiveMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
-    const throughTurn = Math.max(0, Math.min(requestedThroughTurn ?? latestTurn, latestTurn));
-    const activeSourceMessages = messagesThroughTurn(allActiveMessages, throughTurn);
-    let previous = archivesToMerge.length > 0
-      ? archivesToMerge.join('\n\n--- Summary to Merge ---\n\n')
-      : '';
-    let previousTurn = 0;
-    if (archivesToMerge.length === 0 && sourceMode === 'incremental' && throughTurn > 0) {
-      const { data: earlierVersions } = await supabase.from('summary_versions')
-        .select('*').eq('session_id', session.id).lt('summarized_through_turn', throughTurn)
-        .order('summarized_through_turn', { ascending: false }).limit(1);
-      const earlier = ((earlierVersions as SummaryVersion[] | null) ?? [])[0];
-      if (earlier) {
-        previous = earlier.content.trim();
-        previousTurn = earlier.summarized_through_turn;
-      } else if (session.summary_last_turn < throughTurn) {
-        previous = session.summary.trim();
-        previousTurn = session.summary_last_turn;
-      }
-    }
-    const candidates = archivesToMerge.length > 0
-      ? []
-      : sourceMode === 'full'
-      ? activeSourceMessages
-      : messagesAfterSummary(activeSourceMessages, previousTurn);
-    if (candidates.length === 0 && archivesToMerge.length === 0) { addError('새로 요약할 대화가 없습니다.'); return; }
+    const summarySessionId = session.id;
+    activeSummaryGenerations.set(summarySessionId, { listeners: new Set() });
     setSummaryGenerating(true);
     try {
+      // Include the hidden initial context in the first archive so important
+      // scenario setup is not lost after its short keep_turns window expires.
+      const sourceMode = session.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
+      let completeSourceMessages = sourceMessages;
+      if (archivesToMerge.length === 0) {
+        completeSourceMessages = await fetchAllSessionMessages(session.id);
+      }
+      const allActiveMessages = completeSourceMessages.filter((message) => message.is_active_variant !== false);
+      const latestTurn = allActiveMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
+      const throughTurn = Math.max(0, Math.min(requestedThroughTurn ?? latestTurn, latestTurn));
+      const activeSourceMessages = messagesThroughTurn(allActiveMessages, throughTurn);
+      let previous = archivesToMerge.length > 0
+        ? archivesToMerge.join('\n\n--- Summary to Merge ---\n\n')
+        : '';
+      let previousTurn = 0;
+      if (archivesToMerge.length === 0 && sourceMode === 'incremental' && throughTurn > 0) {
+        const { data: earlierVersions } = await supabase.from('summary_versions')
+          .select('*').eq('session_id', session.id).lt('summarized_through_turn', throughTurn)
+          .order('summarized_through_turn', { ascending: false }).limit(1);
+        const earlier = ((earlierVersions as SummaryVersion[] | null) ?? [])[0];
+        if (earlier) {
+          previous = earlier.content.trim();
+          previousTurn = earlier.summarized_through_turn;
+        } else if (session.summary_last_turn < throughTurn) {
+          previous = session.summary.trim();
+          previousTurn = session.summary_last_turn;
+        }
+      }
+      const candidates = archivesToMerge.length > 0
+        ? []
+        : sourceMode === 'full'
+        ? activeSourceMessages
+        : messagesAfterSummary(activeSourceMessages, previousTurn);
+      if (candidates.length === 0 && archivesToMerge.length === 0) throw new Error('새로 요약할 대화가 없습니다.');
       const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${message.content}`).join('\n\n');
       const input = `${previous ? `=== Previous Summary Notes${archivesToMerge.length > 1 ? ' (merge the selected notes into one)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== Dialogue to Summarize ===\n${dialogue}` : '=== Request ===\nMerge the selected summary notes into one up-to-date summary without omissions or discontinuities.'}`;
       const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
@@ -599,6 +624,7 @@ export default function ChatPage() {
       addError(`요약 생성 실패: ${describeUnknownError(error)}`);
     } finally {
       setSummaryGenerating(false);
+      finishSummaryGeneration(summarySessionId);
     }
   }
 
