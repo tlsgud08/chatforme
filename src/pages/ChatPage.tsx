@@ -20,6 +20,7 @@ import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session
 import SessionMenu from '@/components/SessionMenu';
 import MarkdownCodeBlock from '@/components/MarkdownCodeBlock';
 import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
+import { isTurnPriceWarning, loadTurnPriceWarning } from '@/lib/turnPriceWarning';
 import { showToast } from '@/lib/toast';
 import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
@@ -248,6 +249,7 @@ export default function ChatPage() {
   const [showCacheTokens, setShowCacheTokens] = useState(() => localStorage.getItem('inuchat.showCacheTokens') === '1');
   const [showImages, setShowImages] = useState(() => localStorage.getItem('inuchat.showImages') !== '0');
   const exchange = useUsdKrwRate();
+  const turnPriceWarning = loadTurnPriceWarning();
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
   const [toastError, setToastError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1371,7 +1373,7 @@ export default function ChatPage() {
                       <button onClick={() => void branchFrom(m)} className="text-xs text-slate-500">분기</button>
                       <button disabled={sending || deletingMessageId === m.id} onClick={() => void deleteMsg(m.id)} className="text-xs text-[#DA7F88] disabled:opacity-50">삭제</button>
                       {m.role === 'assistant' && <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
-                        {showCost && <span className="text-right text-[10px] text-slate-500">{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`} {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
+                        {showCost && <span className="text-right text-[10px] text-slate-500"><span className={isTurnPriceWarning(m.cost, turnPriceWarning, exchange.rate) ? 'text-yellow-400' : undefined}>{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`}</span> {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
                         {showCacheTokens && <span className="text-right text-[10px] text-slate-500">캐시 읽기 {m.cache_read_tokens == null ? '미보고' : m.cache_read_tokens.toLocaleString()} · 쓰기 {m.cache_write_tokens == null ? '미보고' : m.cache_write_tokens.toLocaleString()}</span>}
                         {variantsFor(m).length > 1 && <select aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
                         <span className="text-[10px] font-medium text-slate-500">{assistantTurnNumbers.get(m.id) ?? 0}턴</span>

@@ -10,6 +10,8 @@ import { loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import type { Profile, Provider } from '@/types/db';
 import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/OutputSettingsEditor';
+import { useUsdKrwRate } from '@/lib/exchangeRate';
+import { loadTurnPriceWarning, saveTurnPriceWarning, type TurnPriceWarningCurrency } from '@/lib/turnPriceWarning';
 
 export default function SettingsPage() {
   const { user, isGuest, signOut } = useAuth();
@@ -28,6 +30,8 @@ export default function SettingsPage() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
+  const [turnPriceWarning, setTurnPriceWarning] = useState(loadTurnPriceWarning);
+  const exchange = useUsdKrwRate();
 
   const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
@@ -201,6 +205,19 @@ export default function SettingsPage() {
     saveTheme(nextTheme);
   }
 
+  function updateTurnPriceWarning(next: typeof turnPriceWarning) {
+    setTurnPriceWarning(next);
+    saveTurnPriceWarning(next);
+  }
+
+  function changeTurnPriceWarningCurrency(currency: TurnPriceWarningCurrency) {
+    if (currency === turnPriceWarning.currency) return;
+    const convertedThreshold = currency === 'KRW'
+      ? Math.round(turnPriceWarning.threshold * exchange.rate)
+      : Number((turnPriceWarning.threshold / exchange.rate).toFixed(6));
+    updateTurnPriceWarning({ ...turnPriceWarning, currency, threshold: convertedThreshold });
+  }
+
   return (
     <div className="flex flex-col gap-6 p-4">
       {/* 화면 테마 */}
@@ -223,6 +240,56 @@ export default function SettingsPage() {
               {option === 'dark' ? '🌙 다크' : '☀️ 라이트'}
             </button>
           ))}
+        </div>
+      </section>
+
+      {/* 턴 가격 경고 */}
+      <section>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-white">턴 가격 경고</h2>
+            <p className="mt-1 text-xs text-slate-500">설정한 금액 이상의 응답 가격을 노란색으로 표시합니다.</p>
+          </div>
+          <button
+            type="button"
+            aria-label="턴 가격 경고"
+            aria-pressed={turnPriceWarning.enabled}
+            onClick={() => updateTurnPriceWarning({ ...turnPriceWarning, enabled: !turnPriceWarning.enabled })}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${turnPriceWarning.enabled ? 'bg-emerald-500' : 'bg-surface2'}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${turnPriceWarning.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </button>
+        </div>
+        <div className={`mt-3 rounded-xl bg-surface p-3 ${turnPriceWarning.enabled ? '' : 'opacity-50'}`}>
+          <div className="grid grid-cols-2 gap-1 rounded-lg bg-bg p-1" role="group" aria-label="턴 가격 경고 기준 통화">
+            {(['USD', 'KRW'] as const).map((currency) => (
+              <button
+                key={currency}
+                type="button"
+                disabled={!turnPriceWarning.enabled}
+                aria-pressed={turnPriceWarning.currency === currency}
+                onClick={() => changeTurnPriceWarningCurrency(currency)}
+                className={`rounded-md py-2 text-xs font-semibold ${turnPriceWarning.currency === currency ? 'bg-brand text-white' : 'text-slate-400'}`}
+              >
+                {currency === 'USD' ? '달러 ($)' : '원화 (₩)'}
+              </button>
+            ))}
+          </div>
+          <label className="mt-3 block text-xs text-slate-400">
+            경고 기준 금액
+            <div className="mt-1 flex items-center rounded-lg bg-surface2 px-3">
+              <span className="text-sm text-slate-400">{turnPriceWarning.currency === 'USD' ? '$' : '₩'}</span>
+              <input
+                type="number"
+                min="0"
+                step={turnPriceWarning.currency === 'USD' ? '0.000001' : '1'}
+                disabled={!turnPriceWarning.enabled}
+                value={turnPriceWarning.threshold}
+                onChange={(event) => updateTurnPriceWarning({ ...turnPriceWarning, threshold: Math.max(0, Number(event.target.value) || 0) })}
+                className="w-full bg-transparent px-2 py-2.5 text-sm text-white outline-none disabled:cursor-not-allowed"
+              />
+            </div>
+          </label>
         </div>
       </section>
 
