@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { canLeaveCurrentPage } from '@/lib/navigationGuard';
 
 const TABS = [
   { to: '/works', label: '작품', icon: '📚' },
@@ -11,15 +12,19 @@ const TABS = [
 export default function Layout() {
   const navigate = useNavigate();
 
+  async function guardedNavigate(to: string) {
+    if (await canLeaveCurrentPage()) navigate(to);
+  }
+
   return (
     <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
       <header className="flex items-center gap-2 border-b border-surface2 px-4 py-3">
-        <button onClick={() => navigate('/works')} className="flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand" aria-label="Inuchat 홈으로 이동">
+        <button onClick={() => void guardedNavigate('/works')} className="flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand" aria-label="Inuchat 홈으로 이동">
           <img src="/IMG_6928.png" alt="" className="h-8 w-8 rounded-full object-cover" />
           <span className="text-lg font-bold text-white">Inuchat</span>
         </button>
         <button
-          onClick={() => navigate('/search')}
+          onClick={() => void guardedNavigate('/search')}
           className="ml-auto flex-1 rounded-full bg-surface px-4 py-2 text-left text-sm text-slate-400"
         >
           🔍 작품·유저 검색…
@@ -37,6 +42,10 @@ export default function Layout() {
           <NavLink
             key={t.to}
             to={t.to}
+            onClick={(event) => {
+              event.preventDefault();
+              void guardedNavigate(t.to);
+            }}
             className={({ isActive }) =>
               `flex flex-col items-center gap-0.5 py-2 text-xs ${
                 isActive ? 'text-brand' : 'text-slate-400'

@@ -1,15 +1,34 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import type { KeywordBook, StartConfig, Work } from '@/types/db';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
+import { registerNavigationGuard } from '@/lib/navigationGuard';
 
 type Tab = 'basic' | 'prompt' | 'multichat' | 'start' | 'keywords' | 'permissions';
 type EditorProfile = { user_id: string; display_name: string; avatar_url: string | null; created_at: string };
 type UserCandidate = { id: string; display_name: string; avatar_url: string | null };
 const MAX_THUMB_BYTES = 5 * 1024 * 1024;
+const DRAFT_VERSION = 1;
+
+type WorkDraft = {
+  version: number;
+  savedAt: string;
+  work: Work;
+  startConfigs: StartConfig[];
+  keywordBooks: KeywordBook[];
+  kwInputs: Record<string, string>;
+};
+
+function draftKey(workId: string) {
+  return `inuchat:work-editor-draft:${workId}`;
+}
+
+function snapshot(work: Work, startConfigs: StartConfig[], keywordBooks: KeywordBook[]) {
+  return JSON.stringify({ work, startConfigs, keywordBooks });
+}
 
 function characterCount(value: string, max: number) {
   return `${value.length}/${max} · 공백 제외 ${value.replace(/\s/g, '').length}자`;
@@ -42,21 +61,117 @@ export default function WorkEditorPage() {
   const [userQuery, setUserQuery] = useState('');
   const [candidates, setCandidates] = useState<UserCandidate[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const baselineRef = useRef('');
+  const dirtyRef = useRef(false);
+  const historyGuardRef = useRef(false);
 
   useEffect(() => {
-    supabase.from('works').select('*').eq('id', workId).single()
-      .then(({ data, error }) => error ? setLoadError('작품을 수정할 권한이 없습니다.') : setWork(data as Work));
-    supabase.from('keyword_books').select('*').eq('work_id', workId).order('sort_order')
-      .then(({ data }) => setKeywordBooks((data as KeywordBook[]) ?? []));
-    supabase.from('start_configs').select('*').eq('work_id', workId).order('sort_order')
-      .then(({ data }) => {
-        const configs = (data as StartConfig[]) ?? [];
-        if (configs.length > 0 && !configs.some((c) => c.is_default)) {
-          configs[0] = { ...configs[0], is_default: true };
+    if (!workId) return;
+    let cancelled = false;
+    void Promise.all([
+      supabase.from('works').select('*').eq('id', workId).single(),
+      supabase.from('keyword_books').select('*').eq('work_id', workId).order('sort_order'),
+      supabase.from('start_configs').select('*').eq('work_id', workId).order('sort_order'),
+    ]).then(async ([workResult, keywordResult, configResult]) => {
+      if (cancelled) return;
+      if (workResult.error || keywordResult.error || configResult.error || !workResult.data) {
+        setLoadError('작품을 수정할 권한이 없거나 데이터를 불러오지 못했습니다.');
+        return;
+      }
+      const serverWork = workResult.data as Work;
+      const serverKeywords = (keywordResult.data as KeywordBook[]) ?? [];
+      const configs = (configResult.data as StartConfig[]) ?? [];
+      if (configs.length > 0 && !configs.some((c) => c.is_default)) {
+        configs[0] = { ...configs[0], is_default: true };
+      }
+      setWork(serverWork);
+      setKeywordBooks(serverKeywords);
+      setStartConfigs(configs);
+      baselineRef.current = snapshot(serverWork, configs, serverKeywords);
+
+      const stored = localStorage.getItem(draftKey(workId));
+      if (stored) {
+        try {
+          const draft = JSON.parse(stored) as WorkDraft;
+          if (draft.version !== DRAFT_VERSION || draft.work.id !== serverWork.id) throw new Error('invalid draft');
+          const restore = await showConfirmDialog(
+            '임시 저장된 수정 내용이 있어요',
+            '이 브라우저에 남아 있는 저장되지 않은 수정 내용을 불러올까요?\n불러오지 않으면 임시 저장 내용은 삭제됩니다.',
+            '불러오기',
+          );
+          if (cancelled) return;
+          if (restore) {
+            setWork(draft.work);
+            setStartConfigs(draft.startConfigs);
+            setKeywordBooks(draft.keywordBooks);
+            setKwInputs(draft.kwInputs ?? {});
+          } else {
+            localStorage.removeItem(draftKey(workId));
+          }
+        } catch {
+          localStorage.removeItem(draftKey(workId));
         }
-        setStartConfigs(configs);
-      });
+      }
+      if (!cancelled) setReady(true);
+    });
+    return () => { cancelled = true; };
   }, [workId]);
+
+  useEffect(() => {
+    if (!ready || !work || !workId) return;
+    const changed = snapshot(work, startConfigs, keywordBooks) !== baselineRef.current || Object.values(kwInputs).some(Boolean);
+    dirtyRef.current = changed;
+    setDirty(changed);
+    if (changed) {
+      const draft: WorkDraft = { version: DRAFT_VERSION, savedAt: new Date().toISOString(), work, startConfigs, keywordBooks, kwInputs };
+      try { localStorage.setItem(draftKey(workId), JSON.stringify(draft)); }
+      catch { showToast('브라우저 임시 저장 공간이 부족합니다.'); }
+    }
+  }, [ready, work, workId, startConfigs, keywordBooks, kwInputs]);
+
+  const confirmLeave = useCallback(async () => {
+    if (!dirtyRef.current) return true;
+    return showConfirmDialog(
+      '수정 내용이 저장되지 않았어요',
+      '지금 나가도 수정 내용은 이 브라우저에 임시 저장됩니다.\n다음에 수정 페이지를 열 때 다시 불러올 수 있어요.',
+      '나가기',
+    );
+  }, []);
+
+  useEffect(() => registerNavigationGuard(confirmLeave), [confirmLeave]);
+
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, []);
+
+  useEffect(() => {
+    if (!dirty) return;
+    if (!historyGuardRef.current) {
+      history.pushState({ ...history.state, workEditorGuard: true }, '', location.href);
+      historyGuardRef.current = true;
+    }
+    const handlePopState = () => {
+      if (!dirtyRef.current) return;
+      void confirmLeave().then((leave) => {
+        if (leave) {
+          dirtyRef.current = false;
+          history.back();
+        } else {
+          history.pushState({ ...history.state, workEditorGuard: true }, '', location.href);
+        }
+      });
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [dirty, confirmLeave]);
 
   const isCreator = work?.creator_id === user?.id;
 
@@ -176,6 +291,11 @@ export default function WorkEditorPage() {
       ]);
       const relatedError = relatedResults.find((result) => result.error)?.error;
       if (relatedError) throw relatedError;
+      baselineRef.current = snapshot(work, startConfigs, keywordBooks);
+      dirtyRef.current = false;
+      setDirty(false);
+      setKwInputs({});
+      if (workId) localStorage.removeItem(draftKey(workId));
       showToast('저장되었습니다.');
     } catch (error) {
       showToast('저장 실패: ' + saveErrorMessage(error));
@@ -208,6 +328,8 @@ export default function WorkEditorPage() {
       showToast('삭제 실패: ' + (error?.message ?? '작품이 삭제되지 않았습니다.'));
       return;
     }
+    dirtyRef.current = false;
+    if (workId) localStorage.removeItem(draftKey(workId));
     navigate('/create');
   }
 
@@ -257,14 +379,14 @@ export default function WorkEditorPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-4 py-3">
-        <button onClick={() => navigate('/create')} className="text-sm text-slate-400">← 목록</button>
+        <button onClick={() => void confirmLeave().then((leave) => leave && navigate('/create'))} className="text-sm text-slate-400">← 목록</button>
         {isAdmin && !isCreator && <span className="rounded-full bg-brand/20 px-2 py-1 text-[11px] text-brand">운영자 편집</span>}
         <button
           onClick={save}
           disabled={saving}
           className="ml-auto rounded-lg bg-brand px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
         >
-          {saving ? '저장 중…' : '저장'}
+          {saving ? '저장 중…' : dirty ? '저장' : '저장됨'}
         </button>
       </div>
 
