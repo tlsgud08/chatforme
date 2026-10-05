@@ -1342,7 +1342,7 @@ export default function ChatPage() {
                         table: ({ children }) => <div className="mb-2 max-w-full overflow-x-hidden"><table className="w-full table-fixed border-collapse text-left text-xs">{children}</table></div>,
                         th: ({ children }) => <th className="break-words border border-slate-500/60 bg-surface2 px-2 py-1.5 font-semibold [overflow-wrap:anywhere]">{children}</th>,
                         td: ({ children }) => <td className="break-words border border-slate-500/60 px-2 py-1.5 align-top [overflow-wrap:anywhere]">{children}</td>,
-                        del: ({ children }) => <del className="opacity-70">{children}</del>,
+                        del: ({ children }) => <>~~{children}~~</>,
                         img: ({ src, alt }) => showImages ? (
                           <MarkdownImage src={src} alt={alt ?? ''} />
                         ) : (
