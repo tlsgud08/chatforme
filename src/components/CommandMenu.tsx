@@ -6,8 +6,9 @@ import { showConfirmDialog } from '@/lib/dialog';
 
 interface Props {
   userId: string;
-  onClose: () => void;
-  onSelect: (command: Command) => void;
+  onClose?: () => void;
+  embedded?: boolean;
+  onSelect?: (command: Command) => void;
 }
 
 type Tab = 'all' | 'mine' | 'hub' | 'favorites';
@@ -15,7 +16,7 @@ type Draft = Pick<Command, 'name' | 'description' | 'prompt'>;
 const emptyDraft: Draft = { name: '', description: '', prompt: '' };
 const tabLabels: Record<Tab, string> = { all: '전체', mine: '내 명령어', hub: '명령어 허브', favorites: '즐겨찾기' };
 
-export default function CommandMenu({ userId, onClose, onSelect }: Props) {
+export default function CommandMenu({ userId, onClose, onSelect, embedded = false }: Props) {
   const [commands, setCommands] = useState<Command[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [authors, setAuthors] = useState<Record<string, string>>({});
@@ -23,6 +24,7 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Command | 'new' | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [viewing, setViewing] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -130,8 +132,8 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
   }
 
   if (editing) return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center" onMouseDown={(event) => event.target === event.currentTarget && setEditing(null)}>
-      <section className="flex max-h-[92dvh] w-full max-w-lg flex-col rounded-t-3xl bg-bg p-5 shadow-2xl sm:rounded-3xl">
+    <div className={embedded ? "flex w-full justify-center" : "fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"} onMouseDown={(event) => event.target === event.currentTarget && setEditing(null)}>
+      <section className={embedded ? "flex w-full flex-col bg-bg p-4" : "flex max-h-[92dvh] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl bg-bg p-5 shadow-2xl sm:rounded-3xl"}>
         <header className="mb-5 flex items-center justify-between"><button onClick={() => setEditing(null)} className="text-xl text-slate-400">←</button><h2 className="font-bold text-white">명령어 편집</h2><span className="w-5" /></header>
         <label className="mb-4 text-sm font-semibold text-slate-200">명령어 이름 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.name.length}/20</span>
           <div className="mt-2 flex rounded-xl bg-surface px-3"><span className="py-3 text-slate-500">/</span><input maxLength={20} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value.replace(/^\/+/, '') })} className="min-w-0 flex-1 bg-transparent py-3 outline-none" placeholder="명령어" /></div>
@@ -148,9 +150,9 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
   );
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="flex h-[72dvh] w-full max-w-app flex-col rounded-t-3xl bg-bg shadow-2xl">
-        <header className="flex items-center justify-between px-4 pb-2 pt-4"><div><h2 className="text-lg font-bold text-white">명령어</h2><p className="text-xs text-slate-500">메뉴에서 선택해야 명령어가 활성화됩니다.</p></div><button onClick={onClose} className="p-2 text-xl text-slate-400">×</button></header>
+    <div className={embedded ? "w-full" : "fixed inset-0 z-40 flex items-end justify-center bg-black/60"} onMouseDown={(event) => !embedded && event.target === event.currentTarget && onClose?.()}>
+      <section className={embedded ? "flex w-full flex-col bg-bg" : "flex h-[72dvh] w-full max-w-app flex-col rounded-t-3xl bg-bg shadow-2xl"}>
+        <header className="flex items-center justify-between px-4 pb-2 pt-4"><div>{!embedded && <h2 className="text-lg font-bold text-white">명령어</h2>}<p className="text-xs text-slate-500">{embedded ? '명령어를 만들고 편집하거나 허브에 공개하세요.' : '메뉴에서 선택해야 명령어가 활성화됩니다.'}</p></div>{!embedded && <button onClick={onClose} className="p-2 text-xl text-slate-400">×</button>}</header>
         <div className="flex shrink-0 overflow-x-auto border-b border-surface2 px-3">
           {(['all', 'mine', 'hub', 'favorites'] as Tab[]).map((value) => <button key={value} onClick={() => { setTab(value); setOpenMenu(null); }} aria-pressed={tab === value} className={`whitespace-nowrap border-b-2 px-2.5 py-3 text-sm ${tab === value ? 'border-brand font-semibold text-white' : 'border-transparent text-slate-500'}`}>{tabLabels[value]}</button>)}
         </div>
@@ -167,12 +169,16 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
         <div className="min-h-0 flex-1 overflow-y-auto">
           {visible.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">{searchTerm ? `${tabLabels[tab]}에 검색 결과가 없습니다.` : '표시할 명령어가 없습니다.'}</p> : visible.map((command) => {
             const mine = command.owner_id === userId;
-            return <div key={command.id} className="relative flex gap-3 border-b border-surface2/70 px-4 py-3">
-              <button onClick={() => { onSelect(command); onClose(); }} className="min-w-0 flex-1 text-left">
+            return <div key={command.id} className={`relative flex gap-3 border-b border-surface2/70 px-4 py-3 ${embedded ? 'flex-wrap' : ''}`}>
+              <button onClick={() => { if (embedded) setViewing(viewing === command.id ? null : command.id); else { onSelect?.(command); onClose?.(); } }} className="min-w-0 flex-1 text-left">
                 <p className="truncate font-semibold text-white"><span className="text-brand">/</span>{command.name} {mine && <span className="ml-1 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-400">나</span>} {command.is_published && <span className="ml-1 rounded bg-blue-400/15 px-1.5 py-0.5 text-[10px] text-blue-400">허브</span>}</p>
                 <p className="mt-1 truncate text-xs text-slate-400">{command.description || '설명 없음'}</p>
                 {command.is_published && <p className="mt-1 text-[11px] text-slate-500">올린 사람 · {mine ? '나' : authors[command.owner_id] ?? '사용자'}</p>}
               </button>
+              {embedded && viewing === command.id && <div className="order-last w-full rounded-lg bg-surface p-3">
+                <p className="mb-2 text-xs font-semibold text-slate-400">프롬프트 본문</p>
+                <pre className="whitespace-pre-wrap break-words text-sm text-slate-200">{command.prompt}</pre>
+              </div>}
               <button aria-label={`/${command.name} ${favoriteIds.has(command.id) ? '즐겨찾기 해제' : '즐겨찾기 추가'}`} aria-pressed={favoriteIds.has(command.id)} onClick={() => void toggleFavorite(command)} className={`self-start px-1 text-2xl leading-none ${favoriteIds.has(command.id) ? 'text-amber-400' : 'text-slate-500'}`}>{favoriteIds.has(command.id) ? '★' : '☆'}</button>
               <button aria-label="명령어 메뉴" onClick={() => setOpenMenu(openMenu === command.id ? null : command.id)} className="self-start px-1 text-xl text-slate-500">⋯</button>
               {openMenu === command.id && <div className="absolute right-4 top-10 z-10 min-w-40 overflow-hidden rounded-xl border border-surface2 bg-surface shadow-xl">
