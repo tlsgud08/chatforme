@@ -22,6 +22,15 @@ try {
   assert.deepEqual(resolvePromptCache(true, 'openai/gpt-test', 'a1', rows), { systemOnly: false, unavailable: false });
   assert.equal(resolvePromptCache(true, model, null, rows).systemOnly, true);
 
+  // Auto mode follows only completed, visible, active assistants in outgoing history.
+  assert.equal(resolvePromptCache(true, model, 'a1', rows, true).messageId, 'a2');
+  assert.equal(resolvePromptCache(true, model, 'missing', [...rows, row('a4', 'assistant')], true).messageId, 'a4');
+  assert.equal(resolvePromptCache(true, model, null, [row('hidden', 'assistant', { is_hidden: true }), row('live', 'assistant', { generation_status: 'streaming' }), row('old', 'assistant', { is_active_variant: false }), row('u', 'user')], true).systemOnly, true);
+  assert.equal(resolvePromptCache(true, model, 'a1', rows.filter((m) => m.id !== 'a2'), true).messageId, 'a1');
+  assert.equal(resolvePromptCache(true, model, 'a1', [], true).systemOnly, true);
+  assert.deepEqual(resolvePromptCache(false, model, 'a1', rows, true), { systemOnly: false, unavailable: false });
+  assert.deepEqual(resolvePromptCache(true, 'openai/gpt-test', 'a1', rows, true), { systemOnly: false, unavailable: false });
+
   const assembled = assemblePrompt({ systemPrompt: 'platform', mainPrompt: 'story', keywordBookContents: ['dynamic'],
     history: rows.slice(1, 3).map((m) => ({ role: m.role, content: m.content, ...(m.id === 'a1' && { cacheBreakpoint: true }) })), latestUserMessage: 'new input' });
   const opts = { ...assembled, model, apiKey: 'test-key', sessionId: 'session-test', reasoning: { send: false }, maxOutputTokens: null };
@@ -99,6 +108,20 @@ try {
   await sendPlugins([pluginA], 'turn five', true);
   assert.ok(sent.messages[0].content[0].text.includes('PLUGIN_A_UNIQUE'));
   assert.deepEqual(sent.messages[0].content[0].cache_control, { type: 'ephemeral' });
+  const autoHistory = rows.slice(1, 6);
+  const autoBoundary = resolvePromptCache(true, model, 'a1', autoHistory, true);
+  const autoPrompt = assemblePrompt({ systemPrompt: 'platform', mainPrompt: 'story', history: autoHistory.map((m) => ({ ...m, cacheBreakpoint: m.id === autoBoundary.messageId })), latestUserMessage: 'new current input' });
+  await generate('openrouter', { ...opts, ...autoPrompt, cacheSystemOnly: autoBoundary.systemOnly });
+  const marked = sent.messages.filter((m) => Array.isArray(m.content));
+  assert.equal(marked.length, 1);
+  assert.equal(marked[0].role, 'assistant');
+  assert.equal(marked[0].content[0].text, 'a2');
+  assert.equal(sent.messages.at(-1).content, 'new current input');
+  const disabled = resolvePromptCache(false, model, 'a1', autoHistory, true);
+  const disabledPrompt = assemblePrompt({ systemPrompt: 'platform', mainPrompt: 'story', history: autoHistory.map((m) => ({ ...m, cacheBreakpoint: m.id === disabled.messageId })), latestUserMessage: 'off input' });
+  await generate('openrouter', { ...opts, ...disabledPrompt, cacheSystemOnly: disabled.systemOnly });
+  assert.equal(JSON.stringify(sent).includes('cache_control'), false);
+  console.log('Automatic latest cache tests passed (latest boundary, invalid history, OFF payload)');
   console.log('Persistent plugin request tests passed (consecutive sends, deactivation, user notes, manual cache)');
   console.log('Manual prompt cache tests passed (boundaries, lifecycle, normalization, actual request body)');
 } finally {

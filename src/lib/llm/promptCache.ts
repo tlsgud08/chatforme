@@ -21,9 +21,15 @@ export function cacheTurnChoices(messages: CacheMessage[], summaryThroughTurn: n
 
 /** Resolve against the actual outgoing history, after summary and reroll filtering. */
 export function resolvePromptCache(
-  enabled: boolean, model: string, targetId: string | null, history: CacheMessage[],
+  enabled: boolean, model: string, targetId: string | null, history: CacheMessage[], autoLatest = false,
 ): { systemOnly: boolean; messageId?: string; unavailable: boolean } {
   if (!enabled || !supportsManualPromptCache(model)) return { systemOnly: false, unavailable: false };
+  if (autoLatest) {
+    const latest = history.filter((m) => m.role === 'assistant' && !m.is_hidden &&
+      m.is_active_variant !== false && m.generation_status !== 'streaming' && m.generation_status !== 'interrupted').at(-1);
+    return latest ? { systemOnly: false, messageId: latest.id, unavailable: false }
+      : { systemOnly: true, unavailable: false };
+  }
   if (targetId === null) return { systemOnly: true, unavailable: false };
   const target = history.find((m) => m.id === targetId && m.role === 'assistant' && !m.is_hidden &&
     m.is_active_variant !== false && m.generation_status !== 'streaming' && m.generation_status !== 'interrupted');

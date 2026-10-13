@@ -859,7 +859,7 @@ export default function ChatPage() {
       : baseMessages;
     const historyMsgs = buildHistory(historySource, effectiveSummaryTurn);
     const promptCache = resolvePromptCache(session.prompt_cache_enabled ?? false, model,
-      session.prompt_cache_message_id ?? null, historyMsgs);
+      session.prompt_cache_message_id ?? null, historyMsgs, session.prompt_cache_auto_latest ?? false);
     if (promptCache.unavailable) showToast('선택한 캐시 기준 답변이 이번 문맥에 없어 명시적 캐시 없이 전송합니다.');
     let currentMessages = [...baseMessages];
     if (!options?.reroll && (text || commandPrompt)) {

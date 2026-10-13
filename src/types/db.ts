@@ -118,6 +118,7 @@ export type Plugin = Command;
 export interface Session {
   active_plugins?: ActivePlugin[];
   prompt_cache_enabled?: boolean;
+  prompt_cache_auto_latest?: boolean;
   /** Null selects the leading system message. A UUID pins one exact assistant variant. */
   prompt_cache_message_id?: string | null;
   id: string;
