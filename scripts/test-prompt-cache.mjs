@@ -73,6 +73,31 @@ try {
   assert.equal(JSON.stringify(sent).includes('cacheBreakpoint'), false);
   await generate('openrouter', { ...opts, messages: unmarked });
   assert.deepEqual(sent.messages, off);
+  // Persistent plugins must be present on consecutive HTTP requests, absent after
+  // deactivation, and included inside a system-only manual cache boundary.
+  const pluginA = { id: 'plugin-a', name: 'Dialogue', description: 'Style', prompt: 'PLUGIN_A_UNIQUE' };
+  const pluginB = { id: 'plugin-b', name: 'Memory', description: 'Memory', prompt: 'PLUGIN_B_UNIQUE' };
+  const pluginInput = { systemPrompt: 'platform', mainPrompt: 'story', userNote: 'USER_NOTE_UNIQUE',
+    summary: 'summary', persona: { name: 'Player', description: 'persona' }, history: [], latestUserMessage: 'turn one' };
+  const sendPlugins = async (plugins, text, cacheSystemOnly = false) => {
+    const prompt = assemblePrompt({ ...pluginInput, plugins, latestUserMessage: text });
+    await generate('openrouter', { ...opts, ...prompt, cacheSystemOnly });
+    return JSON.stringify(sent.messages);
+  };
+  for (const text of ['turn one', 'turn two']) {
+    const body = await sendPlugins([pluginA, pluginB], text);
+    assert.ok(body.includes('PLUGIN_A_UNIQUE') && body.includes('PLUGIN_B_UNIQUE'));
+    assert.ok(body.includes('USER_NOTE_UNIQUE'));
+    assert.equal(body.split('PLUGIN_A_UNIQUE').length - 1, 1);
+  }
+  const oneActive = await sendPlugins([pluginB], 'turn three');
+  assert.ok(!oneActive.includes('PLUGIN_A_UNIQUE') && oneActive.includes('PLUGIN_B_UNIQUE'));
+  const noneActive = await sendPlugins([], 'turn four');
+  assert.ok(!noneActive.includes('PLUGIN_A_UNIQUE') && !noneActive.includes('PLUGIN_B_UNIQUE'));
+  await sendPlugins([pluginA], 'turn five', true);
+  assert.ok(sent.messages[0].content[0].text.includes('PLUGIN_A_UNIQUE'));
+  assert.deepEqual(sent.messages[0].content[0].cache_control, { type: 'ephemeral' });
+  console.log('Persistent plugin request tests passed (consecutive sends, deactivation, user notes, manual cache)');
   console.log('Manual prompt cache tests passed (boundaries, lifecycle, normalization, actual request body)');
 } finally {
   globalThis.fetch = originalFetch;

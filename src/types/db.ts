@@ -106,7 +106,17 @@ export interface Persona {
   created_at: string;
 }
 
+export interface ActivePlugin {
+  id: string;
+  name: string;
+  description: string;
+  prompt: string;
+}
+
+export type Plugin = Command;
+
 export interface Session {
+  active_plugins?: ActivePlugin[];
   prompt_cache_enabled?: boolean;
   /** Null selects the leading system message. A UUID pins one exact assistant variant. */
   prompt_cache_message_id?: string | null;

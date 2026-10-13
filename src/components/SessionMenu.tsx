@@ -11,6 +11,7 @@ import { showConfirmDialog } from '@/lib/dialog';
 import { normalizeOutputTokens } from './OutputTokenSelector';
 import OutputSettingsEditor, { type OutputSettingsValue } from './OutputSettingsEditor';
 import PromptCacheSettings from './PromptCacheSettings';
+import SessionPluginSettings from './SessionPluginSettings';
 
 interface OpenRouterCredit {
   usage: number;
@@ -162,7 +163,8 @@ export default function SessionMenu({
 
   async function selectPersona(persona: Persona | null) {
     const pid = persona?.id ?? null;
-    await supabase.from('sessions').update({ persona_id: pid }).eq('id', session.id);
+    const { error } = await supabase.from('sessions').update({ persona_id: pid }).eq('id', session.id);
+    if (error) { flash(`페르소나 변경 실패: ${error.message}`); return; }
     onUpdate({ persona_id: pid });
     onPersonaChange(persona);
   }
@@ -326,32 +328,16 @@ export default function SessionMenu({
         {/* 페르소나 */}
         <section>
           <h3 className="mb-2 text-sm font-semibold text-slate-300">페르소나</h3>
-          {personas.length === 0 ? (
-            <p className="text-xs text-slate-500">My 탭에서 페르소나를 추가하세요.</p>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              <button
-                onClick={() => selectPersona(null)}
-                className={`rounded-lg px-3 py-2 text-left text-sm ${
-                  !session.persona_id ? 'bg-brand text-white' : 'bg-surface text-slate-300'
-                }`}
-              >
-                없음 (페르소나 미사용)
-              </button>
-              {personas.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => selectPersona(p)}
-                  className={`rounded-lg px-3 py-2 text-left text-sm ${
-                    session.persona_id === p.id ? 'bg-brand text-white' : 'bg-surface text-slate-300'
-                  }`}
-                >
-                  <p className="font-semibold">{p.name}</p>
-                  <p className="mt-0.5 line-clamp-1 text-xs opacity-70">{p.description}</p>
-                </button>
-              ))}
-            </div>
-          )}
+          <select aria-label="페르소나 선택" value={session.persona_id ?? ''}
+            disabled={sending}
+            onChange={(event) => void selectPersona(personas.find((item) => item.id === event.target.value) ?? null)}
+            className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-slate-200 outline-none">
+            <option value="">없음 (페르소나 미사용)</option>
+            {personas.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+          {personas.find((item) => item.id === session.persona_id) &&
+            <p className="mt-2 line-clamp-3 text-xs text-slate-400">{personas.find((item) => item.id === session.persona_id)?.description}</p>}
+          {personas.length === 0 && <p className="mt-2 text-xs text-slate-500">My 탭에서 페르소나를 추가하세요.</p>}
         </section>
 
         {/* AI 공급사 / 모델 */}
@@ -404,6 +390,8 @@ export default function SessionMenu({
             유저 노트 저장
           </button>
         </section>
+
+        {user && <SessionPluginSettings session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
 
         {/* 요약 메모리 */}
         <section className="rounded-xl border border-surface2 p-3">

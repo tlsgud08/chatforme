@@ -1,5 +1,5 @@
 import type { ChatMessage, SystemParts } from '@/lib/llm/types';
-import type { Message, Persona } from '@/types/db';
+import type { ActivePlugin, Message, Persona } from '@/types/db';
 
 export interface AssembleInput {
   systemPrompt: string;
@@ -9,6 +9,7 @@ export interface AssembleInput {
   storyNotes?: string[];
   persona?: Pick<Persona, 'name' | 'description'> | null;
   userNote?: string;
+  plugins?: ActivePlugin[];
   history: (Pick<Message, 'role' | 'content'> & { cacheBreakpoint?: boolean })[];
   latestUserMessage: string;
 }
@@ -41,6 +42,13 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
   let userNote = '';
   if (input.userNote && input.userNote.trim()) {
     userNote = section('User Notes', input.userNote);
+  }
+
+  // Session plugins are persistent instructions, adjacent to user notes.
+  const plugins = (input.plugins ?? []).filter((plugin) => plugin.prompt.trim());
+  if (plugins.length) {
+    userNote = [userNote, section('Active Plugins', plugins.map((plugin) =>
+      section(plugin.name, plugin.prompt)).join('\n\n'))].filter(Boolean).join('\n\n');
   }
 
   // L4: summary — 재요약 시 변경
