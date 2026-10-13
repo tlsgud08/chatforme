@@ -7,13 +7,14 @@ const ADAPTERS: Record<Provider, LLMAdapter> = {
 };
 
 // 연속된 동일 role 메시지를 병합하고, 첫 메시지가 user임을 보장
-function normalizeMessages(messages: ChatMessage[]): ChatMessage[] {
+export function normalizeMessages(messages: ChatMessage[]): ChatMessage[] {
   const result: ChatMessage[] = [];
   for (const msg of messages) {
-    if (result.length > 0 && result[result.length - 1].role === msg.role) {
+    if (result.length > 0 && result[result.length - 1].role === msg.role && !result[result.length - 1].cacheBreakpoint) {
       result[result.length - 1] = {
         ...result[result.length - 1],
         content: result[result.length - 1].content + '\n\n' + msg.content,
+        ...(msg.cacheBreakpoint && { cacheBreakpoint: true }),
       };
     } else {
       result.push({ ...msg });

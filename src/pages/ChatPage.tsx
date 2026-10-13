@@ -11,6 +11,7 @@ import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import { assemblePrompt } from '@/lib/prompt/assemble';
+import { resolvePromptCache } from '@/lib/llm/promptCache';
 import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 import {
   guestGetSession, guestAddMessage, guestUpdateSession, guestUpdateMessage, guestDeleteMessage,
@@ -857,6 +858,9 @@ export default function ChatPage() {
       ? baseMessages.filter((message) => message.id !== rerollUserMessage.id)
       : baseMessages;
     const historyMsgs = buildHistory(historySource, effectiveSummaryTurn);
+    const promptCache = resolvePromptCache(session.prompt_cache_enabled ?? false, model,
+      session.prompt_cache_message_id ?? null, historyMsgs);
+    if (promptCache.unavailable) showToast('선택한 캐시 기준 답변이 이번 문맥에 없어 명시적 캐시 없이 전송합니다.');
     let currentMessages = [...baseMessages];
     if (!options?.reroll && (text || commandPrompt)) {
       const { data: userMsg, error: userMessageError } = await supabase
@@ -891,7 +895,8 @@ export default function ChatPage() {
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
       keywordBookContents: getActiveKeywordContents(currentMessages, promptText),
-      history: historyMsgs.map((m) => ({ role: m.role, content: m.content })),
+      history: historyMsgs.map((m) => ({ role: m.role, content: m.content,
+        ...(m.id === promptCache.messageId && { cacheBreakpoint: true }) })),
       latestUserMessage: promptText,
     });
     const maxOutputTokens = session.output_settings_override_enabled ? session.output_tokens_override : profile.default_output_tokens;
@@ -911,7 +916,7 @@ export default function ChatPage() {
       }
       draftMessageId = draft.id;
       startGenerationTimeout();
-      const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: assembled.systemParts, messages: assembled.messages, maxOutputTokens, onChunk, signal: controller.signal });
+      const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: assembled.systemParts, messages: assembled.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, signal: controller.signal });
       await draftSaveQueue;
       const { data: aiMsg, error: finalMessageError } = await supabase
         .from('messages')
@@ -1433,6 +1438,7 @@ export default function ChatPage() {
 
       {menuOpen && !isGuest && session && (
         <SessionMenu
+          sending={sending}
           session={session}
           profile={profile}
           onClose={() => setMenuOpen(false)}

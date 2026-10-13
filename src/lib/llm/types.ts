@@ -3,6 +3,8 @@ import type { Provider } from '@/types/db';
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  /** Internal marker, serialized as a content-block cache_control by the adapter. */
+  cacheBreakpoint?: boolean;
 }
 
 export interface SystemParts {
@@ -65,6 +67,8 @@ export interface GenerateOptions {
   maxOutputTokens: number | null;
   reasoning: ReasoningSelection;
   sampling?: SamplingSettings;
+  /** Explicit Gemini caching only; false/absent preserves implicit caching behavior. */
+  cacheSystemOnly?: boolean;
   onChunk?: (text: string) => void;
   signal?: AbortSignal;
 }

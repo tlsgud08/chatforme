@@ -9,7 +9,7 @@ export interface AssembleInput {
   storyNotes?: string[];
   persona?: Pick<Persona, 'name' | 'description'> | null;
   userNote?: string;
-  history: Pick<Message, 'role' | 'content'>[];
+  history: (Pick<Message, 'role' | 'content'> & { cacheBreakpoint?: boolean })[];
   latestUserMessage: string;
 }
 
@@ -56,7 +56,7 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
   }
 
   const messages: ChatMessage[] = [
-    ...input.history.map((m) => ({ role: m.role, content: m.content })),
+    ...input.history.map((m) => ({ role: m.role, content: m.content, ...(m.cacheBreakpoint && { cacheBreakpoint: true }) })),
     ...(input.latestUserMessage ? [{ role: 'user' as const, content: input.latestUserMessage }] : []),
   ];
 
