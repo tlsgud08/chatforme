@@ -894,6 +894,7 @@ export default function ChatPage() {
     const assembled = assemblePrompt({
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
+      plugins: session.active_plugins,
       keywordBookContents: getActiveKeywordContents(currentMessages, promptText),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content,
         ...(m.id === promptCache.messageId && { cacheBreakpoint: true }) })),
@@ -1161,7 +1162,7 @@ export default function ChatPage() {
     const totalCost = branchMessages.reduce((total, item) => total + item.cost, 0);
     const { data: newSession, error } = await supabase.from('sessions').insert({
       user_id: user.id, work_id: session.work_id, title: `${session.title} (분기)`, persona_id: session.persona_id,
-      start_config_id: session.start_config_id, user_note: session.user_note,
+      start_config_id: session.start_config_id, user_note: session.user_note, active_plugins: session.active_plugins ?? [],
       output_settings_override_enabled: session.output_settings_override_enabled,
       output_tokens_override: session.output_tokens_override,
       temperature_override: session.temperature_override,
