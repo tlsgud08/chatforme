@@ -16,7 +16,7 @@ export default function PromptCacheSettings({ session, model, turnCount, busy, o
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [revision, setRevision] = useState(0);
-  const [target, setTarget] = useState(session.prompt_cache_message_id ?? '');
+  const [target, setTarget] = useState('');
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
   const saveLock = useRef(false);
@@ -26,7 +26,33 @@ export default function PromptCacheSettings({ session, model, turnCount, busy, o
   const selected = choices.find((choice) => choice.id === savedTarget);
   const unavailable = !loading && !loadError && !!savedTarget && !selected;
 
-  useEffect(() => { setTarget(session.prompt_cache_message_id ?? ''); }, [session.id, session.prompt_cache_message_id]);
+  const latestTurn = choices.at(-1)?.turn ?? 0;
+  const savedTurn = selected?.turn;
+  useEffect(() => {
+    setTarget(savedTarget ? (savedTurn === undefined ? '' : String(savedTurn)) : '0');
+  }, [session.id, savedTarget, savedTurn]);
+
+  // Normalize on blur/save so typing a multi-digit turn is not interrupted.
+  function normalizeTarget() {
+    if (!target.trim() || !Number.isFinite(Number(target))) {
+      setStatus('캐시 기준 턴을 숫자로 입력해 주세요.');
+      return null;
+    }
+    const turn = Math.min(latestTurn, Math.max(0, Math.floor(Number(target))));
+    setTarget(String(turn));
+    return turn;
+  }
+
+  function saveTarget() {
+    const turn = normalizeTarget();
+    if (turn === null) return;
+    const choice = choices.filter((item) => item.turn === turn).at(-1);
+    if (turn !== 0 && !choice) {
+      setStatus('요약에 포함되었거나 완료된 AI 답변이 없는 턴입니다. 0 또는 요약 이후의 완료된 턴을 입력해 주세요.');
+      return;
+    }
+    void save(enabled, choice?.id ?? '');
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -86,12 +112,18 @@ export default function PromptCacheSettings({ session, model, turnCount, busy, o
       </label>
       {!supported && <p className="mt-2 text-xs text-amber-300">Gemini 모델에서 사용할 수 있어요. 현재 모델에는 명시적 캐시 설정을 전송하지 않습니다.</p>}
       <label htmlFor="prompt-cache-target" className="mt-3 block text-xs text-slate-400">캐시 기준 턴</label>
-      <select id="prompt-cache-target" value={target} disabled={loading || saving || busy || !supported || !!loadError}
-        onChange={(event) => setTarget(event.target.value)} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none disabled:opacity-50">
-        <option value="">시스템 프롬프트까지만</option>
-        {target && !choices.some((choice) => choice.id === target) && <option value={target} disabled>기존 선택 — 현재 사용 불가</option>}
-        {choices.map((choice) => <option key={choice.id} value={choice.id}>{choice.turn}턴 AI 답변까지</option>)}
-      </select>
+      <input id="prompt-cache-target" type="text" inputMode="numeric" pattern="[0-9]*"
+        value={target} placeholder={unavailable ? '기준 턴을 다시 입력해 주세요' : '0'}
+        disabled={loading || saving || busy || !supported || !!loadError}
+        onChange={(event) => { setTarget(event.target.value); setStatus(''); }}
+        onBlur={() => { normalizeTarget(); }}
+        onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveTarget(); } }}
+        aria-describedby="prompt-cache-help"
+        className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none disabled:opacity-50" />
+      <p id="prompt-cache-help" className="mt-2 text-xs text-slate-400">
+        0 = 시스템 프롬프트만 · 최신 선택 가능 턴: {loading ? '불러오는 중…' : latestTurn}
+        <br />최신 턴보다 큰 숫자는 입력을 마치면 최신 턴으로 자동 수정됩니다. 기준 저장을 눌러 적용해 주세요.
+      </p>
       <p className="mt-2 text-xs text-slate-400">
         {loading ? '기준 턴을 불러오는 중…' : !enabled ? '명시적 캐시 OFF' : !supported ? '현재 모델에서는 적용 안 됨' : loadError ? '지정 상태 확인 불가' : unavailable
           ? '선택한 답변이 요약·삭제·리롤로 문맥에서 빠져 명시적 캐시가 적용되지 않습니다. 기준을 다시 선택해 주세요.'
@@ -99,10 +131,10 @@ export default function PromptCacheSettings({ session, model, turnCount, busy, o
           : '시스템 프롬프트까지 캐시 지정'}
       </p>
       <div className="mt-3 flex gap-2">
-        <button type="button" disabled={loading || saving || busy || !supported || !!loadError || (!!target && !choices.some((c) => c.id === target))}
-          onClick={() => void save(enabled, target)} className="flex-1 rounded-lg bg-brand py-2 text-xs font-semibold text-white disabled:opacity-50">{saving ? '저장 중…' : '기준 저장'}</button>
+        <button type="button" disabled={loading || saving || busy || !supported || !!loadError || !target.trim()}
+          onClick={saveTarget} className="flex-1 rounded-lg bg-brand py-2 text-xs font-semibold text-white disabled:opacity-50">{saving ? '저장 중…' : '기준 저장'}</button>
         <button type="button" disabled={loading || saving || busy || !supported || !!loadError || !choices.length}
-          onClick={() => { const latest = choices.at(-1); if (latest) { setTarget(latest.id); void save(enabled, latest.id); } }}
+          onClick={() => { const latest = choices.at(-1); if (latest) { setTarget(String(latest.turn)); void save(enabled, latest.id); } }}
           className="flex-1 rounded-lg bg-surface2 py-2 text-xs text-slate-200 disabled:opacity-50">최신 완료 턴으로 갱신</button>
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-slate-500">기준은 자동으로 이동하지 않습니다. 시스템 프롬프트에는 작품 설정·페르소나·노트·요약도 포함됩니다. 기준이나 앞의 내용을 바꾸면 새 캐시 생성 비용이 발생할 수 있어요. 캐시는 만료될 수 있으며, 실제 적중은 응답의 캐시 읽기 토큰으로 확인해 주세요.</p>
