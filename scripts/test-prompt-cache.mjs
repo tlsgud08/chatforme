@@ -88,6 +88,8 @@ try {
     const body = await sendPlugins([pluginA, pluginB], text);
     assert.ok(body.includes('PLUGIN_A_UNIQUE') && body.includes('PLUGIN_B_UNIQUE'));
     assert.ok(body.includes('USER_NOTE_UNIQUE'));
+    assert.ok(body.includes('# session prompts'));
+    assert.ok(!body.includes('Active Plugins'));
     assert.equal(body.split('PLUGIN_A_UNIQUE').length - 1, 1);
   }
   const oneActive = await sendPlugins([pluginB], 'turn three');

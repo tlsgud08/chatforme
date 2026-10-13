@@ -47,7 +47,7 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
   // Session plugins are persistent instructions, adjacent to user notes.
   const plugins = (input.plugins ?? []).filter((plugin) => plugin.prompt.trim());
   if (plugins.length) {
-    userNote = [userNote, section('Active Plugins', plugins.map((plugin) =>
+    userNote = [userNote, section('session prompts', plugins.map((plugin) =>
       section(plugin.name, plugin.prompt)).join('\n\n'))].filter(Boolean).join('\n\n');
   }
 
