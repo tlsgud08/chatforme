@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { cacheTurnChoices, supportsManualPromptCache, type CacheMessage } from '@/lib/llm/promptCache';
+import { cacheTurnChoices, type CacheMessage } from '@/lib/llm/promptCache';
 import type { Session } from '@/types/db';
 
 interface Props {
@@ -11,7 +11,7 @@ interface Props {
   onUpdate: (patch: Partial<Session>) => void;
 }
 
-export default function PromptCacheSettings({ session, model, turnCount, busy, onUpdate }: Props) {
+export default function PromptCacheSettings({ session, turnCount, busy, onUpdate }: Props) {
   const [choices, setChoices] = useState<{ id: string; turn: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -20,7 +20,6 @@ export default function PromptCacheSettings({ session, model, turnCount, busy, o
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
   const saveLock = useRef(false);
-  const supported = supportsManualPromptCache(model);
   const enabled = session.prompt_cache_enabled ?? false;
   const autoLatest = session.prompt_cache_auto_latest ?? false;
   const savedTarget = session.prompt_cache_message_id ?? '';
@@ -85,7 +84,7 @@ export default function PromptCacheSettings({ session, model, turnCount, busy, o
 
   async function save(nextEnabled: boolean, nextTarget: string, nextAutoLatest = autoLatest) {
     if (saveLock.current || busy) return;
-    if (nextEnabled && (!supported || loading || loadError || (!nextAutoLatest && nextTarget && nextTarget !== savedTarget && !choices.some((c) => c.id === nextTarget)))) return;
+    if (nextEnabled && (loading || loadError || (!nextAutoLatest && nextTarget && nextTarget !== savedTarget && !choices.some((c) => c.id === nextTarget)))) return;
     saveLock.current = true;
     setSaving(true);
     setStatus('');
@@ -109,20 +108,19 @@ export default function PromptCacheSettings({ session, model, turnCount, busy, o
       <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-200">
         <span>이 채팅방에서 사용</span>
         <input type="checkbox" checked={enabled}
-          disabled={saving || busy || (!enabled && (!supported || loading || !!loadError || (!autoLatest && unavailable)))}
+          disabled={saving || busy || (!enabled && (loading || !!loadError || (!autoLatest && unavailable)))}
           onChange={(event) => void save(event.target.checked, savedTarget)} />
       </label>
-      {!supported && <p className="mt-2 text-xs text-amber-300">Gemini 모델에서 사용할 수 있어요. 현재 모델에는 명시적 캐시 설정을 전송하지 않습니다.</p>}
       <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-200">
         <span>매 턴 최신으로 갱신</span>
-        <input type="checkbox" checked={autoLatest} disabled={saving || busy || !supported || loading || !!loadError}
+        <input type="checkbox" checked={autoLatest} disabled={saving || busy || loading || !!loadError}
           onChange={(event) => void save(enabled, savedTarget, event.target.checked)} />
       </label>
       <p className="mt-1 text-[11px] text-slate-500">켜면 매 요청의 대화 기록에서 마지막 완료 AI 답변까지 지정합니다. 완료 답변이 없으면 시스템 프롬프트만 지정합니다.</p>
       <label htmlFor="prompt-cache-target" className="mt-3 block text-xs text-slate-400">캐시 기준 턴</label>
       <input id="prompt-cache-target" type="text" inputMode="numeric" pattern="[0-9]*"
         value={autoLatest ? String(latestTurn) : target} placeholder={unavailable ? '기준 턴을 다시 입력해 주세요' : '0'}
-        disabled={autoLatest || loading || saving || busy || !supported || !!loadError}
+        disabled={autoLatest || loading || saving || busy || !!loadError}
         onChange={(event) => { setTarget(event.target.value); setStatus(''); }}
         onBlur={() => { normalizeTarget(); }}
         onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveTarget(); } }}
@@ -133,19 +131,19 @@ export default function PromptCacheSettings({ session, model, turnCount, busy, o
         <br />{autoLatest ? '자동 갱신 중에는 기준을 직접 입력하지 않아도 됩니다.' : '최신 턴보다 큰 숫자는 입력을 마치면 최신 턴으로 자동 수정됩니다. 기준 저장을 눌러 적용해 주세요.'}
       </p>
       <p className="mt-2 text-xs text-slate-400">
-        {loading ? '기준 턴을 불러오는 중…' : !enabled ? '명시적 캐시 OFF' : !supported ? '현재 모델에서는 적용 안 됨' : loadError ? '지정 상태 확인 불가' : autoLatest ? `최신 완료 턴으로 자동 갱신 · 현재 ${latestTurn > 0 ? `${latestTurn}턴까지` : '시스템 프롬프트만'}` : unavailable
+        {loading ? '기준 턴을 불러오는 중…' : !enabled ? '명시적 캐시 OFF' : loadError ? '지정 상태 확인 불가' : autoLatest ? `최신 완료 턴으로 자동 갱신 · 현재 ${latestTurn > 0 ? `${latestTurn}턴까지` : '시스템 프롬프트만'}` : unavailable
           ? '선택한 답변이 요약·삭제·리롤로 문맥에서 빠져 명시적 캐시가 적용되지 않습니다. 기준을 다시 선택해 주세요.'
           : selected ? `${selected.turn}턴까지 캐시 지정 · 이후 ${Math.max(0, turnCount - selected.turn)}턴은 범위 밖`
           : '시스템 프롬프트까지 캐시 지정'}
       </p>
       <div className="mt-3 flex gap-2">
-        <button type="button" disabled={autoLatest || loading || saving || busy || !supported || !!loadError || !target.trim()}
+        <button type="button" disabled={autoLatest || loading || saving || busy || !!loadError || !target.trim()}
           onClick={saveTarget} className="flex-1 rounded-lg bg-brand py-2 text-xs font-semibold text-white disabled:opacity-50">{saving ? '저장 중…' : '기준 저장'}</button>
-        <button type="button" disabled={autoLatest || loading || saving || busy || !supported || !!loadError || !choices.length}
+        <button type="button" disabled={autoLatest || loading || saving || busy || !!loadError || !choices.length}
           onClick={() => { const latest = choices.at(-1); if (latest) { setTarget(String(latest.turn)); void save(enabled, latest.id); } }}
           className="flex-1 rounded-lg bg-surface2 py-2 text-xs text-slate-200 disabled:opacity-50">최신 완료 턴으로 갱신</button>
       </div>
-      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">자동 갱신을 끄면 저장한 기준을 사용합니다. 시스템 프롬프트에는 작품 설정·페르소나·노트·요약도 포함됩니다. 기준이나 앞의 내용을 바꾸면 새 캐시 생성 비용이 발생할 수 있어요. 캐시는 만료될 수 있으며, 실제 적중은 응답의 캐시 읽기 토큰으로 확인해 주세요.</p>
+      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">자동 갱신을 끄면 저장한 기준을 사용합니다. 시스템 프롬프트에는 작품 설정·페르소나·노트·요약도 포함됩니다. 기준이나 앞의 내용을 바꾸면 새 캐시 생성 비용이 발생할 수 있어요. 캐시는 만료될 수 있으며, 실제 적중은 응답의 캐시 읽기 토큰으로 확인해 주세요. 모델 및 제공업체에 따라 명시적 캐싱이 지원되지 않을 수 있어요.</p>
       {loadError && <div className="mt-2 text-xs text-amber-300" role="alert">{loadError}<button type="button" onClick={() => setRevision((v) => v + 1)} className="ml-2 underline">다시 불러오기</button></div>}
       <p className="mt-2 text-xs text-slate-300" role="status">{status}</p>
     </section>

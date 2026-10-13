@@ -1,8 +1,6 @@
 import type { Message } from '@/types/db';
 import type { GenerateOptions } from './types';
 
-export const supportsManualPromptCache = (model: string) => model.startsWith('google/gemini-');
-
 export type CacheMessage = Pick<Message, 'id' | 'role' | 'is_hidden' | 'is_active_variant' | 'generation_status'>;
 
 /** Use the same visible-user counting as ChatPage's summary cutoff and turn labels. */
@@ -21,9 +19,9 @@ export function cacheTurnChoices(messages: CacheMessage[], summaryThroughTurn: n
 
 /** Resolve against the actual outgoing history, after summary and reroll filtering. */
 export function resolvePromptCache(
-  enabled: boolean, model: string, targetId: string | null, history: CacheMessage[], autoLatest = false,
+  enabled: boolean, _model: string, targetId: string | null, history: CacheMessage[], autoLatest = false,
 ): { systemOnly: boolean; messageId?: string; unavailable: boolean } {
-  if (!enabled || !supportsManualPromptCache(model)) return { systemOnly: false, unavailable: false };
+  if (!enabled) return { systemOnly: false, unavailable: false };
   if (autoLatest) {
     const latest = history.filter((m) => m.role === 'assistant' && !m.is_hidden &&
       m.is_active_variant !== false && m.generation_status !== 'streaming' && m.generation_status !== 'interrupted').at(-1);
@@ -49,15 +47,14 @@ const markedContent = (text: string): WireMessage['content'] => [
 export function buildOpenRouterMessages(opts: Pick<GenerateOptions, 'model' | 'systemParts' | 'messages' | 'cacheSystemOnly'>): WireMessage[] {
   const system = [opts.systemParts.core, opts.systemParts.persona, opts.systemParts.userNote,
     opts.systemParts.summary, opts.systemParts.storyNotes].filter(Boolean).join('\n\n');
-  const supported = supportsManualPromptCache(opts.model);
-  const breakpoint = supported ? opts.messages.findIndex((m) => m.cacheBreakpoint) : -1;
-  const explicit = supported && (!!opts.cacheSystemOnly || breakpoint >= 0);
+  const breakpoint = opts.messages.findIndex((m) => m.cacheBreakpoint);
+  const explicit = !!opts.cacheSystemOnly || breakpoint >= 0;
   // A pinned final history answer is still history, never the current user input.
   const lastIsBoundary = breakpoint >= 0 && breakpoint === opts.messages.length - 1;
   const history = lastIsBoundary ? opts.messages : opts.messages.slice(0, -1);
   const current = lastIsBoundary ? undefined : opts.messages.at(-1);
   const result: WireMessage[] = system
-    ? [{ role: 'system', content: supported && opts.cacheSystemOnly ? markedContent(system) : system }]
+    ? [{ role: 'system', content: opts.cacheSystemOnly ? markedContent(system) : system }]
     : [];
   history.forEach((m, index) => result.push({ role: m.role,
     content: explicit && !opts.cacheSystemOnly && index === breakpoint ? markedContent(m.content) : m.content }));
