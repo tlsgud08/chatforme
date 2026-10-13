@@ -13,6 +13,19 @@ const IMAGE_CACHE_VERSION = 'v1';
 const IMAGE_CACHE_NAME = `chat-markdown-images-${IMAGE_CACHE_VERSION}`;
 const EXTERNAL_IMAGE_PATH = '/__chat-external-image';
 
+// Cache by the complete URL, including the thumbnail upload version (?t=...).
+// Unchanged images stay local; a newly uploaded thumbnail gets a new cache key.
+const WORK_THUMBNAIL_CACHE_NAME = 'work-thumbnails-v1';
+const supabaseOrigin = (() => {
+  const endpoint = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  if (!endpoint) return null;
+  try {
+    return new URL(endpoint).origin;
+  } catch {
+    return null;
+  }
+})();
+
 self.skipWaiting();
 clientsClaim();
 precacheAndRoute(self.__WB_MANIFEST);
@@ -65,11 +78,37 @@ registerRoute(
   'GET',
 );
 
+// Only cache public work thumbnails from this application's Supabase project.
+// CacheFirst prevents additional Supabase egress for repeat views; unlike the
+// markdown-image cache, entries have no time-based expiry. Browsers may still
+// evict cached data under storage pressure.
+const workThumbnailStrategy = new CacheFirst({
+  cacheName: WORK_THUMBNAIL_CACHE_NAME,
+  plugins: [
+    new CacheableResponsePlugin({ statuses: [0, 200] }),
+    new ExpirationPlugin({
+      maxEntries: 100,
+      purgeOnQuotaError: true,
+    }),
+  ],
+});
+
+registerRoute(
+  ({ request, url }) => request.destination === 'image'
+    && url.origin === supabaseOrigin
+    && url.pathname.startsWith('/storage/v1/object/public/thumbnails/'),
+  workThumbnailStrategy,
+  'GET',
+);
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((names) => Promise.all(
       names
-        .filter((name) => name.startsWith('chat-markdown-images-') && name !== IMAGE_CACHE_NAME)
+        .filter((name) =>
+          (name.startsWith('chat-markdown-images-') && name !== IMAGE_CACHE_NAME)
+          || (name.startsWith('work-thumbnails-') && name !== WORK_THUMBNAIL_CACHE_NAME),
+        )
         .map((name) => caches.delete(name)),
     )),
   );
