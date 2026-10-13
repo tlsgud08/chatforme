@@ -13,13 +13,13 @@ interface Props {
 type Tab = 'all' | 'mine' | 'hub' | 'favorites';
 type Draft = Pick<Command, 'name' | 'description' | 'prompt'>;
 const emptyDraft: Draft = { name: '', description: '', prompt: '' };
+const tabLabels: Record<Tab, string> = { all: '전체', mine: '내 명령어', hub: '명령어 허브', favorites: '즐겨찾기' };
 
 export default function CommandMenu({ userId, onClose, onSelect }: Props) {
   const [commands, setCommands] = useState<Command[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [authors, setAuthors] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<Tab>('all');
-  const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Command | 'new' | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -45,6 +45,7 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
 
   useEffect(() => { void load(); }, [userId]);
 
+  const searchTerm = query.trim().toLocaleLowerCase();
   const visible = useMemo(() => commands.filter((command) => {
     const inTab = tab === 'all'
       ? command.owner_id === userId || command.is_published
@@ -53,9 +54,8 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
         : tab === 'hub'
           ? command.is_published
           : favoriteIds.has(command.id);
-    const term = query.trim().toLocaleLowerCase();
-    return inTab && (!term || `${command.name} ${command.description} ${authors[command.owner_id] ?? ''}`.toLocaleLowerCase().includes(term));
-  }), [authors, commands, favoriteIds, query, tab, userId]);
+    return inTab && (!searchTerm || `${command.name} ${command.description} ${authors[command.owner_id] ?? ''}`.toLocaleLowerCase().includes(searchTerm));
+  }), [authors, commands, favoriteIds, searchTerm, tab, userId]);
 
   async function toggleFavorite(command: Command) {
     const wasFavorite = favoriteIds.has(command.id);
@@ -151,13 +151,21 @@ export default function CommandMenu({ userId, onClose, onSelect }: Props) {
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="flex h-[72dvh] w-full max-w-app flex-col rounded-t-3xl bg-bg shadow-2xl">
         <header className="flex items-center justify-between px-4 pb-2 pt-4"><div><h2 className="text-lg font-bold text-white">명령어</h2><p className="text-xs text-slate-500">메뉴에서 선택해야 명령어가 활성화됩니다.</p></div><button onClick={onClose} className="p-2 text-xl text-slate-400">×</button></header>
-        <div className="flex items-center border-b border-surface2 px-3">
-          {(['all', 'mine', 'hub', 'favorites'] as Tab[]).map((value) => <button key={value} onClick={() => { setTab(value); setQuery(''); setSearchOpen(false); }} className={`whitespace-nowrap border-b-2 px-2.5 py-3 text-sm ${tab === value ? 'border-brand font-semibold text-white' : 'border-transparent text-slate-500'}`}>{value === 'all' ? '전체' : value === 'mine' ? '내 명령어' : value === 'hub' ? '명령어 허브' : '즐겨찾기'}</button>)}
-          {tab === 'hub' && <button aria-label="명령어 검색" onClick={() => setSearchOpen(true)} className="ml-auto p-2 text-lg text-slate-400">⌕</button>}
+        <div className="flex shrink-0 overflow-x-auto border-b border-surface2 px-3">
+          {(['all', 'mine', 'hub', 'favorites'] as Tab[]).map((value) => <button key={value} onClick={() => { setTab(value); setOpenMenu(null); }} aria-pressed={tab === value} className={`whitespace-nowrap border-b-2 px-2.5 py-3 text-sm ${tab === value ? 'border-brand font-semibold text-white' : 'border-transparent text-slate-500'}`}>{tabLabels[value]}</button>)}
         </div>
-        {tab === 'hub' && searchOpen && <div className="border-b border-surface2 p-3"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="이름, 설명, 작성자 검색" className="w-full rounded-xl bg-surface px-4 py-2.5 text-sm outline-none" /></div>}
+        <div className="shrink-0 border-b border-surface2 p-3">
+          <div className="flex items-center gap-2 rounded-xl bg-surface px-3">
+            <input type="search" aria-label={`${tabLabels[tab]} 명령어 검색`} value={query}
+              onChange={(event) => { setQuery(event.target.value); setOpenMenu(null); }}
+              placeholder={`${tabLabels[tab]}에서 이름, 설명, 작성자 검색`}
+              className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none" />
+            {query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}
+              className="shrink-0 p-2 text-sm text-slate-400">×</button>}
+          </div>
+        </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {visible.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">표시할 명령어가 없습니다.</p> : visible.map((command) => {
+          {visible.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">{searchTerm ? `${tabLabels[tab]}에 검색 결과가 없습니다.` : '표시할 명령어가 없습니다.'}</p> : visible.map((command) => {
             const mine = command.owner_id === userId;
             return <div key={command.id} className="relative flex gap-3 border-b border-surface2/70 px-4 py-3">
               <button onClick={() => { onSelect(command); onClose(); }} className="min-w-0 flex-1 text-left">
