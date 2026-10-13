@@ -107,6 +107,9 @@ export interface Persona {
 }
 
 export interface Session {
+  prompt_cache_enabled?: boolean;
+  /** Null selects the leading system message. A UUID pins one exact assistant variant. */
+  prompt_cache_message_id?: string | null;
   id: string;
   user_id: string;
   work_id: string;

@@ -38,8 +38,8 @@ export function diagnosticSources(
   return [
     ...stable,
     ...history,
-    // Active keywords stay a system instruction, but are physically placed after
-    // stable history so their volatility cannot invalidate that prefix.
+    // Keywords follow stable history. Explicit Gemini requests attach them to
+    // the current user input so the cached systemInstruction stays unchanged.
     { key: 'activeKeywords', label: 'Active Keywords', content: parts.keywords },
     ...(current ? [{ key: 'currentUserInput', label: 'Current User Input', content: current.content }] : []),
   ];

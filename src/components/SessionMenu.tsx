@@ -10,6 +10,7 @@ import { formatKrw, type ExchangeRate } from '@/lib/exchangeRate';
 import { showConfirmDialog } from '@/lib/dialog';
 import { normalizeOutputTokens } from './OutputTokenSelector';
 import OutputSettingsEditor, { type OutputSettingsValue } from './OutputSettingsEditor';
+import PromptCacheSettings from './PromptCacheSettings';
 
 interface OpenRouterCredit {
   usage: number;
@@ -46,6 +47,7 @@ interface Props {
   storyNotes: StoryNote[];
   onStoryNotesChange: (notes: StoryNote[]) => void;
   sessionTurnCount: number;
+  sending: boolean;
 }
 
 export default function SessionMenu({
@@ -55,7 +57,7 @@ export default function SessionMenu({
   showImages, onShowImagesToggle,
   sessionModel, onModelChange, sessionReasoning, onReasoningChange,
   errorLog, onClearErrors,
-  onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange, sessionTurnCount,
+  onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange, sessionTurnCount, sending,
 }: Props) {
   const { user } = useAuth();
   const [note, setNote] = useState(session.user_note);
@@ -436,6 +438,9 @@ export default function SessionMenu({
           </button>
           <button type="button" onClick={() => void openSummaries()} className="mt-2 w-full rounded-lg bg-surface2 py-2 text-sm text-slate-200">요약 노트 보기</button>
         </section>
+
+        <PromptCacheSettings key={session.id} session={session} model={sessionModel} turnCount={sessionTurnCount}
+          busy={sending || summaryGenerating} onUpdate={onUpdate} />
 
         {summaryOpen && (
           <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4" onClick={() => setSummaryOpen(false)}>
