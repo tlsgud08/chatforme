@@ -19,7 +19,7 @@ try {
   for (const id of ['missing', 'u1', 'old', 'a3']) assert.equal(resolvePromptCache(true, model, id, rows).unavailable, true);
   assert.equal(resolvePromptCache(true, model, 'a1', rows.filter((m) => m.id !== 'a1')).unavailable, true); // summary/delete/reroll
   assert.deepEqual(resolvePromptCache(false, model, 'a1', rows), { systemOnly: false, unavailable: false });
-  assert.deepEqual(resolvePromptCache(true, 'openai/gpt-test', 'a1', rows), { systemOnly: false, unavailable: false });
+  assert.equal(resolvePromptCache(true, 'openai/gpt-test', 'a1', rows).messageId, 'a1');
   assert.equal(resolvePromptCache(true, model, null, rows).systemOnly, true);
 
   // Auto mode follows only completed, visible, active assistants in outgoing history.
@@ -29,7 +29,7 @@ try {
   assert.equal(resolvePromptCache(true, model, 'a1', rows.filter((m) => m.id !== 'a2'), true).messageId, 'a1');
   assert.equal(resolvePromptCache(true, model, 'a1', [], true).systemOnly, true);
   assert.deepEqual(resolvePromptCache(false, model, 'a1', rows, true), { systemOnly: false, unavailable: false });
-  assert.deepEqual(resolvePromptCache(true, 'openai/gpt-test', 'a1', rows, true), { systemOnly: false, unavailable: false });
+  assert.equal(resolvePromptCache(true, 'openai/gpt-test', 'a1', rows, true).messageId, 'a2');
 
   const assembled = assemblePrompt({ systemPrompt: 'platform', mainPrompt: 'story', keywordBookContents: ['dynamic'],
     history: rows.slice(1, 3).map((m) => ({ role: m.role, content: m.content, ...(m.id === 'a1' && { cacheBreakpoint: true }) })), latestUserMessage: 'new input' });
@@ -65,7 +65,11 @@ try {
   const off = buildOpenRouterMessages({ ...opts, messages: unmarked });
   assert.deepEqual(off, [{ role: 'system', content: 'platform\n\n# Main Prompt\nstory' }, ...unmarked.slice(0, -1),
     { role: 'system', content: '# Active Keywords\ndynamic' }, unmarked.at(-1)]);
-  assert.equal(JSON.stringify(buildOpenRouterMessages({ ...opts, model: 'openai/gpt-test', cacheSystemOnly: true })).includes('cache_control'), false);
+  for (const otherModel of ['openai/gpt-test', 'anthropic/claude-test', 'qwen/qwen-test', 'custom/unknown']) {
+    assert.deepEqual(buildOpenRouterMessages({ ...opts, model: otherModel }), messages);
+    assert.deepEqual(buildOpenRouterMessages({ ...opts, model: otherModel, cacheSystemOnly: true }), systemOnly);
+    assert.deepEqual(buildOpenRouterMessages({ ...opts, model: otherModel, messages: unmarked }), off);
+  }
 
   // Exercise the real generate -> normalize -> adapter -> HTTP serialization path.
   let sent;
