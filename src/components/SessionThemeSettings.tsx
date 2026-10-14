@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Session } from '@/types/db';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
-import { requestThemeRefresh, type SavedTheme, type ThemeVariant } from '@/lib/theme';
+import { loadTheme, requestThemeRefresh, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 import ThemeMenu from './ThemeMenu';
 
 type Props={session:Session;userId:string;onUpdate:(patch:Partial<Session>)=>void;busy?:boolean};
@@ -13,6 +13,21 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
   const [pickerScope,setPickerScope]=useState<'work'|'global'>('global');
   const [saving,setSaving]=useState(false);
   const [lastCustom,setLastCustom]=useState<SavedChoice|null>(null);
+  const [siteMode,setSiteMode]=useState<'light'|'dark'|'custom'|null>(null);
+  const [siteSaving,setSiteSaving]=useState(false);
+  useEffect(()=>{
+    let active=true;
+    const refresh=async()=>{
+      const {data,error}=await supabase.from('profiles').select('preferred_theme_mode').eq('id',userId).maybeSingle();
+      if(!active||error)return;
+      setSiteMode(data?.preferred_theme_mode??(loadTheme()==='dark'?'dark':'light'));
+    };
+    const listener=()=>{void refresh();};
+    void refresh();
+    window.addEventListener('inuchat:theme-changed',listener);
+    window.addEventListener('focus',listener);
+    return ()=>{active=false;window.removeEventListener('inuchat:theme-changed',listener);window.removeEventListener('focus',listener);};
+  },[userId]);
   useEffect(()=>{
     if(!session.theme_id){setTheme(null);return;}
     let active=true;
@@ -66,6 +81,17 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
   const selectedMode=mode==='custom'&&theme?.work_id?'work':mode;
   const shownMode=open?(pickerScope==='work'?'work':'custom'):selectedMode;
   const variant=session.theme_variant??'light';
+  async function chooseSiteTheme(next:ThemeVariant){
+    if(busy||saving||siteSaving)return;
+    setSiteSaving(true);
+    // The "기본값" buttons edit the same profile field as 화면 테마 in settings.
+    // Do not create a per-chat override or disable the work-theme preference.
+    const {error}=await supabase.from('profiles').update({preferred_theme_mode:next}).eq('id',userId);
+    setSiteSaving(false);
+    if(error){showToast('사이트 테마 변경 실패: '+error.message);return;}
+    setSiteMode(next);
+    requestThemeRefresh();
+  }
   async function chooseMode(next:'inherit'|'work'|'builtin'|'custom'){
     if(busy||saving)return;
     if(next==='work'){setPickerScope('work');setOpen(true);return;}
@@ -101,13 +127,23 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
           onClick={()=>void chooseMode(o.value)}
           className={`rounded-lg px-1 py-2 text-xs ${shownMode===o.value?'bg-brand text-white':'text-slate-400'}`}>{o.label}</button>)}
     </div>
-    {mode==='inherit'&&!open&&<p className="mt-2 text-xs text-slate-500">개인 설정에 따라 작품 기본 테마 또는 사용자 기본 테마를 사용합니다.</p>}
+    {mode==='inherit'&&!open&&<>
+      <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="사이트 기본 테마">
+        {(['light','dark']as const).map(v=><button key={v} type="button" disabled={busy||saving||siteSaving||siteMode===null}
+          aria-pressed={siteMode===v} onClick={()=>void chooseSiteTheme(v)}
+          className={`rounded-lg px-3 py-2 text-xs ${siteMode===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>
+          {v==='light'?'☀️ 라이트':'🌙 다크'}
+        </button>)}
+      </div>
+      <p className="mt-2 text-xs text-slate-500">사이트의 화면 테마 설정과 연동됩니다. 변경 시 다른 채팅방에도 적용되며, 작품 기본 테마 사용 설정은 유지됩니다.</p>
+      {siteMode==='custom'&&<p className="mt-1 text-xs text-slate-500">현재 사이트 기본 설정은 커스텀 테마입니다. 라이트 또는 다크를 선택하면 기본 테마로 전환됩니다.</p>}
+    </>}
     {mode==='custom'&&!open&&<div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-surface p-2">
       <span className="truncate text-xs text-white">{theme?.name??'테마를 다시 선택해 주세요'}</span>
       <button disabled={busy||saving} onClick={()=>{setPickerScope(theme?.work_id?'work':'global');setOpen(true);}} className="text-xs text-brand">변경</button>
     </div>}
     {(mode==='builtin'||mode==='custom')&&!open&&<div className="mt-2 grid grid-cols-2 gap-2">
-      {(['dark','light']as const).map(v=>
+      {(['light','dark']as const).map(v=>
         <button key={v} disabled={busy||saving} aria-pressed={variant===v} onClick={()=>void save(mode==='custom'?'custom':'builtin',mode==='custom'?session.theme_id??null:null,v)}
           className={`rounded-lg px-3 py-2 text-xs ${variant===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>
           {v==='dark'?'🌙 다크':'☀️ 라이트'}
