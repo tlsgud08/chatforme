@@ -9,18 +9,20 @@ interface Props {
   onClose?: () => void;
   embedded?: boolean;
   onSelect?: (command: Command) => void;
+  workId?: string;
+  allowWorkCreate?: boolean;
 }
 
-type Tab = 'all' | 'mine' | 'hub' | 'favorites';
+type Tab = 'all' | 'work' | 'mine' | 'hub' | 'favorites';
 type Draft = Pick<Command, 'name' | 'description' | 'prompt'>;
 const emptyDraft: Draft = { name: '', description: '', prompt: '' };
-const tabLabels: Record<Tab, string> = { all: '전체', mine: '내 명령어', hub: '명령어 허브', favorites: '즐겨찾기' };
+const tabLabels: Record<Tab, string> = { all: '전체', work: '작품', mine: '내 명령어', hub: '명령어 허브', favorites: '즐겨찾기' };
 
-export default function CommandMenu({ userId, onClose, onSelect, embedded = false }: Props) {
+export default function CommandMenu({ userId, onClose, onSelect, embedded = false, workId, allowWorkCreate = false }: Props) {
   const [commands, setCommands] = useState<Command[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [authors, setAuthors] = useState<Record<string, string>>({});
-  const [tab, setTab] = useState<Tab>('all');
+  const [tab, setTab] = useState<Tab>(allowWorkCreate ? 'work' : 'all');
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Command | 'new' | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -30,7 +32,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
 
   async function load() {
     const [{ data, error }, { data: favorites, error: favoritesError }] = await Promise.all([
-      supabase.from('commands').select('*').or(`owner_id.eq.${userId},is_published.eq.true`).order('updated_at', { ascending: false }),
+      supabase.from('commands').select('*').order('updated_at', { ascending: false }),
       supabase.from('command_favorites').select('command_id').eq('user_id', userId),
     ]);
     if (error) { showToast(`명령어를 불러오지 못했습니다: ${error.message}`); return; }
@@ -49,17 +51,21 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
 
   const searchTerm = query.trim().toLocaleLowerCase();
   const visible = useMemo(() => commands.filter((command) => {
+    const relevant = !command.work_id || !workId || command.work_id === workId;
     const inTab = tab === 'all'
-      ? command.owner_id === userId || command.is_published
-      : tab === 'mine'
-        ? command.owner_id === userId
-        : tab === 'hub'
-          ? command.is_published
-          : favoriteIds.has(command.id);
-    return inTab && (!searchTerm || `${command.name} ${command.description} ${authors[command.owner_id] ?? ''}`.toLocaleLowerCase().includes(searchTerm));
-  }), [authors, commands, favoriteIds, searchTerm, tab, userId]);
+      ? (command.work_id ? (!workId || command.work_id === workId) : (command.owner_id === userId || command.is_published))
+      : tab === 'work'
+        ? !!command.work_id && (!workId || command.work_id === workId)
+        : tab === 'mine'
+          ? !command.work_id && command.owner_id === userId
+          : tab === 'hub'
+            ? !command.work_id && command.is_published
+            : favoriteIds.has(command.id);
+    return relevant && inTab && (!searchTerm || `${command.name} ${command.description} ${authors[command.owner_id] ?? ''}`.toLocaleLowerCase().includes(searchTerm));
+  }), [authors, commands, favoriteIds, searchTerm, tab, userId, workId]);
 
   async function toggleFavorite(command: Command) {
+    if (command.work_id) return;
     const wasFavorite = favoriteIds.has(command.id);
     setFavoriteIds((current) => {
       const next = new Set(current);
@@ -94,7 +100,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
     setBusy(true);
     const payload = { name, description: draft.description.trim(), prompt: draft.prompt.trim() };
     const result = editing === 'new'
-      ? await supabase.from('commands').insert({ ...payload, owner_id: userId }).select('*').single()
+      ? await supabase.from('commands').insert({ ...payload, owner_id: userId, work_id: allowWorkCreate ? workId ?? null : null }).select('*').single()
       : await supabase.from('commands').update(payload).eq('id', editing!.id).select('*').single();
     setBusy(false);
     if (result.error) { showToast(`저장하지 못했습니다: ${result.error.message}`); return; }
@@ -104,6 +110,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
   }
 
   async function publish(command: Command, value: boolean) {
+    if (command.work_id) return;
     setOpenMenu(null);
     const { error } = await supabase.from('commands').update({ is_published: value }).eq('id', command.id);
     if (error) showToast(error.message);
@@ -111,6 +118,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
   }
 
   async function copy(command: Command) {
+    if (command.work_id) return;
     setOpenMenu(null);
     const base = command.name;
     const names = new Set(commands.filter((item) => item.owner_id === userId).map((item) => item.name));
@@ -154,7 +162,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
       <section className={embedded ? "flex w-full flex-col bg-bg" : "flex h-[72dvh] w-full max-w-app flex-col rounded-t-3xl bg-bg shadow-2xl"}>
         <header className="flex items-center justify-between px-4 pb-2 pt-4"><div>{!embedded && <h2 className="text-lg font-bold text-white">명령어</h2>}<p className="text-xs text-slate-500">{embedded ? '명령어를 만들고 편집하거나 허브에 공개하세요.' : '메뉴에서 선택해야 명령어가 활성화됩니다.'}</p></div>{!embedded && <button onClick={onClose} className="p-2 text-xl text-slate-400">×</button>}</header>
         <div className="flex shrink-0 overflow-x-auto border-b border-surface2 px-3">
-          {(['all', 'mine', 'hub', 'favorites'] as Tab[]).map((value) => <button key={value} onClick={() => { setTab(value); setOpenMenu(null); }} aria-pressed={tab === value} className={`whitespace-nowrap border-b-2 px-2.5 py-3 text-sm ${tab === value ? 'border-brand font-semibold text-white' : 'border-transparent text-slate-500'}`}>{tabLabels[value]}</button>)}
+          {(['all', 'work', 'mine', 'hub', 'favorites'] as Tab[]).map((value) => <button key={value} onClick={() => { setTab(value); setOpenMenu(null); }} aria-pressed={tab === value} className={`whitespace-nowrap border-b-2 px-2.5 py-3 text-sm ${tab === value ? 'border-brand font-semibold text-white' : 'border-transparent text-slate-500'}`}>{tabLabels[value]}</button>)}
         </div>
         <div className="shrink-0 border-b border-surface2 p-3">
           <div className="flex items-center gap-2 rounded-xl bg-surface px-3">
@@ -168,10 +176,10 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {visible.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">{searchTerm ? `${tabLabels[tab]}에 검색 결과가 없습니다.` : '표시할 명령어가 없습니다.'}</p> : visible.map((command) => {
-            const mine = command.owner_id === userId;
+            const mine = command.work_id ? allowWorkCreate && command.work_id === workId : command.owner_id === userId;
             return <div key={command.id} className={`relative flex gap-3 border-b border-surface2/70 px-4 py-3 ${embedded ? 'flex-wrap' : ''}`}>
               <button onClick={() => { if (embedded) setViewing(viewing === command.id ? null : command.id); else { onSelect?.(command); onClose?.(); } }} className="min-w-0 flex-1 text-left">
-                <p className="truncate font-semibold text-white"><span className="text-brand">/</span>{command.name} {mine && <span className="ml-1 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-400">나</span>} {command.is_published && <span className="ml-1 rounded bg-blue-400/15 px-1.5 py-0.5 text-[10px] text-blue-400">허브</span>}</p>
+                <p className="truncate font-semibold text-white"><span className="text-brand">/</span>{command.name} {command.work_id && <span className="ml-1 rounded bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand">작품 전용</span>} {mine && <span className="ml-1 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-400">나</span>} {command.is_published && <span className="ml-1 rounded bg-blue-400/15 px-1.5 py-0.5 text-[10px] text-blue-400">허브</span>}</p>
                 <p className="mt-1 truncate text-xs text-slate-400">{command.description || '설명 없음'}</p>
                 {command.is_published && <p className="mt-1 text-[11px] text-slate-500">올린 사람 · {mine ? '나' : authors[command.owner_id] ?? '사용자'}</p>}
               </button>
@@ -179,15 +187,15 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
                 <p className="mb-2 text-xs font-semibold text-slate-400">프롬프트 본문</p>
                 <pre className="whitespace-pre-wrap break-words text-sm text-slate-200">{command.prompt}</pre>
               </div>}
-              <button aria-label={`/${command.name} ${favoriteIds.has(command.id) ? '즐겨찾기 해제' : '즐겨찾기 추가'}`} aria-pressed={favoriteIds.has(command.id)} onClick={() => void toggleFavorite(command)} className={`self-start px-1 text-2xl leading-none ${favoriteIds.has(command.id) ? 'text-amber-400' : 'text-slate-500'}`}>{favoriteIds.has(command.id) ? '★' : '☆'}</button>
+              <button disabled={!!command.work_id} aria-label={`/${command.name} ${favoriteIds.has(command.id) ? '즐겨찾기 해제' : '즐겨찾기 추가'}`} aria-pressed={favoriteIds.has(command.id)} onClick={() => void toggleFavorite(command)} className={`self-start px-1 text-2xl leading-none ${favoriteIds.has(command.id) ? 'text-amber-400' : 'text-slate-500'}`}>{favoriteIds.has(command.id) ? '★' : '☆'}</button>
               <button aria-label="명령어 메뉴" onClick={() => setOpenMenu(openMenu === command.id ? null : command.id)} className="self-start px-1 text-xl text-slate-500">⋯</button>
               {openMenu === command.id && <div className="absolute right-4 top-10 z-10 min-w-40 overflow-hidden rounded-xl border border-surface2 bg-surface shadow-xl">
-                {mine ? <><button onClick={() => beginEdit(command)} className="block w-full px-4 py-2.5 text-left text-sm">명령어 수정</button><button onClick={() => void publish(command, !command.is_published)} className="block w-full px-4 py-2.5 text-left text-sm">{command.is_published ? '허브에서 비공개' : '전체 공개'}</button><button onClick={() => void remove(command)} className="block w-full px-4 py-2.5 text-left text-sm text-red-400">삭제</button></> : <button onClick={() => void copy(command)} className="block w-full px-4 py-2.5 text-left text-sm">내 명령어로 복사</button>}
+                {mine ? <><button onClick={() => beginEdit(command)} className="block w-full px-4 py-2.5 text-left text-sm">명령어 수정</button>{!command.work_id && <button onClick={() => void publish(command, !command.is_published)} className="block w-full px-4 py-2.5 text-left text-sm">{command.is_published ? '허브에서 비공개' : '전체 공개'}</button>}<button onClick={() => void remove(command)} className="block w-full px-4 py-2.5 text-left text-sm text-red-400">삭제</button></> : !command.work_id && <button onClick={() => void copy(command)} className="block w-full px-4 py-2.5 text-left text-sm">내 명령어로 복사</button>}
               </div>}
             </div>;
           })}
         </div>
-        <button onClick={() => beginEdit()} className="m-3 rounded-xl border border-brand/40 py-3 text-sm font-semibold text-brand">＋ 명령어 추가</button>
+        <button onClick={() => beginEdit()} className="m-3 rounded-xl border border-brand/40 py-3 text-sm font-semibold text-brand">＋ {allowWorkCreate ? '작품 전용 명령어' : '명령어'} 추가</button>
       </section>
     </div>
   );
