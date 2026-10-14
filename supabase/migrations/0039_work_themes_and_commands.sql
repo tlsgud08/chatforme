@@ -28,7 +28,7 @@ CREATE INDEX themes_owner_idx ON public.themes (owner_id);
 CREATE INDEX themes_published_idx ON public.themes (updated_at DESC) WHERE is_published;
 ALTER TABLE public.themes ENABLE ROW LEVEL SECURITY;
 CREATE OR REPLACE FUNCTION public.set_theme_updated_at() RETURNS trigger
-LANGUAGE plpgsql AS $ BEGIN NEW.updated_at:=now(); RETURN NEW; END; $;
+LANGUAGE plpgsql AS $$ BEGIN NEW.updated_at:=now(); RETURN NEW; END; $$;
 CREATE TRIGGER themes_updated_at BEFORE UPDATE ON public.themes
   FOR EACH ROW EXECUTE FUNCTION public.set_theme_updated_at();
 CREATE POLICY themes_read ON public.themes FOR SELECT TO public
