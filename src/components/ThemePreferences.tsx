@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
-import { bothVariants, loadTheme, paletteFor, requestThemeRefresh, type SavedTheme, type ThemeVariant } from '@/lib/theme';
+import { bothVariants, loadTheme, requestThemeRefresh, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 import ThemeMenu from './ThemeMenu';
 
 type Mode = 'dark' | 'light' | 'custom';
@@ -139,11 +139,13 @@ export default function ThemePreferences({ userId }: { userId: string }) {
         {!chosen && <p className="mt-2 text-xs text-slate-400">
           테마를 선택하거나 제작하면 지정한 커스텀 색상이 적용됩니다.
         </p>}
+        {chosen && !bothVariants(chosen) && <p className="mt-2 text-xs text-slate-400">단일 테마 · 라이트·다크 설정에 관계없이 같은 색상으로 표시됩니다.</p>}
         {chosen && bothVariants(chosen) && <div className="mt-3 grid grid-cols-2 gap-2">
           {(['light', 'dark'] as const).map(variant =>
             <button
               key={variant}
               type="button"
+              aria-pressed={pref.preferred_theme_variant === variant}
               onClick={() => void update({ preferred_theme_variant: variant })}
               className={`rounded-lg px-3 py-2 text-xs ${pref.preferred_theme_variant === variant ? 'bg-brand text-white' : 'bg-surface2 text-slate-400'}`}
             >
@@ -157,11 +159,10 @@ export default function ThemePreferences({ userId }: { userId: string }) {
             selectedId={pref.preferred_theme_id}
             onClose={() => setPicker(false)}
             onSelect={theme => {
-              const variant = paletteFor(theme, pref.preferred_theme_variant)?.variant ?? 'light';
+              // Keep the variant independent, including concurrent preference edits.
               void update({
                 preferred_theme_mode: 'custom',
                 preferred_theme_id: theme.id,
-                preferred_theme_variant: variant,
               }, theme).then(ok => { if (ok) setPicker(false); });
             }}
           />

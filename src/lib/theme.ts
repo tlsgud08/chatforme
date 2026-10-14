@@ -27,6 +27,34 @@ export function bothVariants(theme: Pick<SavedTheme,'dark_colors'|'light_colors'
   return validPalette(theme.dark_colors) && validPalette(theme.light_colors);
 }
 
+export type ThemePaletteMode = 'single' | 'dual';
+type ThemeColors = Pick<SavedTheme,'dark_colors'|'light_colors'>;
+export type ThemePaletteDraft = ThemeColors & { mode: ThemePaletteMode; singleVariant: ThemeVariant };
+/** One legacy palette is a single theme. Its slot is only internal rendering metadata. */
+export function createPaletteDraft(theme: ThemeColors | null, preferred: ThemeVariant): ThemePaletteDraft {
+  const selected = theme ? paletteFor(theme, preferred) : null;
+  const singleVariant = selected?.variant ?? preferred;
+  return {
+    mode: theme && bothVariants(theme) ? 'dual' : 'single', singleVariant,
+    dark_colors: theme?.dark_colors ? { ...theme.dark_colors } : singleVariant === 'dark' ? { ...DEFAULT_DARK } : null,
+    light_colors: theme?.light_colors ? { ...theme.light_colors } : singleVariant === 'light' ? { ...DEFAULT_LIGHT } : null,
+  };
+}
+/** Keep both editor palettes in memory so changing the mode never discards unsaved colors. */
+export function changePaletteMode(draft: ThemePaletteDraft, mode: ThemePaletteMode): ThemePaletteDraft {
+  return mode === 'single' ? { ...draft, mode } : {
+    ...draft, mode,
+    dark_colors: draft.dark_colors ?? { ...DEFAULT_DARK },
+    light_colors: draft.light_colors ?? { ...DEFAULT_LIGHT },
+  };
+}
+export function paletteDraftColors(draft: ThemePaletteDraft): ThemeColors {
+  return {
+    dark_colors: draft.mode === 'dual' || draft.singleVariant === 'dark' ? draft.dark_colors : null,
+    light_colors: draft.mode === 'dual' || draft.singleVariant === 'light' ? draft.light_colors : null,
+  };
+}
+
 export type ThemePreference = {
   prefer_work_theme?: boolean;
   preferred_theme_mode?: Theme | null;
@@ -85,10 +113,14 @@ export function appliedThemeVariant(): ThemeVariant {
   const root = document.documentElement.dataset;
   return (root.theme === 'custom' ? root.themeVariant : root.theme) === 'dark' ? 'dark' : 'light';
 }
+export function appliedThemeIsSingle(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.dataset.theme === 'custom'
+    && document.documentElement.dataset.themeMode === 'single';
+}
 /** Observe application, not the refresh request that starts asynchronous reads. */
 export function subscribeAppliedTheme(listener: () => void): () => void {
   const observer = new MutationObserver(listener);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-variant'] });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-variant', 'data-theme-mode'] });
   return () => observer.disconnect();
 }
 const vars = ['--color-brand','--color-bg','--color-surface','--color-surface2','--page-bg','--page-text','--custom-accent-text','--secondary-text','--secondary-text-soft','--secondary-text-muted','--chat-secondary-color','--chat-secondary-opacity','--secondary-extra-opacity'];
@@ -112,6 +144,7 @@ export function applyTheme(theme: ThemeVariant) {
   vars.forEach(name => root.style.removeProperty(name));
   root.dataset.theme=theme;
   delete root.dataset.themeVariant;
+  delete root.dataset.themeMode;
   root.style.colorScheme=theme;
   window.localStorage.setItem(KEY,theme);
 }
@@ -130,12 +163,13 @@ export function secondaryTextStyles(palette: ThemePalette) {
     extraOpacity:1,
   };
 }
-export function applyCustomTheme(palette: ThemePalette, variant: ThemeVariant) {
+export function applyCustomTheme(palette: ThemePalette, variant: ThemeVariant, mode: ThemePaletteMode = 'dual') {
   const root=document.documentElement;
   const secondary=secondaryTextStyles(palette);
   if(root.dataset.theme!=='custom'||root.style.getPropertyValue('--page-bg')!==palette.main||root.style.getPropertyValue('--color-brand')!==rgbValue(palette.accent)||root.style.getPropertyValue('--page-text')!==palette.mainText||root.style.getPropertyValue('--custom-accent-text')!==palette.accentText||root.style.getPropertyValue('--secondary-text')!==secondary.color||root.style.getPropertyValue('--chat-secondary-opacity')!==String(secondary.chatOpacity))beginThemeTransition();
   root.dataset.theme='custom';
   root.dataset.themeVariant=variant;
+  root.dataset.themeMode=mode;
   root.style.colorScheme=variant;
   root.style.setProperty('--color-brand',rgbValue(palette.accent));
   root.style.setProperty('--color-bg',rgbValue(palette.main));

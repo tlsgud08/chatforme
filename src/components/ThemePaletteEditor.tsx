@@ -76,19 +76,16 @@ function PaletteFields({ palette, defaults, onChange }: {
   </>;
 }
 
-export default function ThemePaletteEditor({ variant, palette, onChange, onDisable }: {
-  variant: ThemeVariant;
+export default function ThemePaletteEditor({ variant, palette, onChange }: {
+  variant: ThemeVariant | 'single';
   palette: ThemePalette | null;
   onChange: (palette: ThemePalette) => void;
-  onDisable: () => void;
 }) {
   const defaults = variant === 'dark' ? DEFAULT_DARK : DEFAULT_LIGHT;
   return <section className="theme-palette-editor">
-    <label className="theme-palette-heading">
-      <input type="checkbox" checked={!!palette}
-        onChange={e => e.target.checked ? onChange({ ...defaults }) : onDisable()} />
-      {variant === 'dark' ? '🌙 다크 버전' : '☀️ 라이트 버전'}
-    </label>
+    <div className="theme-palette-heading">
+      {variant === 'single' ? '🎨 테마 색상' : variant === 'dark' ? '🌙 다크 버전' : '☀️ 라이트 버전'}
+    </div>
     {palette && <PaletteFields palette={palette} defaults={defaults} onChange={onChange} />}
   </section>;
 }
