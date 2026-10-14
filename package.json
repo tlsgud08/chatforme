@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node scripts/test-model-capabilities.mjs && node scripts/test-prompt-cache.mjs && node scripts/test-theme.mjs && node scripts/test-theme-directives.mjs && node scripts/test-theme-rls.mjs && node scripts/test-performance.mjs",
+    "test": "node scripts/test-model-capabilities.mjs && node scripts/test-prompt-cache.mjs && node scripts/test-theme.mjs && node scripts/test-theme-plugin-ui.mjs && node scripts/test-theme-directives.mjs && node scripts/test-theme-rls.mjs && node scripts/test-performance.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
