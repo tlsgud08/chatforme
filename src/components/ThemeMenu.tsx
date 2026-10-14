@@ -24,7 +24,7 @@ function defaultDraft():Draft {return {name:'',description:'',dark_colors:{...DE
 function PaletteEditor({variant,palette,onChange,onDisable}:{variant:ThemeVariant;palette:ThemePalette|null;onChange:(palette:ThemePalette)=>void;onDisable:()=>void}) {
   return <section className="rounded-xl bg-surface p-3">
     <label className="flex items-center gap-2 text-sm font-semibold text-white">
-      <input type="checkbox" checked={!!palette} onChange={e=>e.target.checked?onChange({...variant==='dark'?DEFAULT_DARK:DEFAULT_LIGHT}):onDisable()}/>
+      <input type="checkbox" checked={!!palette} onChange={e=>e.target.checked?onChange({...(variant==='dark'?DEFAULT_DARK:DEFAULT_LIGHT)}):onDisable()}/>
       {variant==='dark'?'🌙 다크 버전':'☀️ 라이트 버전'}
     </label>
     {palette&&<div className="mt-3 grid grid-cols-2 gap-3">
@@ -105,7 +105,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     <div className="flex items-center justify-between"><h3 className="font-semibold text-white">{editing==='new'?'테마 제작':'테마 편집'}</h3><button onClick={()=>setEditing(null)} className="text-sm text-slate-400">취소</button></div>
     <label className="text-xs text-slate-400">테마 이름<input maxLength={80} value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
     <label className="text-xs text-slate-400">설명<textarea maxLength={500} rows={2} value={draft.description} onChange={e=>setDraft(d=>({...d,description:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
-    {(['dark','light']as const).map(v=><PaletteEditor key={v} variant={v} palette={draft[v+'_colors']} onChange={p=>setDraft(d=>({...d,[v+'_colors']:p}))} onDisable={()=>setDraft(d=>({...d,[v+'_colors']:null}))}/>)}
+    {(['dark','light']as const).map(v=><PaletteEditor key={v} variant={v} palette={draft[v==='dark'?'dark_colors':'light_colors']} onChange={p=>setDraft(d=>({...d,[v+'_colors']:p}))} onDisable={()=>setDraft(d=>({...d,[v+'_colors']:null}))}/>)}
     <p className="text-xs text-slate-400">각 버전의 4가지 색상은 독립적으로 설정됩니다. 자동 변환하지 않습니다.</p>
     <button disabled={busy} onClick={()=>void save()} className="rounded-lg bg-brand px-4 py-3 text-sm font-bold text-white disabled:opacity-50">테마 저장</button>
   </div>;
