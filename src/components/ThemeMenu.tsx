@@ -113,7 +113,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
   async function togglePublish(t:SavedTheme){
     if(t.work_id)return;
     const {error}=await supabase.from('themes').update({is_published:!t.is_published}).eq('id',t.id);
-    if(error)showToast(error.message);else await load();
+    if(error)showToast(error.message);else {await load();window.dispatchEvent(new Event('inuchat:theme-changed'));}
   }
   async function copy(t:SavedTheme){
     if(t.work_id){showToast('작품 전용 테마는 다른 작품으로 복사할 수 없습니다.');return;}
