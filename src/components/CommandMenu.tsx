@@ -32,15 +32,32 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const [{ data, error }, { data: favorites, error: favoritesError }] = await Promise.all([
-      supabase.from('commands').select('*').order('updated_at', { ascending: false }),
-      supabase.from('command_favorites').select('command_id').eq('user_id', userId),
-    ]);
-    if (error) { showToast(`명령어를 불러오지 못했습니다: ${error.message}`); return; }
-    if (favoritesError) { showToast(`즐겨찾기를 불러오지 못했습니다: ${favoritesError.message}`); return; }
-    const next = (data as Command[]) ?? [];
+    const fetchCommands=async()=>{
+      const items:Command[]=[];
+      for(let start=0;;start+=500){
+        const {data,error}=await supabase.from('commands').select('*')
+          .order('updated_at',{ascending:false}).order('id',{ascending:false})
+          .range(start,start+499);
+        if(error)throw error;
+        items.push(...((data??[])as Command[]));
+        if((data??[]).length<500)return items;
+      }
+    };
+    const fetchFavorites=async()=>{
+      const ids:string[]=[];
+      for(let start=0;;start+=500){
+        const {data,error}=await supabase.from('command_favorites').select('command_id')
+          .eq('user_id',userId).order('command_id').range(start,start+499);
+        if(error)throw error;
+        ids.push(...(data??[]).map(row=>row.command_id));
+        if((data??[]).length<500)return ids;
+      }
+    };
+    let next:Command[], favorites:string[];
+    try{[next,favorites]=await Promise.all([fetchCommands(),fetchFavorites()]);}
+    catch(error){showToast('명령어를 불러오지 못했습니다: '+(error instanceof Error?error.message:String(error)));return;}
     setCommands(next);
-    setFavoriteIds(new Set((favorites ?? []).map((favorite) => favorite.command_id)));
+    setFavoriteIds(new Set(favorites));
     const workIds=[...new Set(next.map(item=>item.work_id).filter((id):id is string=>!!id))];
     if(workIds.length){const {data:works}=await supabase.from('works').select('id,title').in('id',workIds);setWorkNames(Object.fromEntries((works??[]).map(w=>[w.id,w.title])));}
     const ids = [...new Set(next.map((item) => item.owner_id))];
