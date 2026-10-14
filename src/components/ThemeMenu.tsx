@@ -140,7 +140,16 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
               <button onClick={()=>setOpened(opened===t.id?null:t.id)} aria-label="테마 메뉴" className="p-1 text-slate-400">⋯</button>
             </div>
           </div>
-          <div className="mt-2 flex gap-2">{([['dark',t.dark_colors],['light',t.light_colors]]as const).filter(([,p])=>!!p).map(([name,p])=><div key={name} className="flex items-center gap-1 rounded-lg bg-surface px-2 py-1"><span className="text-[10px] text-slate-400">{name==='dark'?'🌙':'☀️'}</span>{[p!.accent,p!.accentText,p!.main,p!.mainText].map((color,i)=><span key={i} className="h-4 w-4 rounded-sm border border-surface2" style={{backgroundColor:color}}/>)}</div>)}</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {([['dark',t.dark_colors],['light',t.light_colors]]as const).filter(([,p])=>!!p).map(([name,p])=>
+              <button key={name} type="button" disabled={!editable} onClick={()=>edit(t)}
+                aria-label={`${t.name} ${name==='dark'?'다크':'라이트'} 버전 수정`}
+                title={editable?'눌러서 테마 수정':'수정 권한이 없는 테마입니다'}
+                className="flex min-h-11 items-center gap-1 rounded-lg bg-surface px-2 py-1 disabled:cursor-default">
+                <span aria-hidden="true" className="text-[10px] text-slate-400">{name==='dark'?'🌙':'☀️'}</span>
+                {[p!.accent,p!.accentText,p!.main,p!.mainText].map((color,i)=><span key={i} aria-hidden="true" className="h-4 w-4 rounded-sm border border-surface2" style={{backgroundColor:color}}/>)}
+              </button>)}
+          </div>
           {opened===t.id&&<div className="mt-3 flex flex-wrap gap-2">
             {editable&&<button onClick={()=>edit(t)} className="rounded-lg bg-surface2 px-3 py-2 text-xs">수정</button>}
             {editable&&!t.work_id&&<button onClick={()=>void togglePublish(t)} className="rounded-lg bg-surface2 px-3 py-2 text-xs">{t.is_published?'비공개':'허브 공개'}</button>}
