@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
+const session = read('src/components/SessionThemeSettings.tsx');
+const prefs = read('src/components/ThemePreferences.tsx');
+const themes = read('src/components/ThemeMenu.tsx');
+const work = read('src/components/WorkThemeSettings.tsx');
+const plugins = read('src/components/PluginMenu.tsx');
+const migration = read('supabase/migrations/20261014172000_unlimited_plugin_fields.sql');
+
+assert.match(session, /mode==='inherit'&&!open&&<>/);
+assert.match(session, /aria-label="사이트 기본 테마"/);
+assert.match(session, /update\(\{preferred_theme_mode:next\}\)/);
+assert.match(prefs, /update\(\{ preferred_theme_mode: mode \}\)/);
+assert.match(session, /\['light','dark'\]as const/);
+assert.match(prefs, /\['light', 'dark', 'custom'\] as const/);
+assert.match(prefs, /\['light', 'dark'\] as const/);
+assert.match(work, /\['light','dark'\]as const/);
+assert.match(themes, /\['light','dark'\]as const/);
+assert.match(themes, /\[\['light',t.light_colors\],\['dark',t.dark_colors\]\]/);
+assert.doesNotMatch(plugins, /maxLength=\{(?:20|100|4000)\}/);
+assert.doesNotMatch(plugins, /\/20<\/span>|\/100<\/span>|slice\(0, 20 - suffix.length\)/);
+assert.match(migration, /DROP CONSTRAINT IF EXISTS plugins_name_check/);
+assert.match(migration, /DROP CONSTRAINT IF EXISTS plugins_description_check/);
+assert.match(migration, /char_length\(name\) >= 1/);
+console.log('Theme order/site sync and unrestricted plugin fields: checks OK');

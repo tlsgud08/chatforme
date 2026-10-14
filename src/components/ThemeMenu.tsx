@@ -137,7 +137,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     <label className="text-xs text-slate-400">설명<textarea maxLength={500} rows={2} value={draft.description} onChange={e=>setDraft(d=>({...d,description:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
     {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="text-xs text-slate-400">AI 적용 조건<textarea maxLength={4000} rows={4} value={draft.ai_prompt} onChange={e=>setDraft(d=>({...d,ai_prompt:e.target.value}))} placeholder="이 테마를 언제 사용해야 하는지 설명하세요." className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>}
     {scope==='work'&&!allowWorkCreate&&<p className="text-xs text-slate-400">본인만 이 작품에서 사용할 수 있으며, 자동 테마 변경의 선택지에 포함됩니다.</p>}
-    {(['dark','light']as const).map(v=><ThemePaletteEditor key={v} variant={v} palette={draft[v==='dark'?'dark_colors':'light_colors']} onChange={p=>setDraft(d=>({...d,[v+'_colors']:p}))} onDisable={()=>setDraft(d=>({...d,[v+'_colors']:null}))}/>)}
+    {(['light','dark']as const).map(v=><ThemePaletteEditor key={v} variant={v} palette={draft[v==='dark'?'dark_colors':'light_colors']} onChange={p=>setDraft(d=>({...d,[v+'_colors']:p}))} onDisable={()=>setDraft(d=>({...d,[v+'_colors']:null}))}/>)}
     <p className="text-xs text-slate-400">각 버전의 색상과 보조 텍스트 설정은 독립적으로 설정됩니다. 자동 변환하지 않습니다.</p>
     <button disabled={busy} onClick={()=>void save()} className="rounded-lg bg-brand px-4 py-3 text-sm font-bold text-white disabled:opacity-50">테마 저장</button>
   </div>;
@@ -173,11 +173,11 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
             <button type="button" onClick={()=>selectable&&onSelect?onSelect(t):setOpened(opened===t.id?null:t.id)}
               disabled={!!onSelect&&!selectable} className="block w-full text-left disabled:opacity-40" style={{color:'inherit'}}>
             <span className="block truncate text-xs" style={palette.secondaryText?{color:secondary.muted}:undefined}>{t.description||'설명 없음'}</span>
-            <span className="text-[11px]" style={palette.secondaryText?{color:secondary.soft}:undefined}>{t.work_id?(t.work_shared===false?'내 작품 전용 · ':'작품 공용 · ')+(workNames[t.work_id]??'전용')+' · ':t.is_published?'허브 공개 · ':'개인 · '}{t.dark_colors?'🌙 다크 ':''}{t.light_colors?'☀️ 라이트':''}</span>
+            <span className="text-[11px]" style={palette.secondaryText?{color:secondary.soft}:undefined}>{t.work_id?(t.work_shared===false?'내 작품 전용 · ':'작품 공용 · ')+(workNames[t.work_id]??'전용')+' · ':t.is_published?'허브 공개 · ':'개인 · '}{t.light_colors?'☀️ 라이트 ':''}{t.dark_colors?'🌙 다크':''}</span>
             </button>
             <span className="block text-[11px]" style={{color:palette.secondaryText,opacity:secondary.chatOpacity}}>미리보기 · {(preview?.variant??variant)==='dark'?'다크':'라이트'}</span>
           <div className="mt-2 flex flex-wrap gap-2">
-            {([['dark',t.dark_colors],['light',t.light_colors]]as const).filter(([,p])=>!!p).map(([name,p])=>
+            {([['light',t.light_colors],['dark',t.dark_colors]]as const).filter(([,p])=>!!p).map(([name,p])=>
               <button key={name} type="button" disabled={!editable} onClick={()=>edit(t)}
                 aria-label={`${t.name} ${name==='dark'?'다크':'라이트'} 버전 수정`}
                 title={editable?'눌러서 테마 수정':'수정 권한이 없는 테마입니다'}

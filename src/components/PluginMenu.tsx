@@ -144,7 +144,7 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
     let name = base;
     for (let n = 2; names.has(name); n += 1) {
       const suffix = ` ${n}`;
-      name = `${base.slice(0, 20 - suffix.length)}${suffix}`;
+      name = `${base}${suffix}`;
     }
     const { error } = await supabase.from('plugins').insert({ owner_id: userId, name, description: plugin.description, prompt: plugin.prompt, copied_from_id: plugin.id, is_published: false });
     if (error) showToast(error.message);
@@ -162,11 +162,11 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
     <div className={embedded ? "flex w-full justify-center" : "fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"} onMouseDown={(event) => event.target === event.currentTarget && setEditing(null)}>
       <section className={embedded ? "flex w-full flex-col bg-bg p-4" : "flex max-h-[92dvh] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl bg-bg p-5 shadow-2xl sm:rounded-3xl"}>
         <header className="mb-5 flex items-center justify-between"><button onClick={() => setEditing(null)} className="text-xl text-slate-400">←</button><h2 className="font-bold text-white">플러그인 편집</h2><span className="w-5" /></header>
-        <label className="mb-4 text-sm font-semibold text-slate-200">플러그인 이름 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.name.length}/20</span>
-          <div className="mt-2 flex rounded-xl bg-surface px-3"><input maxLength={20} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="min-w-0 flex-1 bg-transparent py-3 outline-none" placeholder="플러그인" /></div>
+        <label className="mb-4 text-sm font-semibold text-slate-200">플러그인 이름 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.name.length.toLocaleString('ko-KR')}자</span>
+          <div className="mt-2 flex rounded-xl bg-surface px-3"><input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="min-w-0 flex-1 bg-transparent py-3 outline-none" placeholder="플러그인" /></div>
         </label>
-        <label className="mb-4 text-sm font-semibold text-slate-200">설명 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.description.length}/100</span>
-          <input maxLength={100} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className="mt-2 w-full rounded-xl bg-surface px-3 py-3 outline-none" placeholder="이 플러그인이 하는 일" />
+        <label className="mb-4 text-sm font-semibold text-slate-200">설명 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.description.length.toLocaleString('ko-KR')}자</span>
+          <input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className="mt-2 w-full rounded-xl bg-surface px-3 py-3 outline-none" placeholder="이 플러그인이 하는 일" />
         </label>
         <label className="text-sm font-semibold text-slate-200">프롬프트 본문 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.prompt.length.toLocaleString('ko-KR')}자</span>
           <textarea rows={10} value={draft.prompt} onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} className="mt-2 w-full resize-none rounded-xl bg-surface px-3 py-3 text-sm outline-none" placeholder="활성화 중 매 요청에 AI에게 전달할 프롬프트" />
