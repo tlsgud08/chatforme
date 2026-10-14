@@ -68,7 +68,9 @@ export function resolveThemeSelection(
     return {themeId:session.theme_id??null,variant:session.theme_variant??preferredVariant};
   }
   if (preference?.prefer_work_theme !== false && work?.default_theme_id) {
-    return { themeId: work.default_theme_id, variant: work.default_theme_variant ?? preferredVariant };
+    // A chosen global light/dark variant takes priority in fluid mode.
+    // Preserve the work author's initial variant only for legacy unset preferences.
+    return { themeId: work.default_theme_id, variant: mode == null ? work.default_theme_variant ?? preferredVariant : preferredVariant };
   }
   return { themeId: mode === 'custom' ? preference?.preferred_theme_id ?? null : null, variant: preferredVariant };
 }
