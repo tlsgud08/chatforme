@@ -28,6 +28,34 @@ try {
   localStorage.setItem('inuchat.openrouter.verifiedModels', '["legacy/model"]');
   assert.equal(models.isModelVerified('legacy/model'), true);
 
+  // A failed optional author lookup must not turn a successful list fetch
+  // into an error, and a real works-query error must still propagate.
+  const { supabase } = await server.ssrLoadModule('/src/lib/supabase.ts');
+  const originalFrom = supabase.from;
+  const { fetchWorks } = await server.ssrLoadModule('/src/lib/works.ts');
+  let failWorks = false;
+  const selected = [];
+  supabase.from = table => {
+    const response = table === 'works'
+      ? failWorks ? { data: null, error: new Error('works unavailable') }
+        : { data: [{ id: 'work-1', creator_id: 'author-1', title: 'Visible work', visibility: 'public' }], error: null }
+      : { data: null, error: new Error('author unavailable') };
+    const chain = {
+      select: columns => { selected.push(columns); return chain; },
+      order: () => chain, eq: () => chain, in: () => chain,
+      then: (resolve, reject) => Promise.resolve(response).then(resolve, reject),
+    };
+    return chain;
+  };
+  try {
+    const works = await fetchWorks();
+    assert.equal(works[0].title, 'Visible work');
+    assert.equal(works[0].creator_name, '알 수 없음');
+    assert(!selected.includes('*'), 'list queries must not load prompt bodies');
+    failWorks = true;
+    await assert.rejects(fetchWorks(), /works unavailable/);
+  } finally { supabase.from = originalFrom; }
+
   const { shareInFlight, invalidateInFlight } = await server.ssrLoadModule('/src/lib/inFlight.ts');
   let resolveOld, reads = 0;
   const read = () => { reads++; return new Promise(resolve => { resolveOld = resolve; }); };
@@ -90,4 +118,4 @@ try {
   await db.exec('reset role; set role anon');
   await assert.rejects(db.query('select * from session_conversation_counts($1)', [[one]]), /permission denied/);
 } finally { await db.close(); }
-console.log('Performance tests passed: catalog invalidation, concurrent fresh reads, exact counts over 1,000 rows, RLS and anonymous denial.');
+console.log('Performance tests passed: catalog invalidation, optional author failure, concurrent fresh reads, exact counts over 1,000 rows, RLS and anonymous denial.');
