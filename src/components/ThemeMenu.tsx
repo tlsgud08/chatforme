@@ -40,6 +40,7 @@ function PaletteEditor({variant,palette,onChange,onDisable}:{variant:ThemeVarian
 export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=false,selectedId,onSelect,onClose}:Props){
   const [themes,setThemes]=useState<SavedTheme[]>([]);
   const [favorites,setFavorites]=useState<Set<string>>(new Set());
+  const [workNames,setWorkNames]=useState<Record<string,string>>({});
   const [tab,setTab]=useState<Tab>(workId?'work':'all');
   const [search,setSearch]=useState('');
   const [editing,setEditing]=useState<SavedTheme|'new'|null>(null);
@@ -53,6 +54,8 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     ]);
     if(error){showToast('테마 목록을 불러오지 못했습니다: '+error.message);return;}
     setThemes((data??[]) as SavedTheme[]);
+    const workIds=[...new Set((data??[]).map((t:SavedTheme)=>t.work_id).filter((id):id is string=>!!id))];
+    if(workIds.length){const {data:works}=await supabase.from('works').select('id,title').in('id',workIds);setWorkNames(Object.fromEntries((works??[]).map(w=>[w.id,w.title])));}
     setFavorites(new Set((stars??[]).map((f:{theme_id:string})=>f.theme_id)));
   },[userId]);
   useEffect(()=>{void load();},[load]);
@@ -128,7 +131,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
             <button onClick={()=>selectable&&onSelect?onSelect(t):setOpened(opened===t.id?null:t.id)} disabled={!!onSelect&&!selectable} className="min-w-0 flex-1 text-left disabled:opacity-40">
               <span className="block text-sm font-semibold text-white">{selectedId===t.id?'✓ ':''}{t.name}</span>
               <span className="block truncate text-xs text-slate-400">{t.description||'설명 없음'}</span>
-              <span className="text-[11px] text-slate-500">{t.work_id?'작품 전용 · ':t.is_published?'허브 공개 · ':'개인 · '}{t.dark_colors?'🌙 다크 ':''}{t.light_colors?'☀️ 라이트':''}</span>
+              <span className="text-[11px] text-slate-500">{t.work_id?'작품 · '+(workNames[t.work_id]??'전용')+' · ':t.is_published?'허브 공개 · ':'개인 · '}{t.dark_colors?'🌙 다크 ':''}{t.light_colors?'☀️ 라이트':''}</span>
             </button>
             <div className="flex shrink-0 gap-1">
               <button onClick={()=>void toggleFavorite(t)} disabled={!!t.work_id} aria-label="즐겨찾기" className="p-1 text-slate-400 disabled:opacity-30">{favorites.has(t.id)?'★':'☆'}</button>
