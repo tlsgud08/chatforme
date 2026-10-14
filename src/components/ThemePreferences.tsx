@@ -23,6 +23,8 @@ export default function ThemePreferences({ userId }: { userId: string | null }) 
   const [picker, setPicker] = useState(false);
   const [loading, setLoading] = useState(!!userId);
   const latestUpdate = useRef(0);
+  const currentPref = useRef(pref);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (!userId) { setLoading(false); return; }
@@ -44,7 +46,7 @@ export default function ThemePreferences({ userId }: { userId: string | null }) 
         ? await supabase.from('themes').select('*').eq('id', selectedId).maybeSingle()
         : { data: null };
       if (!live || latestUpdate.current !== startUpdate) return;
-      if (data) setPref(data as Pref);
+      if (data) { currentPref.current = data as Pref; setPref(data as Pref); }
       setChosen((theme as SavedTheme | null) ?? null);
       setLoading(false);
     }
@@ -60,13 +62,14 @@ export default function ThemePreferences({ userId }: { userId: string | null }) 
     };
   }, [userId]);
 
-  // Update the selected tab immediately; use the account database as the source
-  // of truth for actual theme application, and restore the previous choice on error.
-  async function update(patch: Partial<Pref>, theme?: SavedTheme | null) {
+  // Queue overlapping writes. An older network request may not be allowed
+  // to overwrite a newer mode/variant selection on another device.
+  async function update(patch: Partial<Pref>, theme?: SavedTheme | null): Promise<boolean> {
     const operation = ++latestUpdate.current;
-    const previous = pref;
+    const previous = currentPref.current;
     const previousTheme = chosen;
-    const next = { ...pref, ...patch };
+    const next = { ...previous, ...patch };
+    currentPref.current = next;
     setPref(next);
     if (theme !== undefined) setChosen(theme);
 
@@ -74,22 +77,30 @@ export default function ThemePreferences({ userId }: { userId: string | null }) 
       if (next.preferred_theme_mode === 'dark' || next.preferred_theme_mode === 'light') {
         applyTheme(next.preferred_theme_mode);
       }
-      return;
+      return true;
     }
-    const { error } = await supabase.from('profiles').update(patch).eq('id', userId);
-    if (operation !== latestUpdate.current) return;
+    const pending = saveQueue.current.then(() =>
+      supabase.from('profiles').update(patch).eq('id', userId)
+    );
+    saveQueue.current = pending.then(() => undefined, () => undefined);
+    const { error } = await pending;
     if (error) {
-      setPref(previous);
-      if (theme !== undefined) setChosen(previousTheme);
       showToast('테마 설정 저장 실패: ' + error.message);
+      if (operation === latestUpdate.current) {
+        currentPref.current = previous;
+        setPref(previous);
+        if (theme !== undefined) setChosen(previousTheme);
+      }
     }
-    requestThemeRefresh();
+    if (operation === latestUpdate.current) requestThemeRefresh();
+    return !error;
   }
 
   const currentMode = pref.preferred_theme_mode ?? (loadTheme() === 'dark' ? 'dark' : 'light');
 
   function changeMode(mode: Mode) {
     if (mode === 'custom') {
+      if (!userId) { showToast('커스텀 테마는 로그인 후 사용할 수 있습니다.'); return; }
       // Selecting the tab and opening its catalog are two different actions.
       // A previously selected custom theme remains selected after dark/light.
       if (!pref.preferred_theme_id) setPicker(true);
@@ -159,8 +170,7 @@ export default function ThemePreferences({ userId }: { userId: string | null }) 
                 preferred_theme_mode: 'custom',
                 preferred_theme_id: theme.id,
                 preferred_theme_variant: variant,
-              }, theme);
-              setPicker(false);
+              }, theme).then(ok => { if (ok) setPicker(false); });
             }}
           />
         </div>}
