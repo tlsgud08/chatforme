@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
-import { DEFAULT_DARK, DEFAULT_LIGHT, validPalette, type SavedTheme, type ThemePalette, type ThemeVariant } from '@/lib/theme';
+import ThemePaletteEditor from './ThemePaletteEditor';
+import { DEFAULT_DARK, DEFAULT_LIGHT, validPalette, type SavedTheme, type ThemePalette } from '@/lib/theme';
 
 type Tab = 'all'|'work'|'mine'|'hub'|'favorites';
 type Props = {
@@ -15,28 +16,8 @@ type Props = {
   onClose?: () => void;
 };
 const labels: Record<Tab,string>={all:'전체',work:'작품',mine:'내 테마',hub:'테마 허브',favorites:'즐겨찾기'};
-const colorLabels: {key:keyof ThemePalette;name:string}[]=[
-  {key:'accent',name:'강조색'}, {key:'accentText',name:'강조색 글자'},
-  {key:'main',name:'메인색'}, {key:'mainText',name:'메인색 글자'},
-];
 type Draft = {name:string;description:string;dark_colors:ThemePalette|null;light_colors:ThemePalette|null};
 function defaultDraft():Draft {return {name:'',description:'',dark_colors:{...DEFAULT_DARK},light_colors:{...DEFAULT_LIGHT}};}
-function PaletteEditor({variant,palette,onChange,onDisable}:{variant:ThemeVariant;palette:ThemePalette|null;onChange:(palette:ThemePalette)=>void;onDisable:()=>void}) {
-  return <section className="rounded-xl bg-surface p-3">
-    <label className="flex items-center gap-2 text-sm font-semibold text-white">
-      <input type="checkbox" checked={!!palette} onChange={e=>e.target.checked?onChange({...(variant==='dark'?DEFAULT_DARK:DEFAULT_LIGHT)}):onDisable()}/>
-      {variant==='dark'?'🌙 다크 버전':'☀️ 라이트 버전'}
-    </label>
-    {palette&&<div className="mt-3 grid grid-cols-2 gap-3">
-      {colorLabels.map(({key,name})=><label key={key} className="text-xs text-slate-400">{name}
-        <div className="mt-1 flex items-center gap-1 rounded-lg bg-surface2 px-1 py-1">
-          <input type="color" aria-label={name+' 선택'} value={/^#[0-9a-f]{6}$/i.test(palette[key])?palette[key]:'#000000'} onChange={e=>onChange({...palette,[key]:e.target.value})} className="h-8 w-9 shrink-0 cursor-pointer border-0 bg-transparent p-0"/>
-          <input aria-label={name+' HEX'} maxLength={7} value={palette[key]} onChange={e=>onChange({...palette,[key]:e.target.value})} className="w-full min-w-0 bg-transparent text-xs text-white outline-none"/>
-        </div>
-      </label>)}
-    </div>}
-  </section>;
-}
 export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=false,selectedId,onSelect,onClose}:Props){
   const [themes,setThemes]=useState<SavedTheme[]>([]);
   const [favorites,setFavorites]=useState<Set<string>>(new Set());
@@ -129,7 +110,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     <div className="flex items-center justify-between"><h3 className="font-semibold text-white">{editing==='new'?'테마 제작':'테마 편집'}</h3><button onClick={()=>setEditing(null)} className="text-sm text-slate-400">취소</button></div>
     <label className="text-xs text-slate-400">테마 이름<input maxLength={80} value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
     <label className="text-xs text-slate-400">설명<textarea maxLength={500} rows={2} value={draft.description} onChange={e=>setDraft(d=>({...d,description:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
-    {(['dark','light']as const).map(v=><PaletteEditor key={v} variant={v} palette={draft[v==='dark'?'dark_colors':'light_colors']} onChange={p=>setDraft(d=>({...d,[v+'_colors']:p}))} onDisable={()=>setDraft(d=>({...d,[v+'_colors']:null}))}/>)}
+    {(['dark','light']as const).map(v=><ThemePaletteEditor key={v} variant={v} palette={draft[v==='dark'?'dark_colors':'light_colors']} onChange={p=>setDraft(d=>({...d,[v+'_colors']:p}))} onDisable={()=>setDraft(d=>({...d,[v+'_colors']:null}))}/>)}
     <p className="text-xs text-slate-400">각 버전의 4가지 색상은 독립적으로 설정됩니다. 자동 변환하지 않습니다.</p>
     <button disabled={busy} onClick={()=>void save()} className="rounded-lg bg-brand px-4 py-3 text-sm font-bold text-white disabled:opacity-50">테마 저장</button>
   </div>;

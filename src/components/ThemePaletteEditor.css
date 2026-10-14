@@ -1,0 +1,68 @@
+.theme-palette-editor {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgb(var(--color-surface2));
+  border-radius: 20px;
+  background: rgb(var(--color-surface));
+  color: var(--page-text);
+}
+.theme-palette-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.theme-palette-heading input { width: 16px; height: 16px; }
+.theme-palette-fields { display: grid; gap: 14px; margin-top: 20px; }
+.theme-palette-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.theme-palette-inputs { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.theme-palette-swatch {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgb(var(--color-surface2));
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+.theme-palette-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+.theme-palette-swatch::-webkit-color-swatch { border: 0; border-radius: 8px; }
+.theme-palette-swatch::-moz-color-swatch { border: 0; border-radius: 8px; }
+.theme-palette-hex {
+  width: 112px;
+  min-width: 0;
+  height: 38px;
+  padding: 6px 12px;
+  border: 1px solid rgb(var(--color-surface2));
+  border-radius: 999px;
+  background: rgb(var(--color-bg));
+  color: var(--page-text);
+  font-size: 14px;
+}
+.theme-palette-hex[aria-invalid='true'] { border-color: #ef4444; }
+.theme-palette-error { margin-top: 12px; font-size: 12px; color: var(--page-text); }
+.theme-palette-preview { margin-top: 20px; padding: 16px; border-radius: 16px; }
+.theme-palette-preview h4 { margin: 0; font-size: 18px; font-weight: 600; }
+.theme-palette-preview p { margin: 12px 0 16px; font-size: 14px; }
+.theme-palette-preview-button {
+  width: 100%;
+  padding: 14px 12px;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 500;
+}
+@media (max-width: 360px) {
+  .theme-palette-editor { padding: 12px; }
+  .theme-palette-row { gap: 8px; font-size: 12px; }
+  .theme-palette-inputs { gap: 6px; }
+  .theme-palette-hex { width: 94px; padding: 6px 9px; font-size: 12px; }
+  .theme-palette-swatch { width: 32px; height: 32px; }
+}
