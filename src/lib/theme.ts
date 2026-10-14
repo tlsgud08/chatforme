@@ -23,6 +23,43 @@ export function paletteFor(theme: Pick<SavedTheme,'dark_colors'|'light_colors'>,
 export function bothVariants(theme: Pick<SavedTheme,'dark_colors'|'light_colors'>): boolean {
   return validPalette(theme.dark_colors) && validPalette(theme.light_colors);
 }
+
+export type ThemePreference = {
+  prefer_work_theme?: boolean;
+  preferred_theme_mode?: Theme | null;
+  preferred_theme_id?: string | null;
+  preferred_theme_variant?: ThemeVariant | null;
+};
+export type ThemeWorkDefault = {
+  default_theme_id?: string | null;
+  default_theme_variant?: ThemeVariant | null;
+};
+export type ThemeSessionOverride = {
+  theme_override?: 'builtin' | 'custom' | null;
+  theme_id?: string | null;
+  theme_variant?: ThemeVariant | null;
+};
+/** Strict priority: session choice > work default (if enabled) > user preference. */
+export function resolveThemeSelection(
+  preference: ThemePreference | null,
+  work: ThemeWorkDefault | null,
+  session: ThemeSessionOverride | null,
+  fallback: ThemeVariant,
+): { themeId: string | null; variant: ThemeVariant } {
+  const mode = preference?.preferred_theme_mode;
+  const preferredVariant = mode === 'dark' || mode === 'light' ? mode
+    : preference?.preferred_theme_variant ?? fallback;
+  if (session?.theme_override === 'builtin') {
+    return { themeId: null, variant: session.theme_variant ?? preferredVariant };
+  }
+  if (session?.theme_override === 'custom') {
+    return { themeId: session.theme_id ?? null, variant: session.theme_variant ?? preferredVariant };
+  }
+  if (preference?.prefer_work_theme !== false && work?.default_theme_id) {
+    return { themeId: work.default_theme_id, variant: work.default_theme_variant ?? preferredVariant };
+  }
+  return { themeId: mode === 'custom' ? preference?.preferred_theme_id ?? null : null, variant: preferredVariant };
+}
 export function loadTheme(): Theme {
   if (typeof window === 'undefined') return 'light';
   const saved = window.localStorage.getItem(KEY);
