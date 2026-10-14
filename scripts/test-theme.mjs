@@ -29,7 +29,8 @@ const user = {
   preferred_theme_variant: 'light',
 };
 const work = { default_theme_id: 'work-palette', default_theme_variant: 'dark' };
-assert.deepEqual(resolveThemeSelection(user, work, null, 'dark'), {themeId:'work-palette',variant:'dark'});
+assert.deepEqual(resolveThemeSelection(user, work, null, 'dark'), {themeId:'work-palette',variant:'light'});
+assert.deepEqual(resolveThemeSelection({preferred_theme_mode:null}, work, null, 'light'), {themeId:'work-palette',variant:'dark'});
 assert.deepEqual(resolveThemeSelection(user, work,
   {theme_override:'custom',theme_id:'chat-palette',theme_variant:'light'}, 'dark'),
   {themeId:'chat-palette',variant:'light'});
