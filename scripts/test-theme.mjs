@@ -154,7 +154,7 @@ globalThis.MutationObserver=class {
 };
 const unsubscribe=theme.subscribeAppliedTheme(()=>notifications++);
 assert.equal(observation.target,document.documentElement);
-assert.deepEqual(observation.options,{attributes:true,attributeFilter:['data-theme','data-theme-variant','data-theme-mode']});
+assert.deepEqual(observation.options,{attributes:true,attributeFilter:['data-theme','data-theme-variant','data-theme-mode','data-theme-name']});
 theme.applyTheme('light');
 notify();
 assert.equal(notifications,1);

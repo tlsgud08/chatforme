@@ -47,7 +47,7 @@ export default function ThemeManager() {
         const { data: theme, error: themeError } = await shareInFlight(`theme:palette:${user.id}:${themeId}`, () => supabase.from('themes').select('*').eq('id',themeId).maybeSingle());
         if (!current || run!==generation || themeError) return;
         const selected=theme ? paletteFor(theme as SavedTheme,variant):null;
-        if (selected) { applyCustomTheme(selected.palette,selected.variant,bothVariants(theme as SavedTheme)?'dual':'single'); return; }
+        if (selected) { applyCustomTheme(selected.palette,selected.variant,bothVariants(theme as SavedTheme)?'dual':'single',(theme as SavedTheme).name); return; }
       }
       applyTheme(variant);
     }

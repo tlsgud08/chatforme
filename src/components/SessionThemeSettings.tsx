@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Session } from '@/types/db';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
-import { appliedThemeIsSingle, appliedThemeVariant, bothVariants, loadTheme, preferredThemeVariant, requestThemeRefresh, subscribeAppliedTheme, type SavedTheme, type ThemeVariant } from '@/lib/theme';
+import { appliedThemeIsSingle, appliedThemeLabel, appliedThemeVariant, bothVariants, loadTheme, preferredThemeVariant, requestThemeRefresh, subscribeAppliedTheme, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 import ThemeMenu from './ThemeMenu';
 
 type Props={session:Session;userId:string;onUpdate:(patch:Partial<Session>)=>void;busy?:boolean};
@@ -18,6 +18,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
   const [siteSaving,setSiteSaving]=useState(false);
   const appliedVariant=useSyncExternalStore(subscribeAppliedTheme,appliedThemeVariant,()=> 'light' as const);
   const appliedSingle=useSyncExternalStore(subscribeAppliedTheme,appliedThemeIsSingle,()=>false);
+  const appliedLabel=useSyncExternalStore(subscribeAppliedTheme,appliedThemeLabel,()=> '기본 테마 · 라이트');
   const shownVariant=appliedSingle?(siteMode===null?null:siteVariant):appliedVariant;
   const mutationRevision=useRef(0);
   const writePending=useRef(false);
@@ -163,6 +164,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
           className={`rounded-lg px-1 py-2 text-xs ${shownMode===o.value?'bg-brand text-white':'text-slate-400'}`}>{o.label}</button>)}
     </div>
     {mode==='inherit'&&!open&&<>
+      <p className="mt-2 break-words rounded-lg bg-surface p-2 text-xs text-slate-200" role="status">현재 적용: {appliedLabel}</p>
       <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="사이트 기본 테마">
         {(['light','dark']as const).map(v=><button key={v} type="button" disabled={busy||saving||siteSaving}
           aria-pressed={shownVariant===v} onClick={()=>void chooseSiteTheme(v)}
