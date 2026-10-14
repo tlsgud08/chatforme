@@ -341,6 +341,9 @@ export default function SessionMenu({
           {personas.length === 0 && <p className="mt-2 text-xs text-slate-500">My 탭에서 페르소나를 추가하세요.</p>}
         </section>
 
+        {/* 테마 설정 */}
+        {user && <SessionThemeSettings session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate}/>}
+
         {/* AI 공급사 / 모델 */}
         <section>
           <h3 className="mb-2 text-sm font-semibold text-slate-300">OpenRouter 모델</h3>
@@ -393,7 +396,6 @@ export default function SessionMenu({
         </section>
 
         {user && <SessionPluginSettings session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
-          {user && <SessionThemeSettings session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate}/>}
 
         {/* 요약 메모리 */}
         <section className="rounded-xl border border-surface2 p-3">
