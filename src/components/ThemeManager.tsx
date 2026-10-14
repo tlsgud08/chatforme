@@ -21,7 +21,7 @@ export default function ThemeManager() {
       const run = ++generation;
       if (!user || isGuest) {
         const base=loadTheme()==='dark'?'dark':'light';
-        const guestMatch=/^\\/chat\\/([0-9a-f-]+)$/i.exec(location.pathname);
+        const guestMatch = /^\/chat\/([0-9a-f-]+)$/i.exec(location.pathname);
         const guestSession=guestMatch?guestGetSession(guestMatch[1]):null;
         if(guestSession) {
           const {data:work}=await supabase.from('works').select('default_theme_id,default_theme_variant').eq('id',guestSession.work_id).maybeSingle();
