@@ -1299,8 +1299,8 @@ export default function ChatPage() {
           )}
           {visibleMessages.map((m, index) => (
             <div key={m.id} className="flex w-full min-w-0 flex-col gap-1">
-              {index > 0 && visibleMessages[index - 1].role === 'assistant' && (
-                <hr className="chat-turn-divider" aria-label="턴 구분" />
+              {index > 0 && (
+                <hr className="chat-turn-divider" aria-label="메시지 구분" />
               )}
               {m.is_hidden && debugMode && (
                 <p className="text-[10px] text-amber-400">🔍 숨김 메시지</p>
@@ -1397,6 +1397,8 @@ export default function ChatPage() {
             </div>
           ))}
           {sending && (
+            <>
+            {visibleMessages.length > 0 && <hr className="chat-turn-divider" aria-label="메시지 구분" />}
             <div className="w-full min-w-0 max-w-full px-4 py-2.5 text-sm leading-relaxed text-slate-100">
               {streamingContent ? (
                 <p className="whitespace-pre-wrap break-words">{streamingContent}</p>
@@ -1404,6 +1406,7 @@ export default function ChatPage() {
                 <span className="text-slate-400">생각 중…</span>
               )}
             </div>
+            </>
           )}
         </div>
       </div>
