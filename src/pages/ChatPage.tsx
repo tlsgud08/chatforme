@@ -19,7 +19,7 @@ import { showToast } from '@/lib/toast';
 import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
 import { availableWorkThemes, finalThemeDirective, observeThemeDirective, resolveDirectiveTheme, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
-import { paletteFor, requestThemeRefresh, resolveThemeSelection, type SavedTheme } from '@/lib/theme';
+import { paletteFor, preferredThemeVariant, requestThemeRefresh, resolveThemeSelection, type SavedTheme } from '@/lib/theme';
 import './ChatPage.css';
 
 const GENERATION_TIMEOUT_MS = 8 * 60_000;
@@ -479,25 +479,32 @@ export default function ChatPage() {
     themeMessageRef.current=observation;
     const fingerprint=observation.fingerprint;
     // Initial load and toggling ON never replay old tags over a manual choice.
-    if(!changed||!latest||latest.generation_status==='interrupted'||!session.auto_theme_enabled)return;
+    if(!changed||!latest||latest.generation_status==='interrupted'||!session.auto_theme_enabled||session.theme_override!=null)return;
     const selected=resolveDirectiveTheme(finalThemeDirective(latest.content),workThemes);
     if(!selected)return;
     const root=document.documentElement.dataset;
     const currentVariant=(root.theme==='custom'?root.themeVariant:root.theme)==='dark'?'dark':'light';
-    // Store the user's preferred variant, not a palette's temporary fallback.
-    // A single-variant theme must not change the preference for later themes.
-    const variant=session.theme_variant??currentVariant;
-    if(!paletteFor(selected,variant)||session.theme_override==='custom'&&session.theme_id===selected.id&&session.theme_variant===variant)return;
     const targetSessionId=session.id;
-    const patch={theme_override:'custom' as const,theme_id:selected.id,theme_variant:variant};
-    void supabase.from('sessions').update(patch).eq('id',targetSessionId).eq('user_id',session.user_id).eq('auto_theme_enabled',true).select('id').maybeSingle().then(({data,error})=>{
+    // AI themes are a fluid scene, not a manually selected fixed custom tab.
+    // Read the current account preference: it can change while this chat stays open.
+    void (async()=>{
+      const {data:livePreference,error:preferenceError}=await supabase.from('profiles')
+        .select('preferred_theme_mode,preferred_theme_variant').eq('id',session.user_id).maybeSingle();
+      if(preferenceError){addError('전역 테마 설정 조회 실패: '+preferenceError.message);return;}
+      if(themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
+      const variant=preferredThemeVariant(livePreference??profile,currentVariant);
+      if(!paletteFor(selected,variant)||(session.theme_id===selected.id&&session.theme_variant===variant))return;
+      const patch={theme_id:selected.id,theme_variant:variant};
+      const {data,error}=await supabase.from('sessions').update(patch).eq('id',targetSessionId)
+        .eq('user_id',session.user_id).eq('auto_theme_enabled',true).is('theme_override',null)
+        .select('id').maybeSingle();
       if(themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
       if(error){addError('자동 테마 변경 실패: '+error.message);return;}
       if(!data)return;
-      setSession(current=>current?.id===targetSessionId?{...current,...patch}:current);
+      setSession(current=>current?.id===targetSessionId&&current.theme_override==null?{...current,...patch}:current);
       requestThemeRefresh();
-    });
-  },[messages,session?.id,session?.auto_theme_enabled,workThemes]);
+    })();
+  },[messages,session?.id,session?.auto_theme_enabled,session?.theme_override,workThemes]);
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
@@ -585,9 +592,9 @@ export default function ChatPage() {
         ? activeSourceMessages
         : messagesAfterSummary(activeSourceMessages, previousTurn);
       if (candidates.length === 0 && archivesToMerge.length === 0) throw new Error('새로 요약할 대화가 없습니다.');
-      const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${session.auto_theme_enabled?message.content:stripThemeDirectives(message.content)}`).join('\n\n');
+      const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${session.auto_theme_enabled&&session.theme_override==null?message.content:stripThemeDirectives(message.content)}`).join('\n\n');
       const summaryInput = `${previous ? `=== Previous Summary Notes${archivesToMerge.length > 1 ? ' (merge the selected notes into one)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== Dialogue to Summarize ===\n${dialogue}` : '=== Request ===\nMerge the selected summary notes into one up-to-date summary without omissions or discontinuities.'}`;
-      const input=session.auto_theme_enabled?summaryInput:stripThemeDirectives(summaryInput);
+      const input=session.auto_theme_enabled&&session.theme_override==null?summaryInput:stripThemeDirectives(summaryInput);
       const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
       const allowOmission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
       const parametersEnabled = !profile.summary_prompt?.trim() || (session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true);
@@ -837,7 +844,7 @@ export default function ChatPage() {
     const currentSelection=resolveThemeSelection(profile,work,session,baseVariant);
     const currentThemeName=workThemes.find(t=>t.id===currentSelection.themeId)?.name??(currentSelection.themeId?'작품 외 커스텀 테마':currentSelection.variant==='dark'?'기본 다크':'기본 라이트');
     const assembled = assemblePrompt({
-      autoThemeEnabled:session.auto_theme_enabled??false,themePrompt,themeCatalog:themeCatalogPrompt(workThemes),
+      autoThemeEnabled:!!session.auto_theme_enabled&&session.theme_override==null,themePrompt,themeCatalog:themeCatalogPrompt(workThemes),
       currentTheme:currentThemeName,
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
