@@ -22,6 +22,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
   const [commands, setCommands] = useState<Command[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [authors, setAuthors] = useState<Record<string, string>>({});
+  const [workNames, setWorkNames] = useState<Record<string,string>>({});
   const [tab, setTab] = useState<Tab>(allowWorkCreate ? 'work' : 'all');
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Command | 'new' | null>(null);
@@ -40,6 +41,8 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
     const next = (data as Command[]) ?? [];
     setCommands(next);
     setFavoriteIds(new Set((favorites ?? []).map((favorite) => favorite.command_id)));
+    const workIds=[...new Set(next.map(item=>item.work_id).filter((id):id is string=>!!id))];
+    if(workIds.length){const {data:works}=await supabase.from('works').select('id,title').in('id',workIds);setWorkNames(Object.fromEntries((works??[]).map(w=>[w.id,w.title])));}
     const ids = [...new Set(next.map((item) => item.owner_id))];
     if (ids.length) {
       const { data: profiles } = await supabase.from('profiles').select('id,display_name').in('id', ids);
@@ -181,6 +184,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
               <button onClick={() => { if (embedded) setViewing(viewing === command.id ? null : command.id); else { onSelect?.(command); onClose?.(); } }} className="min-w-0 flex-1 text-left">
                 <p className="truncate font-semibold text-white"><span className="text-brand">/</span>{command.name} {command.work_id && <span className="ml-1 rounded bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand">작품 전용</span>} {mine && <span className="ml-1 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-400">나</span>} {command.is_published && <span className="ml-1 rounded bg-blue-400/15 px-1.5 py-0.5 text-[10px] text-blue-400">허브</span>}</p>
                 <p className="mt-1 truncate text-xs text-slate-400">{command.description || '설명 없음'}</p>
+                {command.work_id && <p className="mt-1 text-[11px] text-slate-500">작품 · {workNames[command.work_id]??'접근 가능한 작품'}</p>}
                 {command.is_published && <p className="mt-1 text-[11px] text-slate-500">올린 사람 · {mine ? '나' : authors[command.owner_id] ?? '사용자'}</p>}
               </button>
               {embedded && viewing === command.id && <div className="order-last w-full rounded-lg bg-surface p-3">
