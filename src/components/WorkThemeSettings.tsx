@@ -14,8 +14,8 @@ export default function WorkThemeSettings({userId,workId,themeId,variant,onChang
     let live=true;
     const refresh=async()=>{
       if(!themeId){setSelected(null);return;}
-      const {data}=await supabase.from('themes').select('*').eq('id',themeId).maybeSingle();
-      if(!live)return;
+      const {data,error}=await supabase.from('themes').select('*').eq('id',themeId).maybeSingle();
+      if(!live||error)return;
       setSelected(data as SavedTheme|null);
       // Theme deletion automatically clears works.default_theme_id in the DB.
       if(!data)onChange(null,null);
