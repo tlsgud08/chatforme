@@ -4,7 +4,7 @@ import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 import ThemePaletteEditor from './ThemePaletteEditor';
 import './ThemeMenu.css';
-import { DEFAULT_DARK, DEFAULT_LIGHT, paletteFor, validPalette, type SavedTheme, type ThemePalette, type ThemeVariant } from '@/lib/theme';
+import { DEFAULT_DARK, DEFAULT_LIGHT, paletteFor, secondaryTextStyles, validPalette, type SavedTheme, type ThemePalette, type ThemeVariant } from '@/lib/theme';
 
 type Tab = 'all'|'work'|'mine'|'hub'|'favorites';
 type Props = {
@@ -92,7 +92,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
   }),[themes,tab,workId,userId,favorites,search,scope]);
   function edit(theme?:SavedTheme){setEditing(theme??'new');setDraft(theme?{name:theme.name,description:theme.description,ai_prompt:theme.ai_prompt??'',dark_colors:theme.dark_colors?{...theme.dark_colors}:null,light_colors:theme.light_colors?{...theme.light_colors}:null}:defaultDraft());}
   async function save(){
-    if(!draft.name.trim()||(!draft.dark_colors&&!draft.light_colors)||[draft.dark_colors,draft.light_colors].some(p=>p!==null&&!validPalette(p))){showToast('이름, 하나 이상의 버전, 올바른 HEX 색상 4개를 지정하세요.');return;}
+    if(!draft.name.trim()||(!draft.dark_colors&&!draft.light_colors)||[draft.dark_colors,draft.light_colors].some(p=>p!==null&&!validPalette(p))){showToast('이름, 하나 이상의 버전, 올바른 HEX 색상을 지정하세요.');return;}
     const name=draft.name.trim();
     if((scope==='work'||allowWorkCreate||(editing!=='new'&&editing?.work_id))&&(name==='keep'||/[{}\n\r]/.test(name))){showToast('작품 테마 이름에는 keep, 중괄호, 줄바꿈을 사용할 수 없습니다.');return;}
     const targetWork=editing==='new'?(scope==='work'||allowWorkCreate?workId:null):editing?.work_id;
@@ -138,7 +138,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="text-xs text-slate-400">AI 적용 조건<textarea maxLength={4000} rows={4} value={draft.ai_prompt} onChange={e=>setDraft(d=>({...d,ai_prompt:e.target.value}))} placeholder="이 테마를 언제 사용해야 하는지 설명하세요." className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>}
     {scope==='work'&&!allowWorkCreate&&<p className="text-xs text-slate-400">본인만 이 작품에서 사용할 수 있으며, 자동 테마 변경의 선택지에 포함됩니다.</p>}
     {(['dark','light']as const).map(v=><ThemePaletteEditor key={v} variant={v} palette={draft[v==='dark'?'dark_colors':'light_colors']} onChange={p=>setDraft(d=>({...d,[v+'_colors']:p}))} onDisable={()=>setDraft(d=>({...d,[v+'_colors']:null}))}/>)}
-    <p className="text-xs text-slate-400">각 버전의 4가지 색상은 독립적으로 설정됩니다. 자동 변환하지 않습니다.</p>
+    <p className="text-xs text-slate-400">각 버전의 색상과 보조 텍스트 설정은 독립적으로 설정됩니다. 자동 변환하지 않습니다.</p>
     <button disabled={busy} onClick={()=>void save()} className="rounded-lg bg-brand px-4 py-3 text-sm font-bold text-white disabled:opacity-50">테마 저장</button>
   </div>;
   return <section className="flex flex-col">
@@ -157,6 +157,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
         const selectable=!t.work_id||t.work_id===workId;
         const preview = paletteFor(t, variant);
         const palette = preview?.palette ?? (variant === 'dark' ? DEFAULT_DARK : DEFAULT_LIGHT);
+        const secondary=secondaryTextStyles(palette);
         return <article key={t.id} className="theme-card" data-preview-variant={preview?.variant ?? variant}
           style={{backgroundColor:palette.main,color:palette.mainText}}>
           <div className="theme-card-header" style={{backgroundColor:palette.accent,color:palette.accentText}}>
@@ -171,10 +172,10 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
           <div className="theme-card-body">
             <button type="button" onClick={()=>selectable&&onSelect?onSelect(t):setOpened(opened===t.id?null:t.id)}
               disabled={!!onSelect&&!selectable} className="block w-full text-left disabled:opacity-40" style={{color:'inherit'}}>
-            <span className="block truncate text-xs">{t.description||'설명 없음'}</span>
-            <span className="text-[11px]">{t.work_id?(t.work_shared===false?'내 작품 전용 · ':'작품 공용 · ')+(workNames[t.work_id]??'전용')+' · ':t.is_published?'허브 공개 · ':'개인 · '}{t.dark_colors?'🌙 다크 ':''}{t.light_colors?'☀️ 라이트':''}</span>
+            <span className="block truncate text-xs" style={palette.secondaryText?{color:secondary.muted}:undefined}>{t.description||'설명 없음'}</span>
+            <span className="text-[11px]" style={palette.secondaryText?{color:secondary.soft}:undefined}>{t.work_id?(t.work_shared===false?'내 작품 전용 · ':'작품 공용 · ')+(workNames[t.work_id]??'전용')+' · ':t.is_published?'허브 공개 · ':'개인 · '}{t.dark_colors?'🌙 다크 ':''}{t.light_colors?'☀️ 라이트':''}</span>
             </button>
-            <span className="block text-[11px] opacity-80">미리보기 · {(preview?.variant??variant)==='dark'?'다크':'라이트'}</span>
+            <span className="block text-[11px]" style={{color:palette.secondaryText,opacity:palette.softenSecondaryText===false?1:.8}}>미리보기 · {(preview?.variant??variant)==='dark'?'다크':'라이트'}</span>
           <div className="mt-2 flex flex-wrap gap-2">
             {([['dark',t.dark_colors],['light',t.light_colors]]as const).filter(([,p])=>!!p).map(([name,p])=>
               <button key={name} type="button" disabled={!editable} onClick={()=>edit(t)}
@@ -183,7 +184,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
                 className="flex min-h-11 items-center gap-1 rounded-lg px-2 py-1 disabled:cursor-default"
                 style={{backgroundColor:p!.main,color:p!.mainText}}>
                 <span aria-hidden="true" className="text-[10px]">{name==='dark'?'🌙':'☀️'}</span>
-                {[p!.accent,p!.accentText,p!.main,p!.mainText].map((color,i)=><span key={i} aria-hidden="true" className="h-4 w-4 rounded-sm" style={{backgroundColor:color,border:'1px solid currentColor'}}/>)}
+                {[p!.accent,p!.accentText,p!.main,p!.mainText,p!.secondaryText??p!.mainText].map((color,i)=><span key={i} aria-hidden="true" className="h-4 w-4 rounded-sm" style={{backgroundColor:color,border:'1px solid currentColor'}}/>)}
               </button>)}
           </div>
           {opened===t.id&&<div className="mt-3 flex flex-wrap gap-2">

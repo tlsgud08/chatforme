@@ -50,6 +50,7 @@ const events = [];
 const style = {
   removeProperty: name => properties.delete(name),
   setProperty: (name, value) => properties.set(name, value),
+  getPropertyValue: name => properties.get(name) ?? '',
   colorScheme: '',
 };
 globalThis.document = { documentElement: { dataset:{}, style } };
@@ -80,3 +81,26 @@ theme.requestThemeRefresh();
 assert.deepEqual(events, ['inuchat:theme-changed']);
 
 console.log('Theme palettes, inheritance priority, and runtime reset: OK');
+
+assert.equal(validPalette({...DEFAULT_LIGHT,secondaryText:'#aa33ee',softenSecondaryText:false}),true);
+assert.equal(validPalette({...DEFAULT_LIGHT,secondaryText:'pink'}),false);
+assert.equal(validPalette({...DEFAULT_LIGHT,secondaryText:null}),false);
+assert.equal(validPalette({...DEFAULT_LIGHT,softenSecondaryText:'false'}),false);
+assert.equal(theme.secondaryTextStyles(DEFAULT_LIGHT).chatOpacity,.5);
+assert.equal(theme.secondaryTextStyles(DEFAULT_LIGHT).chatColor,'inherit');
+assert.equal(theme.secondaryTextStyles(DEFAULT_LIGHT).soft,`color-mix(in srgb, ${DEFAULT_LIGHT.mainText} 70%, ${DEFAULT_LIGHT.main})`);
+assert.equal(theme.secondaryTextStyles(DEFAULT_LIGHT).muted,`color-mix(in srgb, ${DEFAULT_LIGHT.mainText} 52%, ${DEFAULT_LIGHT.main})`);
+const secondaryPalette={...DEFAULT_DARK,secondaryText:'#aa33ee',softenSecondaryText:false};
+theme.applyCustomTheme(secondaryPalette,'dark');
+assert.equal(properties.get('--secondary-text'),'#aa33ee');
+assert.equal(properties.get('--secondary-text-soft'),'#aa33ee');
+assert.equal(properties.get('--secondary-text-muted'),'#aa33ee');
+assert.equal(properties.get('--chat-secondary-color'),'#aa33ee');
+assert.equal(properties.get('--chat-secondary-opacity'),'1');
+theme.applyCustomTheme({...secondaryPalette,softenSecondaryText:true},'dark');
+assert.equal(properties.get('--chat-secondary-opacity'),'0.5');
+theme.applyCustomTheme(DEFAULT_DARK,'dark');
+assert.equal(properties.get('--chat-secondary-color'),'inherit');
+theme.applyTheme('light');
+for(const key of ['--secondary-text','--secondary-text-soft','--secondary-text-muted','--chat-secondary-color','--chat-secondary-opacity','--secondary-extra-opacity'])assert.equal(properties.has(key),false);
+console.log('Secondary text: optional validation, legacy appearance, exact 50% chat opacity, OFF color and built-in reset OK');
