@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Session } from '@/types/db';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
-import { appliedThemeVariant, loadTheme, requestThemeRefresh, subscribeAppliedTheme, type SavedTheme, type ThemeVariant } from '@/lib/theme';
+import { appliedThemeIsSingle, appliedThemeVariant, bothVariants, loadTheme, preferredThemeVariant, requestThemeRefresh, subscribeAppliedTheme, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 import ThemeMenu from './ThemeMenu';
 
 type Props={session:Session;userId:string;onUpdate:(patch:Partial<Session>)=>void;busy?:boolean};
@@ -14,8 +14,11 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
   const [saving,setSaving]=useState(false);
   const [lastCustom,setLastCustom]=useState<SavedChoice|null>(null);
   const [siteMode,setSiteMode]=useState<'light'|'dark'|'custom'|null>(null);
+  const [siteVariant,setSiteVariant]=useState<ThemeVariant>('light');
   const [siteSaving,setSiteSaving]=useState(false);
   const appliedVariant=useSyncExternalStore(subscribeAppliedTheme,appliedThemeVariant,()=> 'light' as const);
+  const appliedSingle=useSyncExternalStore(subscribeAppliedTheme,appliedThemeIsSingle,()=>false);
+  const shownVariant=appliedSingle?(siteMode===null?null:siteVariant):appliedVariant;
   const mutationRevision=useRef(0);
   const writePending=useRef(false);
   const isFluid=session.theme_override==null;
@@ -25,9 +28,10 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     const refresh=async()=>{
       if(writePending.current)return;
       const run=++generation,revision=mutationRevision.current;
-      const {data,error}=await supabase.from('profiles').select('preferred_theme_mode').eq('id',userId).maybeSingle();
+      const {data,error}=await supabase.from('profiles').select('preferred_theme_mode,preferred_theme_variant').eq('id',userId).maybeSingle();
       if(!active||error||run!==generation||revision!==mutationRevision.current)return;
       setSiteMode(data?.preferred_theme_mode??(loadTheme()==='dark'?'dark':'light'));
+      setSiteVariant(preferredThemeVariant(data,loadTheme()==='dark'?'dark':'light'));
     };
     const listener=()=>{void refresh();};
     void refresh();
@@ -107,6 +111,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     writePending.current=false;
     if(error){setSiteSaving(false);showToast('사이트 테마 변경 실패: '+error.message);return;}
     setSiteMode(next);
+    setSiteVariant(next);
     // The profile's DB trigger synchronizes fluid scenes across rooms,
     // while leaving all three fixed modes untouched.
     setSiteSaving(false);
@@ -128,7 +133,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     setOpen(false);
     if(next==='inherit'){
       // Do not reset the visible palette merely because the tab becomes fluid.
-      const visibleVariant=appliedThemeVariant();
+      const visibleVariant=appliedThemeIsSingle()?variant:appliedThemeVariant();
       await save(null,session.theme_override==='custom'?session.theme_id??null:null,visibleVariant);
       return;
     }
@@ -160,26 +165,26 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     {mode==='inherit'&&!open&&<>
       <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="사이트 기본 테마">
         {(['light','dark']as const).map(v=><button key={v} type="button" disabled={busy||saving||siteSaving}
-          aria-pressed={appliedVariant===v} onClick={()=>void chooseSiteTheme(v)}
-          className={`rounded-lg px-3 py-2 text-xs ${appliedVariant===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>
+          aria-pressed={shownVariant===v} onClick={()=>void chooseSiteTheme(v)}
+          className={`rounded-lg px-3 py-2 text-xs ${shownVariant===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>
           {v==='light'?'☀️ 라이트':'🌙 다크'}
         </button>)}
       </div>
-      <p className="mt-2 text-xs text-slate-500">선택 표시는 현재 화면에 적용된 라이트·다크를 따릅니다. 버튼을 누르면 사이트 전역 설정도 함께 변경됩니다. 유동적 선택 자체는 현재 화면을 바꾸지 않으며, AI가 테마를 바꾸어도 유동적 모드는 유지됩니다.</p>
+      <p className="mt-2 text-xs text-slate-500">{appliedSingle?'현재 화면은 단일 테마입니다. 라이트·다크는 이후 두 버전이 있는 테마에 사용할 사이트 전역 설정이며, 단일 테마의 색상은 바뀌지 않습니다.':'선택 표시는 현재 화면에 적용된 라이트·다크를 따릅니다. 버튼을 누르면 사이트 전역 설정도 함께 변경됩니다.'} 유동적 선택 자체는 현재 화면을 바꾸지 않으며, AI가 테마를 바꾸어도 유동적 모드는 유지됩니다.</p>
       {siteMode==='custom'&&<p className="mt-1 text-xs text-slate-500">현재 전역 설정은 커스텀입니다. 라이트 또는 다크를 선택하면 전역 설정도 변경됩니다.</p>}
     </>}
     {mode==='custom'&&!open&&<div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-surface p-2">
       <span className="truncate text-xs text-white">{theme?.name??'테마를 다시 선택해 주세요'}</span>
       <button disabled={busy||saving} onClick={()=>{setPickerScope(theme?.work_id?'work':'global');setOpen(true);}} className="text-xs text-brand">변경</button>
     </div>}
-    {(mode==='builtin'||mode==='custom')&&!open&&<div className="mt-2 grid grid-cols-2 gap-2">
+    {(mode==='builtin'||mode==='custom'&&theme&&bothVariants(theme))&&!open&&<div className="mt-2 grid grid-cols-2 gap-2">
       {(['light','dark']as const).map(v=>
         <button key={v} disabled={busy||saving} aria-pressed={variant===v} onClick={()=>void save(mode==='custom'?'custom':'builtin',mode==='custom'?session.theme_id??null:null,v)}
           className={`rounded-lg px-3 py-2 text-xs ${variant===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>
           {v==='dark'?'🌙 다크':'☀️ 라이트'}
         </button>)}
     </div>}
-    {mode==='custom'&&!open&&<p className="mt-2 text-xs text-slate-500">이 모드에서는 테마를 고정합니다. 해당 색상이 없는 테마는 제공되는 버전으로 표시됩니다.</p>}
+    {mode==='custom'&&!open&&<p className="mt-2 text-xs text-slate-500">{theme&&!bothVariants(theme)?'단일 테마 · 라이트·다크 설정에 관계없이 같은 색상으로 표시됩니다.':'이 모드에서는 선택한 테마와 라이트·다크를 고정합니다.'}</p>}
     {open&&<div className="mt-3 rounded-lg border border-surface2">
       <ThemeMenu userId={userId} workId={session.work_id} scope={pickerScope} selectedId={session.theme_id}
         onClose={()=>setOpen(false)} onSelect={selected=>{

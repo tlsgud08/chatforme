@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { invalidateInFlight, shareInFlight } from '@/lib/inFlight';
-import { applyCustomTheme, applyTheme, loadTheme, paletteFor, resolveThemeSelection, type SavedTheme, type ThemeVariant } from '@/lib/theme';
+import { applyCustomTheme, applyTheme, bothVariants, loadTheme, paletteFor, resolveThemeSelection, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 
 type Preference = { prefer_work_theme: boolean; preferred_theme_mode: 'dark' | 'light' | 'custom' | null; preferred_theme_id: string | null; preferred_theme_variant: ThemeVariant | null };
 type WorkDefault = { default_theme_id: string | null; default_theme_variant: ThemeVariant | null };
@@ -47,7 +47,7 @@ export default function ThemeManager() {
         const { data: theme, error: themeError } = await shareInFlight(`theme:palette:${user.id}:${themeId}`, () => supabase.from('themes').select('*').eq('id',themeId).maybeSingle());
         if (!current || run!==generation || themeError) return;
         const selected=theme ? paletteFor(theme as SavedTheme,variant):null;
-        if (selected) { applyCustomTheme(selected.palette,selected.variant); return; }
+        if (selected) { applyCustomTheme(selected.palette,selected.variant,bothVariants(theme as SavedTheme)?'dual':'single'); return; }
       }
       applyTheme(variant);
     }

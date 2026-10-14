@@ -105,5 +105,24 @@ const unauthorizedFluid='30000000-0000-0000-0000-000000000003';
 await deny('insert into sessions(id,user_id,work_id,theme_id,theme_variant) values($1,$2,$3,$4,$5)',[unauthorizedFluid,b,other,personal,'light']);
 await login(a);
 console.log('Fluid theme DB: preserved scene, globally synced variant, fixed auto lock, reference access and RLS OK');
+
+// The existing two nullable palette slots also persist variant-neutral single
+// themes. Editing their format must preserve references and requested modes.
+const identityBefore=(await db.query('select id,owner_id,work_id from themes where id=$1',[shared])).rows[0];
+const savedPalette=(await db.query('select dark_colors from themes where id=$1',[shared])).rows[0].dark_colors;
+await db.query('update themes set light_colors=$1 where id=$2',[JSON.stringify({...basic,main:'#ffffff',mainText:'#000000'}),shared]);
+assert.equal((await db.query('select light_colors is not null as dual from themes where id=$1',[shared])).rows[0].dual,true);
+await db.query('update themes set light_colors=NULL where id=$1',[shared]);
+const persisted=(await db.query('select id,owner_id,work_id,dark_colors,light_colors from themes where id=$1',[shared])).rows[0];
+assert.deepEqual({id:persisted.id,owner_id:persisted.owner_id,work_id:persisted.work_id},identityBefore);
+assert.deepEqual(persisted.dark_colors,savedPalette);
+assert.equal(persisted.light_colors,null);
+await db.query("update profiles set preferred_theme_mode='light' where id=$1",[a]);
+const singleScene=(await db.query('select theme_id,theme_variant from sessions where id=$1',[fluidId])).rows[0];
+assert.deepEqual(singleScene,{theme_id:shared,theme_variant:'light'},'global preference changes do not replace a single scene id');
+assert.deepEqual((await db.query('select dark_colors from themes where id=$1',[shared])).rows[0].dark_colors,savedPalette,'global light preference cannot change a single palette');
+await db.query('update themes set dark_colors=NULL,light_colors=$1 where id=$2',[JSON.stringify(savedPalette),shared]);
+assert.deepEqual((await db.query('select light_colors from themes where id=$1',[shared])).rows[0].light_colors,savedPalette,'either legacy slot can store the same single palette');
+console.log('Single theme DB: single/dual edits, unchanged identity/references/colors and independent global variant OK');
 console.log('Postgres migration and RLS checks: private read/write isolation, scope immutability, reference guards, deletion reset and admin-only config OK');
 await db.close();

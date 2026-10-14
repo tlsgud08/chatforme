@@ -22,6 +22,37 @@ assert.equal(paletteFor({ dark_colors: null, light_colors: null }, 'dark'), null
 assert.equal(bothVariants(both), true);
 assert.equal(bothVariants(darkOnly), false);
 
+for (const original of [darkOnly, lightOnly, both]) {
+  for (const preferred of ['light', 'dark']) {
+    const draft = theme.createPaletteDraft(original, preferred);
+    assert.equal(draft.mode, bothVariants(original) ? 'dual' : 'single');
+    assert.deepEqual(theme.paletteDraftColors(draft), original, 'opening/saving a legacy theme preserves its palettes');
+    for (const choice of ['light', 'dark']) {
+      const saved = theme.paletteDraftColors(draft);
+      assert.deepEqual(paletteFor(saved, choice), paletteFor(original, choice));
+    }
+    const expanded = theme.changePaletteMode(draft, 'dual');
+    assert.equal(bothVariants(theme.paletteDraftColors(expanded)), true);
+    assert.deepEqual(theme.paletteDraftColors(theme.changePaletteMode(expanded, draft.mode)), original, 'mode round trip does not discard existing palettes');
+  }
+}
+for (const preferred of ['light', 'dark']) {
+  let draft = theme.createPaletteDraft(null, preferred);
+  assert.equal(draft.mode, 'single', 'new themes default to a single palette');
+  const edited = { ...paletteFor(theme.paletteDraftColors(draft), preferred).palette, secondaryText:'#ff00ff',secondaryTextOpacity:35 };
+  draft = { ...draft, [preferred+'_colors']:edited };
+  const dual = theme.changePaletteMode(draft, 'dual');
+  const opposite = preferred === 'light' ? 'dark' : 'light';
+  const other = { ...dual[opposite+'_colors'], accent:'#112233' };
+  const single = theme.changePaletteMode({ ...dual, [opposite+'_colors']:other }, 'single');
+  const saved = theme.paletteDraftColors(single);
+  assert.deepEqual(paletteFor(saved, opposite).palette, edited, 'single palette ignores the requested light/dark preference');
+  assert.equal(saved[opposite+'_colors'], null, 'single saves exactly one palette');
+  assert.deepEqual(theme.changePaletteMode(single, 'dual')[opposite+'_colors'], other, 'temporary mode switch retains unsaved other colors');
+  assert.notEqual(draft[preferred+'_colors'], preferred==='light'?DEFAULT_LIGHT:DEFAULT_DARK);
+}
+console.log('Single themes: legacy compatibility, editor mode round trips, independent colors and variant-neutral rendering OK');
+
 const user = {
   prefer_work_theme: true,
   preferred_theme_mode: 'custom',
@@ -59,6 +90,18 @@ assert.deepEqual(resolveThemeSelection(user,work,
   {themeId:'work-palette',variant:'light'},'new fluid rooms honor work palette and global variant');
 assert.equal(theme.preferredThemeVariant({preferred_theme_mode:'dark',preferred_theme_variant:'light'},'light'),'dark');
 assert.equal(theme.preferredThemeVariant({preferred_theme_mode:'custom',preferred_theme_variant:'light'},'dark'),'light');
+
+for (const preferred of ['light','dark']) {
+  const preference={preferred_theme_mode:preferred,preferred_theme_variant:preferred};
+  let scene={theme_override:null,theme_id:'single',theme_variant:theme.preferredThemeVariant(preference,'light')};
+  let selection=resolveThemeSelection(preference,work,scene,'light');
+  assert.deepEqual(paletteFor(darkOnly,selection.variant).palette,DEFAULT_DARK);
+  assert.deepEqual(paletteFor(lightOnly,selection.variant).palette,DEFAULT_LIGHT);
+  // The AI changes only the scene id and preserves the requested mode.
+  scene={...scene,theme_id:'dual',theme_variant:theme.preferredThemeVariant(preference,'light')};
+  selection=resolveThemeSelection(preference,work,scene,'light');
+  assert.equal(paletteFor(both,selection.variant).variant,preferred,'single → dual AI changes restore the preferred version');
+}
 
 
 const properties = new Map();
@@ -111,13 +154,24 @@ globalThis.MutationObserver=class {
 };
 const unsubscribe=theme.subscribeAppliedTheme(()=>notifications++);
 assert.equal(observation.target,document.documentElement);
-assert.deepEqual(observation.options,{attributes:true,attributeFilter:['data-theme','data-theme-variant']});
+assert.deepEqual(observation.options,{attributes:true,attributeFilter:['data-theme','data-theme-variant','data-theme-mode']});
 theme.applyTheme('light');
 notify();
 assert.equal(notifications,1);
 assert.equal(theme.appliedThemeVariant(),'light');
 unsubscribe();
 assert.equal(disconnected,true,'sidebar subscription cleans up on unmount');
+
+theme.applyCustomTheme(DEFAULT_DARK,'dark','single');
+assert.equal(theme.appliedThemeIsSingle(),true);
+const singleProperties = new Map(properties);
+theme.applyCustomTheme(DEFAULT_DARK,'dark','single');
+assert.deepEqual(properties,singleProperties);
+theme.applyCustomTheme(DEFAULT_DARK,'dark','dual');
+assert.equal(theme.appliedThemeIsSingle(),false,'changing single to dual with the same palette updates runtime metadata');
+theme.applyTheme('light');
+assert.equal(theme.appliedThemeIsSingle(),false);
+assert.equal(document.documentElement.dataset.themeMode,undefined,'built-in themes clear single metadata');
 
 console.log('Theme palettes, inheritance priority, and runtime reset: OK');
 
