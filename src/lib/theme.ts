@@ -1,6 +1,6 @@
 export type Theme = 'dark' | 'light' | 'custom';
 export type ThemeVariant = 'dark' | 'light';
-export type ThemePalette = { accent: string; accentText: string; main: string; mainText: string; secondaryText?: string; softenSecondaryText?: boolean };
+export type ThemePalette = { accent: string; accentText: string; main: string; mainText: string; secondaryText?: string; softenSecondaryText?: boolean; secondaryTextOpacity?: number };
 export type SavedTheme = { id: string; owner_id: string; work_id: string | null; name: string; description: string; ai_prompt?: string; work_shared?: boolean; dark_colors: ThemePalette | null; light_colors: ThemePalette | null; is_published: boolean; copied_from_id: string | null; created_at: string; updated_at: string };
 
 const KEY = 'inuchat.theme';
@@ -13,7 +13,8 @@ export function validPalette(value: unknown): value is ThemePalette {
   const palette = value as Record<string, unknown>;
   return ['accent','accentText','main','mainText'].every(key => typeof palette[key] === 'string' && HEX.test(palette[key]))
     && (palette.secondaryText === undefined || typeof palette.secondaryText === 'string' && HEX.test(palette.secondaryText))
-    && (palette.softenSecondaryText === undefined || typeof palette.softenSecondaryText === 'boolean');
+    && (palette.softenSecondaryText === undefined || typeof palette.softenSecondaryText === 'boolean')
+    && (palette.secondaryTextOpacity === undefined || typeof palette.secondaryTextOpacity === 'number' && Number.isInteger(palette.secondaryTextOpacity) && palette.secondaryTextOpacity >= 0 && palette.secondaryTextOpacity <= 100);
 }
 export function paletteFor(theme: Pick<SavedTheme,'dark_colors'|'light_colors'>, choice: ThemeVariant): {palette: ThemePalette; variant: ThemeVariant} | null {
   if (choice === 'dark' && validPalette(theme.dark_colors)) return { palette:theme.dark_colors, variant:'dark' };
@@ -91,17 +92,19 @@ export function applyTheme(theme: ThemeVariant) {
   root.style.colorScheme=theme;
   window.localStorage.setItem(KEY,theme);
 }
-/** Old four-color palettes inherit the original chat foreground and fading. */
+/** Missing opacity uses the default 65%; old palettes still inherit their chat foreground. */
 export function secondaryTextStyles(palette: ThemePalette) {
   const color=palette.secondaryText??palette.mainText;
   const soften=palette.softenSecondaryText!==false;
+  const opacity=palette.secondaryTextOpacity??65;
   return {
     color,
-    soft:soften?`color-mix(in srgb, ${color} 70%, ${palette.main})`:color,
-    muted:soften?`color-mix(in srgb, ${color} 52%, ${palette.main})`:color,
+    soft:soften?`color-mix(in srgb, ${color} ${opacity}%, ${palette.main})`:color,
+    muted:soften?`color-mix(in srgb, ${color} ${opacity}%, ${palette.main})`:color,
     chatColor:palette.secondaryText??'inherit',
-    chatOpacity:soften?0.5:1,
-    extraOpacity:soften?0.6:1,
+    chatOpacity:soften?opacity/100:1,
+    // Links already use the faded secondary color; avoid applying opacity twice.
+    extraOpacity:1,
   };
 }
 export function applyCustomTheme(palette: ThemePalette, variant: ThemeVariant) {

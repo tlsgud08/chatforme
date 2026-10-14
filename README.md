@@ -187,6 +187,6 @@ supabase/migrations/0001_init.sql  # 스키마 + RLS
 
 ### 보조 텍스트 색상
 
-테마의 다크/라이트 버전마다 `secondaryText` HEX 색상과 `softenSecondaryText` 토글을 설정할 수 있습니다. 토글 기본값은 ON이며, 채팅의 `*텍스트*`와 코드 블록 안의 같은 문법은 기존 50% 투명도를 유지합니다. OFF이면 선택한 색을 그대로 표시합니다. 사이트의 기존 보조 텍스트 색상 클래스와 테마 미리보기에도 적용됩니다.
+테마의 다크/라이트 버전마다 `secondaryText` HEX 색상과 `softenSecondaryText` 토글과 `secondaryTextOpacity` 불투명도(0~100)를 설정할 수 있습니다. 토글 기본값은 ON이며, 채팅의 `*텍스트*`와 코드 블록 안의 같은 문법은 기본 65% 불투명도로 표시되며 슬라이더로 조절할 수 있습니다. OFF이면 선택한 색을 그대로 표시합니다. 사이트의 기존 보조 텍스트 색상 클래스와 테마 미리보기에도 적용됩니다.
 
-두 필드는 선택 사항이므로 기존 4색 테마는 기존 보조 색상과 채팅 글자색/투명도를 유지합니다. 저장 전에 `supabase/migrations/20261014034744_theme_secondary_text.sql`을 실행하여 DB 팔레트 검증을 확장해야 합니다. 기본 다크/라이트로 돌아가면 추가 CSS 변수는 초기화됩니다.
+두 필드는 선택 사항이므로 기존 4색 테마는 기존 채팅 글자색을 사용하며 불투명도 기본값은 65%입니다. 저장 전에 `supabase/migrations/20261014034744_theme_secondary_text.sql`과 `supabase/migrations/20261014044407_theme_secondary_opacity.sql`을 순서대로 실행하여 DB 팔레트 검증을 확장해야 합니다. 기본 다크/라이트로 돌아가면 추가 CSS 변수는 초기화됩니다.

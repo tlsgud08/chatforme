@@ -55,14 +55,20 @@ function PaletteFields({ palette, defaults, onChange }: {
       <input type="checkbox" checked={palette.softenSecondaryText!==false} onChange={e=>onChange({...palette,softenSecondaryText:e.target.checked})}/>
       보조 텍스트 연하게 표시
     </label>
-    <p className="theme-secondary-help">켜면 채팅의 *텍스트*는 현재와 같은 50% 투명도로 표시됩니다. 끄면 지정한 색을 그대로 표시합니다.</p>
+    <label className="theme-opacity-control" htmlFor={`${id}-opacity`}>
+      <span>보조 텍스트 불투명도</span>
+      <output htmlFor={`${id}-opacity`}>{palette.secondaryTextOpacity??65}%</output>
+      <input id={`${id}-opacity`} aria-label="보조 텍스트 불투명도" type="range" min={0} max={100} step={1}
+        value={palette.secondaryTextOpacity??65} disabled={palette.softenSecondaryText===false}
+        onChange={e=>onChange({...palette,secondaryTextOpacity:Number(e.target.value)})}/>
+    </label>
+    <p className="theme-secondary-help">기본값은 65%입니다. 연하게 표시를 끄면 지정한 색을 100% 불투명도로 표시합니다.</p>
     {colorLabels.some(({ key }) => !HEX.test(colorValue(key))) &&
       <p id={`${id}-error`} className="theme-palette-error"># 뒤에 6자리 HEX 코드를 입력해 주세요. 미리보기에는 마지막 유효한 색상이 표시됩니다.</p>}
     <section aria-label="테마 미리보기" className="theme-palette-preview"
       style={{ backgroundColor: preview.main, color: preview.mainText }}>
       <h4>테마 미리보기</h4>
       <p>메인 배경과 글자색입니다.</p>
-      <p style={{color:secondary.muted,fontSize:12}}>작은 보조 텍스트 미리보기</p>
       <p style={{color:secondary.color,opacity:secondary.chatOpacity}}>채팅의 *연하게 표시한 텍스트* 미리보기</p>
       <button type="button" className="theme-palette-preview-button"
         style={{ backgroundColor: preview.accent, color: preview.accentText }}>강조색 버튼</button>

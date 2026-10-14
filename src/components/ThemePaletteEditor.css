@@ -69,3 +69,7 @@
 
 .theme-secondary-toggle { margin-top: 16px; }
 .theme-secondary-help { margin-top: 8px; font-size: 12px; color: var(--page-text); }
+
+.theme-opacity-control { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 16px; font-size: 13px; }
+.theme-opacity-control input { grid-column: 1 / -1; width: 100%; accent-color: rgb(var(--color-brand)); }
+.theme-opacity-control input:disabled { opacity: .5; }

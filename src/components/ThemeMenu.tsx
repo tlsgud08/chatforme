@@ -175,7 +175,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
             <span className="block truncate text-xs" style={palette.secondaryText?{color:secondary.muted}:undefined}>{t.description||'설명 없음'}</span>
             <span className="text-[11px]" style={palette.secondaryText?{color:secondary.soft}:undefined}>{t.work_id?(t.work_shared===false?'내 작품 전용 · ':'작품 공용 · ')+(workNames[t.work_id]??'전용')+' · ':t.is_published?'허브 공개 · ':'개인 · '}{t.dark_colors?'🌙 다크 ':''}{t.light_colors?'☀️ 라이트':''}</span>
             </button>
-            <span className="block text-[11px]" style={{color:palette.secondaryText,opacity:palette.softenSecondaryText===false?1:.8}}>미리보기 · {(preview?.variant??variant)==='dark'?'다크':'라이트'}</span>
+            <span className="block text-[11px]" style={{color:palette.secondaryText,opacity:secondary.chatOpacity}}>미리보기 · {(preview?.variant??variant)==='dark'?'다크':'라이트'}</span>
           <div className="mt-2 flex flex-wrap gap-2">
             {([['dark',t.dark_colors],['light',t.light_colors]]as const).filter(([,p])=>!!p).map(([name,p])=>
               <button key={name} type="button" disabled={!editable} onClick={()=>edit(t)}

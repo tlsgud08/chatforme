@@ -114,7 +114,7 @@ button:active {
   :root.theme-transition, :root.theme-transition * { transition: none; }
 }
 
-.chat-muted-text { font-style: normal; opacity: .5; }
+.chat-muted-text { font-style: normal; opacity: .65; }
 :root[data-theme='custom'] .chat-muted-text {
   color: var(--chat-secondary-color);
   opacity: var(--chat-secondary-opacity);
