@@ -1,20 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/hooks/useAuth';
-import type { Profile, Work } from '@/types/db';
+import type { Profile } from '@/types/db';
+import { WORK_LIST_COLUMNS, type WorkCard, type WorkListItem } from '@/lib/works';
 
 type SearchTab = 'works' | 'users';
 
 export default function SearchPage() {
   const navigate = useNavigate();
-  const { isGuest } = useAuth();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<SearchTab>('works');
-  const [works, setWorks] = useState<(Work & { creator_name: string })[]>([]);
-  const [users, setUsers] = useState<(Profile & { work_count: number })[]>([]);
+  const [works, setWorks] = useState<WorkCard[]>([]);
+  const [users, setUsers] = useState<(Pick<Profile, 'id' | 'display_name' | 'avatar_url'> & { work_count: number })[]>([]);
   const [loading, setLoading] = useState(false);
   const [creatorFilter, setCreatorFilter] = useState<string | null>(null);
   const [creatorName, setCreatorName] = useState<string | null>(null);
@@ -38,7 +37,7 @@ export default function SearchPage() {
   }
 
   async function searchWorks() {
-    let q = supabase.from('works').select('*').eq('visibility', 'public');
+    let q = supabase.from('works').select(WORK_LIST_COLUMNS).eq('visibility', 'public');
     if (creatorFilter) {
       q = q.eq('creator_id', creatorFilter);
     } else if (query.trim()) {
@@ -47,18 +46,17 @@ export default function SearchPage() {
     const { data: worksData } = await q.order('created_at', { ascending: false }).limit(30);
     if (!worksData || worksData.length === 0) { setWorks([]); return; }
 
-    const creatorIds = [...new Set((worksData as Work[]).map((w) => w.creator_id))];
+    const creatorIds = [...new Set((worksData as WorkListItem[]).map((w) => w.creator_id))];
     const { data: profiles } = await supabase.from('profiles').select('id, display_name').in('id', creatorIds);
     const nameMap: Record<string, string> = {};
     for (const p of profiles ?? []) nameMap[p.id] = p.display_name || '알 수 없음';
-    setWorks((worksData as Work[]).map((w) => ({ ...w, creator_name: nameMap[w.creator_id] ?? '알 수 없음' })));
+    setWorks((worksData as WorkListItem[]).map((w) => ({ ...w, creator_name: nameMap[w.creator_id] ?? '알 수 없음' })));
   }
 
   async function searchUsers() {
-    if (isGuest) return;
     const { data: profilesData } = await supabase
       .from('profiles')
-      .select('*')
+      .select('id,display_name,avatar_url')
       .ilike('display_name', `%${query.trim()}%`)
       .limit(30);
     if (!profilesData || profilesData.length === 0) { setUsers([]); return; }
@@ -68,7 +66,7 @@ export default function SearchPage() {
       .from('works').select('creator_id').eq('visibility', 'public').in('creator_id', ids);
     const countMap: Record<string, number> = {};
     for (const w of workData ?? []) countMap[w.creator_id] = (countMap[w.creator_id] ?? 0) + 1;
-    setUsers(profilesData.map((p) => ({ ...(p as Profile), work_count: countMap[p.id] ?? 0 })));
+    setUsers(profilesData.map((p) => ({ ...p, work_count: countMap[p.id] ?? 0 })));
   }
 
   function clearCreatorFilter() {
@@ -143,13 +141,10 @@ export default function SearchPage() {
 
         {!loading && tab === 'users' && (
           <>
-            {isGuest && (
-              <p className="p-6 text-center text-sm text-slate-500">유저 검색은 로그인 후 이용할 수 있습니다.</p>
-            )}
-            {!isGuest && users.length === 0 && query.trim() && (
+            {users.length === 0 && query.trim() && (
               <p className="p-6 text-center text-sm text-slate-500">검색 결과가 없습니다.</p>
             )}
-            {!isGuest && users.length === 0 && !query.trim() && (
+            {users.length === 0 && !query.trim() && (
               <p className="p-6 text-center text-sm text-slate-500">닉네임으로 검색하세요.</p>
             )}
             <ul className="divide-y divide-surface2">

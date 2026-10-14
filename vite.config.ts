@@ -13,6 +13,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        // Keep the original logo in the repo without downloading it to every device.
+        globIgnores: ['**/IMG_6928.png'],
       },
       manifest: {
         name: 'Inuchat',

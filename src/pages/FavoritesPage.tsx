@@ -10,13 +10,13 @@ interface FavEntry {
 }
 
 export default function FavoritesPage() {
-  const { user, isGuest } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [favs, setFavs] = useState<FavEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user || isGuest) { setLoading(false); return; }
+    if (!user) { setLoading(false); return; }
     supabase
       .from('work_favorites')
       .select('work_id, created_at, works(id, title, thumbnail_url)')
@@ -26,7 +26,7 @@ export default function FavoritesPage() {
         setFavs((data ?? []) as unknown as FavEntry[]);
         setLoading(false);
       });
-  }, [user, isGuest]);
+  }, [user]);
 
   async function removeFav(workId: string) {
     if (!user) return;

@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import type { Provider } from '@/types/db';
 import { capabilitiesFor, defaultReasoningFor, EFFORT_LABELS } from '@/lib/llm/modelCapabilities';
-import { getOpenRouterModel, isModelVerified } from '@/lib/llm/modelDiscovery';
+import { loadOpenRouterModels } from '@/lib/llm/modelDiscovery';
 import type { ReasoningSelection } from '@/lib/llm/types';
 import { cacheFavoriteModels, loadCustomModels, loadFavoriteModels, modelsFor, removeCustomModel, saveCustomModel, toggleFavoriteModel } from '@/lib/modelPreferences';
 
@@ -36,14 +36,16 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
   const [browserOpen, setBrowserOpen] = useState(false);
   const [revision, setRevision] = useState(0);
   const [favorites, setFavorites] = useState(loadFavoriteModels);
-  const { user, isGuest } = useAuth();
+  const { user } = useAuth();
+  const catalog = loadOpenRouterModels();
+  const catalogById = useMemo(() => new Map(catalog.map(item => [item.id, item])), [catalog]);
   const models = modelsFor(provider);
   const custom = loadCustomModels()[provider];
   const registeredCapability = capabilitiesFor(provider, model);
-  const capability = isModelVerified(model)
+  const capability = catalogById.has(model)
     ? { ...registeredCapability, availability: 'verified' as const }
     : registeredCapability;
-  const currentCatalog = getOpenRouterModel(model);
+  const currentCatalog = catalogById.get(model);
 
   const vendors = useMemo(
     () => ['전체', '즐겨찾기', ...new Set(models.map(vendorOf).sort((a, b) => a.localeCompare(b)))],
@@ -62,26 +64,26 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
         const hasCanonicalModels = models.some((candidate) => !candidate.startsWith('~') && vendorOf(candidate) === vendor);
         if (hasCanonicalModels) return false;
       }
-      const info = getOpenRouterModel(item);
+      const info = catalogById.get(item);
       return !needle || item.toLowerCase().includes(needle) || info?.name.toLowerCase().includes(needle);
     }).sort((a, b) => {
-      const aName = getOpenRouterModel(a)?.name ?? capabilitiesFor(provider, a).displayName;
-      const bName = getOpenRouterModel(b)?.name ?? capabilitiesFor(provider, b).displayName;
+      const aName = catalogById.get(a)?.name ?? capabilitiesFor(provider, a).displayName;
+      const bName = catalogById.get(b)?.name ?? capabilitiesFor(provider, b).displayName;
       return aName.localeCompare(bName);
     });
-  }, [models.join('|'), favorites.join('|'), favoritesOnly, provider, search, vendor]);
+  }, [catalogById, models.join('|'), favorites.join('|'), favoritesOnly, provider, search, vendor]);
 
   useEffect(() => {
-    if (!user || isGuest) return;
+    if (!user) return;
     supabase.from('profiles').select('favorite_models').eq('id', user.id).single().then(({ data }) => {
       if (Array.isArray(data?.favorite_models)) setFavorites(cacheFavoriteModels(data.favorite_models));
     });
-  }, [user?.id, isGuest]);
+  }, [user?.id]);
 
   async function toggleFavorite(modelId: string) {
     const next = toggleFavoriteModel(modelId);
     setFavorites(next);
-    if (user && !isGuest) await supabase.from('profiles').update({ favorite_models: next }).eq('id', user.id);
+    if (user) await supabase.from('profiles').update({ favorite_models: next }).eq('id', user.id);
   }
 
   useEffect(() => {
@@ -148,7 +150,7 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
             {filteredModels.length === 0 ? (
               <p className="p-4 text-center text-xs text-slate-500">{favoritesOnly ? '설정에서 모델을 즐겨찾기에 추가해 주세요.' : '검색 결과가 없습니다.'}</p>
             ) : filteredModels.map((item) => {
-              const catalog = getOpenRouterModel(item);
+              const catalog = catalogById.get(item);
               const selected = item === model;
               return (
                 <div

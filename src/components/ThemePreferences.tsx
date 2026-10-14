@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
-import { applyTheme, bothVariants, loadTheme, paletteFor, requestThemeRefresh, type SavedTheme, type ThemeVariant } from '@/lib/theme';
+import { bothVariants, loadTheme, paletteFor, requestThemeRefresh, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 import ThemeMenu from './ThemeMenu';
 
 type Mode = 'dark' | 'light' | 'custom';
@@ -12,7 +12,7 @@ type Pref = {
   preferred_theme_variant: ThemeVariant;
 };
 
-export default function ThemePreferences({ userId }: { userId: string | null }) {
+export default function ThemePreferences({ userId }: { userId: string }) {
   const [pref, setPref] = useState<Pref>({
     prefer_work_theme: true,
     preferred_theme_mode: null,
@@ -21,13 +21,12 @@ export default function ThemePreferences({ userId }: { userId: string | null }) 
   });
   const [chosen, setChosen] = useState<SavedTheme | null>(null);
   const [picker, setPicker] = useState(false);
-  const [loading, setLoading] = useState(!!userId);
+  const [loading, setLoading] = useState(true);
   const latestUpdate = useRef(0);
   const currentPref = useRef(pref);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
-    if (!userId) { setLoading(false); return; }
     let live = true;
     async function refresh() {
       // Ignore background fetches started before a newer local preference edit.
@@ -73,12 +72,6 @@ export default function ThemePreferences({ userId }: { userId: string | null }) 
     setPref(next);
     if (theme !== undefined) setChosen(theme);
 
-    if (!userId) {
-      if (next.preferred_theme_mode === 'dark' || next.preferred_theme_mode === 'light') {
-        applyTheme(next.preferred_theme_mode);
-      }
-      return true;
-    }
     const pending = saveQueue.current.then(() =>
       supabase.from('profiles').update(patch).eq('id', userId)
     );
@@ -100,7 +93,6 @@ export default function ThemePreferences({ userId }: { userId: string | null }) 
 
   function changeMode(mode: Mode) {
     if (mode === 'custom') {
-      if (!userId) { showToast('커스텀 테마는 로그인 후 사용할 수 있습니다.'); return; }
       // Selecting the tab and opening its catalog are two different actions.
       // A previously selected custom theme remains selected after dark/light.
       if (!pref.preferred_theme_id) setPicker(true);
@@ -115,7 +107,7 @@ export default function ThemePreferences({ userId }: { userId: string | null }) 
   return <section className="flex flex-col gap-3">
     <h2 className="font-semibold text-white">화면 테마</h2>
     <p className="text-xs text-slate-500">
-      {userId ? '테마 설정은 로그인한 모든 기기에 저장됩니다.' : '비회원 모드는 이 기기에만 저장됩니다.'}
+      테마 설정은 로그인한 모든 기기에 저장됩니다.
     </p>
     {loading ? <p className="text-sm text-slate-400">불러오는 중…</p> : <>
       <div className="grid grid-cols-3 gap-1 rounded-xl bg-surface p-1.5" role="group" aria-label="기본 테마">

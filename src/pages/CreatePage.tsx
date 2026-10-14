@@ -4,15 +4,16 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import type { Work } from '@/types/db';
+import { WORK_LIST_COLUMNS, type WorkListItem } from '@/lib/works';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { showToast } from '@/lib/toast';
 
 export default function CreatePage() {
-  const { user, isGuest, isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [menuId, setMenuId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Work | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<WorkListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   useEffect(() => {
     if (!menuId) return;
@@ -20,21 +21,6 @@ export default function CreatePage() {
     document.addEventListener('pointerdown', close);
     return () => document.removeEventListener('pointerdown', close);
   }, [menuId]);
-
-  if (isGuest) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
-        <p className="text-lg font-semibold text-white">작품 제작은 로그인이 필요합니다</p>
-        <p className="text-sm text-slate-400">로그인하면 작품을 만들고 공유할 수 있습니다.</p>
-        <button
-          onClick={() => navigate('/login')}
-          className="rounded-lg bg-brand px-6 py-3 font-semibold text-white"
-        >
-          로그인하기
-        </button>
-      </div>
-    );
-  }
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['my-works', user?.id, isAdmin],
@@ -46,7 +32,7 @@ export default function CreatePage() {
         if (permissionError) throw permissionError;
         editableIds = (permissions ?? []).map((item) => item.work_id);
       }
-      let query = supabase.from('works').select('*').order('updated_at', { ascending: false });
+      let query = supabase.from('works').select(WORK_LIST_COLUMNS).order('updated_at', { ascending: false });
       if (!isAdmin) {
         query = editableIds.length
           ? query.or(`creator_id.eq.${user!.id},id.in.(${editableIds.join(',')})`)
@@ -54,7 +40,7 @@ export default function CreatePage() {
       }
       const { data, error } = await query;
       if (error) throw error;
-      return data as Work[];
+      return data as WorkListItem[];
     },
   });
 
@@ -85,18 +71,21 @@ export default function CreatePage() {
     }
     setDeleteTarget(null);
     setMenuId(null);
-    queryClient.setQueriesData({ queryKey: ['works-stats'] }, (old: unknown) =>
+    queryClient.setQueriesData({ queryKey: ['works-list'] }, (old: unknown) =>
       Array.isArray(old) ? old.filter((item: Work) => item.id !== deleteTarget.id) : old,
     );
     await Promise.all([
       refetch(),
-      queryClient.invalidateQueries({ queryKey: ['works-stats'] }),
+      queryClient.invalidateQueries({ queryKey: ['works-list'] }),
     ]);
     showToast('작품을 삭제했습니다.');
   }
 
-  async function duplicateWork(work: Work) {
+  async function duplicateWork(item: WorkListItem) {
     setMenuId(null);
+    const { data: fullWork, error: loadError } = await supabase.from('works').select('*').eq('id', item.id).single();
+    if (loadError || !fullWork) { showToast('복제할 작품을 불러오지 못했습니다.'); return; }
+    const work = fullWork as Work;
     const { id: _id, created_at: _created, updated_at: _updated, ...copy } = work;
     // A copied work must never keep a reference to another work's private theme.
     const { data: created, error } = await supabase.from('works').insert({

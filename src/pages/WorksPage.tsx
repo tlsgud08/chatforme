@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import WorkPosterCard from '@/components/WorkPosterCard';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { fetchWorksWithStats, sortForSection } from '@/lib/works';
+import { fetchWorks } from '@/lib/works';
 
 export default function WorksPage() {
   const { user, isAdmin } = useAuth();
@@ -16,11 +16,11 @@ export default function WorksPage() {
   const labels = { works: '작품', commands: '명령어', plugins: '플러그인', themes: '테마' };
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
-    queryKey: ['works-stats', { includePrivate: isAdmin }],
-    queryFn: () => fetchWorksWithStats(isAdmin),
+    queryKey: ['works-list', { includePrivate: isAdmin }],
+    queryFn: () => fetchWorks(isAdmin),
     enabled: selected === 'works',
   });
-  const latest = data ? sortForSection('latest', data) : [];
+  const latest = data ?? [];
 
   const { data: favoritedIds = [] } = useQuery({
     queryKey: ['user-favorites', user?.id],

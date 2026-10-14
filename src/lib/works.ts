@@ -1,137 +1,29 @@
 import { supabase } from '@/lib/supabase';
 import type { Work } from '@/types/db';
 
-export interface WorkStat extends Work {
-  creator_name: string;
-  day_count: number;
-  week_count: number;
-  month_count: number;
-  total_play_count: number;
-  favorite_count: number;
-}
+/** List rows deliberately exclude prompt bodies. Detail/editor pages fetch them. */
+export type WorkListItem = Pick<Work, 'id' | 'creator_id' | 'title' | 'description' | 'thumbnail_url' | 'visibility' | 'created_at' | 'updated_at'>;
+export interface WorkCard extends WorkListItem { creator_name: string; }
+export const WORK_LIST_COLUMNS = 'id,creator_id,title,description,thumbnail_url,visibility,created_at,updated_at';
 
-export type SectionId = 'daily' | 'weekly' | 'monthly' | 'today-hot' | 'latest';
-
-export const SECTION_TITLES: Record<SectionId, string> = {
-  daily: '일간 랭킹',
-  weekly: '주간 랭킹',
-  monthly: '월간 랭킹',
-  'today-hot': '오늘의 인기 신작',
-  latest: '최신 작품',
-};
-
-const DAY = 24 * 60 * 60 * 1000;
-
-/** 공개 작품 + 제작자 이름 + 일/주/월 플레이 수 집계 */
-export async function fetchWorksWithStats(includePrivate = false): Promise<WorkStat[]> {
-  let query = supabase
-    .from('works')
-    .select('*')
-    .order('created_at', { ascending: false });
+export async function fetchWorks(includePrivate = false): Promise<WorkCard[]> {
+  let query = supabase.from('works').select(WORK_LIST_COLUMNS).order('created_at', { ascending: false });
   if (!includePrivate) query = query.eq('visibility', 'public');
-  const { data: works, error } = await query;
+  const { data, error } = await query;
   if (error) throw error;
-
-  const list = (works as Work[]) ?? [];
-  if (list.length === 0) return [];
-
-  const creatorIds = [...new Set(list.map((w) => w.creator_id))];
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, display_name')
-    .in('id', creatorIds);
-  const nameMap: Record<string, string> = {};
-  for (const p of profiles ?? []) nameMap[p.id] = p.display_name || '알 수 없음';
-
-  const monthAgo = new Date(Date.now() - 30 * DAY).toISOString();
-  const [{ data: plays }, { data: allPlays }, { data: favs }] = await Promise.all([
-    supabase.from('work_plays').select('work_id, created_at').gte('created_at', monthAgo),
-    supabase.from('work_plays').select('work_id'),
-    supabase.from('work_favorites').select('work_id'),
-  ]);
-
-  const dayThreshold = Date.now() - DAY;
-  const weekThreshold = Date.now() - 7 * DAY;
-  const dayC: Record<string, number> = {};
-  const weekC: Record<string, number> = {};
-  const monthC: Record<string, number> = {};
-  const totalC: Record<string, number> = {};
-  const favC: Record<string, number> = {};
-
-  for (const p of (plays as { work_id: string; created_at: string }[]) ?? []) {
-    const t = new Date(p.created_at).getTime();
-    monthC[p.work_id] = (monthC[p.work_id] ?? 0) + 1;
-    if (t >= weekThreshold) weekC[p.work_id] = (weekC[p.work_id] ?? 0) + 1;
-    if (t >= dayThreshold) dayC[p.work_id] = (dayC[p.work_id] ?? 0) + 1;
-  }
-  for (const p of (allPlays as { work_id: string }[]) ?? []) {
-    totalC[p.work_id] = (totalC[p.work_id] ?? 0) + 1;
-  }
-  for (const f of (favs as { work_id: string }[]) ?? []) {
-    favC[f.work_id] = (favC[f.work_id] ?? 0) + 1;
-  }
-
-  return list.map((w) => ({
-    ...w,
-    creator_name: nameMap[w.creator_id] ?? '알 수 없음',
-    day_count: dayC[w.id] ?? 0,
-    week_count: weekC[w.id] ?? 0,
-    month_count: monthC[w.id] ?? 0,
-    total_play_count: totalC[w.id] ?? 0,
-    favorite_count: favC[w.id] ?? 0,
-  }));
+  const list = (data as WorkListItem[]) ?? [];
+  if (!list.length) return [];
+  const creatorIds = [...new Set(list.map(work => work.creator_id))];
+  const { data: profiles } = await supabase.from('profiles')
+    .select('id,display_name').in('id', creatorIds);
+  // Author metadata is optional; keep successfully loaded works visible.
+  const names = new Map((profiles ?? []).map(profile => [profile.id, profile.display_name || '알 수 없음']));
+  return list.map(work => ({ ...work, creator_name: names.get(work.creator_id) ?? '알 수 없음' }));
 }
 
-export function isRankingSection(id: SectionId): boolean {
-  return id === 'daily' || id === 'weekly' || id === 'monthly' || id === 'today-hot';
-}
-
-const byNewest = (a: WorkStat, b: WorkStat) =>
-  +new Date(b.created_at) - +new Date(a.created_at);
-
-/** 섹션별 정렬된 작품 목록 */
-export function sortForSection(id: SectionId, data: WorkStat[]): WorkStat[] {
-  switch (id) {
-    case 'daily':
-      return [...data].sort((a, b) => b.day_count - a.day_count || byNewest(a, b));
-    case 'weekly':
-      return [...data].sort((a, b) => b.week_count - a.week_count || byNewest(a, b));
-    case 'monthly':
-      return [...data].sort((a, b) => b.month_count - a.month_count || byNewest(a, b));
-    case 'today-hot': {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return data
-        .filter((w) => +new Date(w.created_at) >= today.getTime())
-        .sort((a, b) => b.day_count - a.day_count || byNewest(a, b));
-    }
-    case 'latest':
-      return [...data].sort(byNewest);
-  }
-}
-
-/** 섹션 카드에 표시할 플레이 수 */
-export function metricForSection(id: SectionId, w: WorkStat): number {
-  switch (id) {
-    case 'daily':
-      return w.day_count;
-    case 'weekly':
-      return w.week_count;
-    case 'today-hot':
-      return w.day_count;
-    default:
-      return w.month_count;
-  }
-}
-
-/** 61400 → "61.4K" */
+/** Compact display for favorites, unrelated to removed play statistics. */
 export function formatCount(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
   if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
   return String(n);
-}
-
-/** 채팅 시작 시 플레이 1회 기록 (실패해도 무시) */
-export async function recordPlay(workId: string, userId: string | null) {
-  await supabase.from('work_plays').insert({ work_id: workId, user_id: userId });
 }

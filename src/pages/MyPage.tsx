@@ -13,7 +13,7 @@ interface OpenRouterCredit {
 }
 
 export default function MyPage() {
-  const { user, isGuest } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const exchange = useUsdKrwRate();
 
@@ -31,7 +31,7 @@ export default function MyPage() {
   const [showAddForm, setShowAddForm] = useState(false);
 
   useEffect(() => {
-    if (isGuest || !user) return;
+    if (!user) return;
     supabase
       .from('profiles')
       .select('*')
@@ -48,7 +48,7 @@ export default function MyPage() {
       .eq('user_id', user.id)
       .order('created_at')
       .then(({ data }) => setPersonas((data as Persona[]) ?? []));
-  }, [user, isGuest]);
+  }, [user]);
 
   useEffect(() => {
     const apiKey = getApiKey('openrouter');
@@ -153,22 +153,6 @@ export default function MyPage() {
     const trimmed = bio.slice(0, 500);
     await supabase.from('profiles').update({ bio: trimmed }).eq('id', profile.id);
     setProfile({ ...profile, bio: trimmed });
-  }
-
-  if (isGuest) {
-    return (
-      <div className="flex flex-col items-center gap-4 p-8 text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-surface2 text-4xl">👤</div>
-        <p className="font-semibold text-white">비회원 모드</p>
-        <p className="text-sm text-slate-400">로그인하면 프로필·페르소나·하트를 사용할 수 있습니다.</p>
-        <button
-          onClick={() => navigate('/login')}
-          className="mt-2 rounded-lg bg-brand px-6 py-2.5 text-sm font-semibold text-white"
-        >
-          로그인
-        </button>
-      </div>
-    );
   }
 
   const initial = profile?.display_name?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? '?';

@@ -2,28 +2,28 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { fetchSessionConversationCounts } from '@/lib/sessionCounts';
 import { useAuth } from '@/hooks/useAuth';
-import { guestDeleteSession, guestGetSessions, guestUpdateSession } from '@/lib/guest';
 import type { Session } from '@/types/db';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 
-type SessionRow = Session & { works: { title: string; thumbnail_url: string | null } | null };
+type SessionRow = Pick<Session, 'id' | 'title'> & { works: { title: string; thumbnail_url: string | null } | null };
 type ViewTab = 'active' | 'multichat' | 'archived';
 type SelectMode = 'none' | 'archive' | 'delete';
 
 export default function SessionsPage() {
-  const { user, isGuest } = useAuth();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const [viewTab, setViewTab] = useState<ViewTab>('active');
   const [selectMode, setSelectMode] = useState<SelectMode>('none');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menuId, setMenuId] = useState<string | null>(null);
-  const [renameTarget, setRenameTarget] = useState<{ id: string; title: string; guest: boolean } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{ id: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string; guest: boolean } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [invitePassword, setInvitePassword] = useState('');
@@ -34,55 +34,30 @@ export default function SessionsPage() {
     return () => document.removeEventListener('pointerdown', close);
   }, [menuId]);
 
-  const { data: guestData } = useQuery({
-    queryKey: ['guest-sessions'],
-    queryFn: guestGetSessions,
-    enabled: isGuest,
-  });
-
   const { data, isLoading } = useQuery({
     queryKey: ['sessions', user?.id, viewTab],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('sessions')
-        .select('*, works(title, thumbnail_url)')
+        .select('id,title,works(title,thumbnail_url)')
         .eq('is_archived', viewTab === 'archived')
         .order('updated_at', { ascending: false });
       if (error) throw error;
 
-      const sessions = (data as SessionRow[]) ?? [];
+      const sessions = (data as unknown as SessionRow[]) ?? [];
       if (sessions.length === 0) return { sessions, aiCountMap: {} as Record<string, number> };
 
-      const aiCountMap: Record<string, number> = {};
-      // Supabase limits row-returning queries (commonly to 1,000 rows). A
-      // single query across every session therefore silently produced partial
-      // counts, including zeroes for sessions beyond that response window.
-      // Exact head counts avoid transferring messages and are not row-capped.
-      // An exchange is counted only after its AI message exists, matching the
-      // last AI turn shown inside the chat (an unanswered user message is not a
-      // completed conversation yet).
-      await Promise.all(sessions.map(async (session) => {
-        const { count, error: countError } = await supabase
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('session_id', session.id)
-          .eq('role', 'assistant')
-          .eq('is_hidden', false)
-          .eq('is_active_variant', true)
-          .gt('turn_index', 0);
-        if (countError) throw countError;
-        aiCountMap[session.id] = count ?? 0;
-      }));
+      const aiCountMap = await fetchSessionConversationCounts(sessions.map(session => session.id));
 
       return { sessions, aiCountMap };
     },
-    enabled: !isGuest && viewTab !== 'multichat',
+    enabled: viewTab !== 'multichat',
   });
 
   const { data: multichats, isLoading: multichatsLoading } = useQuery({
     queryKey: ['multichats', user?.id],
     queryFn: async () => { const { data, error } = await supabase.from('multichat_rooms').select('*,works(title,thumbnail_url),multichat_members(count)').order('updated_at',{ascending:false}); if(error) throw error; return data as unknown as Array<{id:string;host_user_id:string;title:string;status:string;current_round:number;invite_code:string;works:{title:string;thumbnail_url:string|null}|null;multichat_members:{count:number}[]}>; },
-    enabled: !isGuest && viewTab === 'multichat',
+    enabled: viewTab === 'multichat',
   });
 
   async function joinMultichat(event: React.FormEvent) {
@@ -148,7 +123,7 @@ export default function SessionsPage() {
     showToast(`${ids.length}개 채팅방과 연결 데이터를 삭제했습니다.`);
   }
 
-  function openRename(target: { id: string; title: string; guest: boolean }) {
+  function openRename(target: { id: string; title: string }) {
     setMenuId(null);
     setRenameTarget(target);
     setRenameValue(target.title);
@@ -157,34 +132,24 @@ export default function SessionsPage() {
   async function saveRename() {
     if (!renameTarget || !renameValue.trim()) return;
     const title = renameValue.trim().slice(0, 60);
-    if (renameTarget.guest) {
-      guestUpdateSession(renameTarget.id, { title });
-      await queryClient.invalidateQueries({ queryKey: ['guest-sessions'] });
-    } else {
-      const { error } = await supabase.from('sessions').update({ title, updated_at: new Date().toISOString() }).eq('id', renameTarget.id);
-      if (error) { showToast('이름 변경 실패: ' + error.message); return; }
-      await queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
-    }
+    const { error } = await supabase.from('sessions').update({ title, updated_at: new Date().toISOString() }).eq('id', renameTarget.id);
+    if (error) { showToast('이름 변경 실패: ' + error.message); return; }
+    await queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
     setRenameTarget(null);
   }
 
   async function deleteOne() {
     if (!deleteTarget) return;
     setDeleting(true);
-    if (deleteTarget.guest) {
-      guestDeleteSession(deleteTarget.id);
-      await queryClient.invalidateQueries({ queryKey: ['guest-sessions'] });
-    } else {
-      const { data: deleted, error } = await supabase.from('sessions').delete().eq('id', deleteTarget.id).select('id');
-      if (error || !deleted?.length) { setDeleting(false); showToast('삭제 실패: ' + (error?.message ?? '채팅방이 삭제되지 않았습니다.')); return; }
-      await queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
-    }
+    const { data: deleted, error } = await supabase.from('sessions').delete().eq('id', deleteTarget.id).select('id');
+    if (error || !deleted?.length) { setDeleting(false); showToast('삭제 실패: ' + (error?.message ?? '채팅방이 삭제되지 않았습니다.')); return; }
+    await queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
     setDeleting(false);
     setDeleteTarget(null);
     showToast('채팅방을 삭제했습니다.');
   }
 
-  function rowMenu(target: { id: string; title: string; guest: boolean }) {
+  function rowMenu(target: { id: string; title: string }) {
     return (
       <div data-popup-menu className="relative pr-2">
         <button
@@ -231,35 +196,6 @@ export default function SessionsPage() {
           />
         )}
       </>
-    );
-  }
-
-  // 비회원 뷰
-  if (isGuest) {
-    const list = guestData ?? [];
-    if (list.length === 0)
-      return <p className="p-6 text-slate-400">아직 플레이한 채팅방이 없습니다.</p>;
-    return (
-      <div>
-        <ul className="divide-y divide-surface2">
-          {list.map((s) => {
-          const aiCount = s.messages.filter((m) => m.role === 'assistant' && !m.is_hidden && m.turn_index > 0).length;
-          return (
-            <li key={s.id} className="flex items-center">
-              <Link to={`/chat/${s.id}`} className="flex flex-1 items-center gap-3 p-4 active:bg-surface">
-                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold text-white">{s.title || '채팅방'}</p>
-                  <p className="text-xs text-slate-500">{aiCount} 대화</p>
-                </div>
-              </Link>
-              {rowMenu({ id: s.id, title: s.title || '채팅방', guest: true })}
-            </li>
-          );
-          })}
-        </ul>
-        {dialogs()}
-      </div>
     );
   }
 
@@ -386,7 +322,7 @@ export default function SessionsPage() {
                   </p>
                 </div>
               </Link>
-              {selectMode === 'none' && rowMenu({ id: s.id, title: s.title || s.works?.title || '채팅방', guest: false })}
+              {selectMode === 'none' && rowMenu({ id: s.id, title: s.title || s.works?.title || '채팅방' })}
             </li>
           ))}
         </ul>
