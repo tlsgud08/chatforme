@@ -1,5 +1,5 @@
 -- Allow plugin prompt bodies of any length while keeping them non-empty.
--- Plugin names/descriptions and commands retain their existing limits.
+-- The following migration removes name/description caps. Command limits are unchanged.
 ALTER TABLE public.plugins
   DROP CONSTRAINT IF EXISTS plugins_prompt_check,
   DROP CONSTRAINT IF EXISTS plugins_prompt_nonempty_check;
