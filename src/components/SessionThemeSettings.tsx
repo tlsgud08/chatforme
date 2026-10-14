@@ -92,13 +92,8 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     const {error}=await supabase.from('profiles').update({preferred_theme_mode:next}).eq('id',userId);
     if(error){setSiteSaving(false);showToast('사이트 테마 변경 실패: '+error.message);return;}
     setSiteMode(next);
-    if(isFluid){
-      const {data,error:sessionError}=await supabase.from('sessions')
-        .update({theme_variant:next}).eq('id',session.id).eq('user_id',userId)
-        .is('theme_override',null).select('*').maybeSingle();
-      if(sessionError)showToast('채팅방 테마 색상 변경 실패: '+sessionError.message);
-      else if(data)onUpdate(data as Session);
-    }
+    // The profile's DB trigger synchronizes fluid scenes across rooms,
+    // while leaving all three fixed modes untouched.
     setSiteSaving(false);
     requestThemeRefresh();
   }
