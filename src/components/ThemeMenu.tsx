@@ -3,7 +3,8 @@ import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 import ThemePaletteEditor from './ThemePaletteEditor';
-import { DEFAULT_DARK, DEFAULT_LIGHT, validPalette, type SavedTheme, type ThemePalette } from '@/lib/theme';
+import './ThemeMenu.css';
+import { DEFAULT_DARK, DEFAULT_LIGHT, paletteFor, validPalette, type SavedTheme, type ThemePalette, type ThemeVariant } from '@/lib/theme';
 
 type Tab = 'all'|'work'|'mine'|'hub'|'favorites';
 type Props = {
@@ -18,7 +19,24 @@ type Props = {
 const labels: Record<Tab,string>={all:'전체',work:'작품',mine:'내 테마',hub:'테마 허브',favorites:'즐겨찾기'};
 type Draft = {name:string;description:string;dark_colors:ThemePalette|null;light_colors:ThemePalette|null};
 function defaultDraft():Draft {return {name:'',description:'',dark_colors:{...DEFAULT_DARK},light_colors:{...DEFAULT_LIGHT}};}
+function currentVariant(): ThemeVariant {
+  if (typeof document === 'undefined') return 'light';
+  const { theme, themeVariant } = document.documentElement.dataset;
+  return (theme === 'custom' ? themeVariant : theme) === 'dark' ? 'dark' : 'light';
+}
+function useCurrentVariant() {
+  const [variant, setVariant] = useState(currentVariant);
+  useEffect(() => {
+    const update = () => setVariant(currentVariant());
+    const observer = new MutationObserver(update);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-variant'] });
+    update();
+    return () => observer.disconnect();
+  }, []);
+  return variant;
+}
 export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=false,selectedId,onSelect,onClose}:Props){
+  const variant = useCurrentVariant();
   const [themes,setThemes]=useState<SavedTheme[]>([]);
   const [favorites,setFavorites]=useState<Set<string>>(new Set());
   const [workNames,setWorkNames]=useState<Record<string,string>>({});
@@ -128,34 +146,44 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
       {visible.map(t=>{
         const editable=t.work_id?allowWorkCreate&&t.work_id===workId:t.owner_id===userId;
         const selectable=!t.work_id||t.work_id===workId;
-        return <article key={t.id} className="border-t border-surface2 px-3 py-3">
-          <div className="flex items-start gap-3">
-            <button onClick={()=>selectable&&onSelect?onSelect(t):setOpened(opened===t.id?null:t.id)} disabled={!!onSelect&&!selectable} className="min-w-0 flex-1 text-left disabled:opacity-40">
-              <span className="block text-sm font-semibold text-white">{selectedId===t.id?'✓ ':''}{t.name}</span>
-              <span className="block truncate text-xs text-slate-400">{t.description||'설명 없음'}</span>
-              <span className="text-[11px] text-slate-500">{t.work_id?'작품 · '+(workNames[t.work_id]??'전용')+' · ':t.is_published?'허브 공개 · ':'개인 · '}{t.dark_colors?'🌙 다크 ':''}{t.light_colors?'☀️ 라이트':''}</span>
+        const preview = paletteFor(t, variant);
+        const palette = preview?.palette ?? (variant === 'dark' ? DEFAULT_DARK : DEFAULT_LIGHT);
+        return <article key={t.id} className="theme-card" data-preview-variant={preview?.variant ?? variant}
+          style={{backgroundColor:palette.main,color:palette.mainText}}>
+          <div className="theme-card-header" style={{backgroundColor:palette.accent,color:palette.accentText}}>
+            <button onClick={()=>selectable&&onSelect?onSelect(t):setOpened(opened===t.id?null:t.id)} disabled={!!onSelect&&!selectable} className="min-w-0 flex-1 text-left disabled:opacity-40" style={{color:'inherit'}}>
+              <span className="block break-words text-sm font-semibold">{selectedId===t.id?'✓ ':''}{t.name}</span>
             </button>
             <div className="flex shrink-0 gap-1">
-              <button onClick={()=>void toggleFavorite(t)} disabled={!!t.work_id} aria-label="즐겨찾기" className="p-1 text-slate-400 disabled:opacity-30">{favorites.has(t.id)?'★':'☆'}</button>
-              <button onClick={()=>setOpened(opened===t.id?null:t.id)} aria-label="테마 메뉴" className="p-1 text-slate-400">⋯</button>
+              <button onClick={()=>void toggleFavorite(t)} disabled={!!t.work_id} aria-label="즐겨찾기" className="p-1 disabled:opacity-30" style={{color:'inherit'}}>{favorites.has(t.id)?'★':'☆'}</button>
+              <button onClick={()=>setOpened(opened===t.id?null:t.id)} aria-label="테마 메뉴" className="p-1" style={{color:'inherit'}}>⋯</button>
             </div>
           </div>
+          <div className="theme-card-body">
+            <button type="button" onClick={()=>selectable&&onSelect?onSelect(t):setOpened(opened===t.id?null:t.id)}
+              disabled={!!onSelect&&!selectable} className="block w-full text-left disabled:opacity-40" style={{color:'inherit'}}>
+            <span className="block truncate text-xs">{t.description||'설명 없음'}</span>
+            <span className="text-[11px]">{t.work_id?'작품 · '+(workNames[t.work_id]??'전용')+' · ':t.is_published?'허브 공개 · ':'개인 · '}{t.dark_colors?'🌙 다크 ':''}{t.light_colors?'☀️ 라이트':''}</span>
+            </button>
+            <span className="block text-[11px] opacity-80">미리보기 · {(preview?.variant??variant)==='dark'?'다크':'라이트'}</span>
           <div className="mt-2 flex flex-wrap gap-2">
             {([['dark',t.dark_colors],['light',t.light_colors]]as const).filter(([,p])=>!!p).map(([name,p])=>
               <button key={name} type="button" disabled={!editable} onClick={()=>edit(t)}
                 aria-label={`${t.name} ${name==='dark'?'다크':'라이트'} 버전 수정`}
                 title={editable?'눌러서 테마 수정':'수정 권한이 없는 테마입니다'}
-                className="flex min-h-11 items-center gap-1 rounded-lg bg-surface px-2 py-1 disabled:cursor-default">
-                <span aria-hidden="true" className="text-[10px] text-slate-400">{name==='dark'?'🌙':'☀️'}</span>
-                {[p!.accent,p!.accentText,p!.main,p!.mainText].map((color,i)=><span key={i} aria-hidden="true" className="h-4 w-4 rounded-sm border border-surface2" style={{backgroundColor:color}}/>)}
+                className="flex min-h-11 items-center gap-1 rounded-lg px-2 py-1 disabled:cursor-default"
+                style={{backgroundColor:p!.main,color:p!.mainText}}>
+                <span aria-hidden="true" className="text-[10px]">{name==='dark'?'🌙':'☀️'}</span>
+                {[p!.accent,p!.accentText,p!.main,p!.mainText].map((color,i)=><span key={i} aria-hidden="true" className="h-4 w-4 rounded-sm" style={{backgroundColor:color,border:'1px solid currentColor'}}/>)}
               </button>)}
           </div>
           {opened===t.id&&<div className="mt-3 flex flex-wrap gap-2">
-            {editable&&<button onClick={()=>edit(t)} className="rounded-lg bg-surface2 px-3 py-2 text-xs">수정</button>}
-            {editable&&!t.work_id&&<button onClick={()=>void togglePublish(t)} className="rounded-lg bg-surface2 px-3 py-2 text-xs">{t.is_published?'비공개':'허브 공개'}</button>}
-            {!t.work_id&&<button onClick={()=>void copy(t)} className="rounded-lg bg-surface2 px-3 py-2 text-xs">내 테마로 복사</button>}
-            {editable&&<button onClick={()=>void remove(t)} className="rounded-lg bg-surface2 px-3 py-2 text-xs text-red-400">삭제</button>}
+            {editable&&<button onClick={()=>edit(t)} className="theme-card-action rounded-lg px-3 py-2 text-xs">수정</button>}
+            {editable&&!t.work_id&&<button onClick={()=>void togglePublish(t)} className="theme-card-action rounded-lg px-3 py-2 text-xs">{t.is_published?'비공개':'허브 공개'}</button>}
+            {!t.work_id&&<button onClick={()=>void copy(t)} className="theme-card-action rounded-lg px-3 py-2 text-xs">내 테마로 복사</button>}
+            {editable&&<button onClick={()=>void remove(t)} className="theme-card-action rounded-lg px-3 py-2 text-xs">삭제</button>}
           </div>}
+          </div>
         </article>;
       })}
     </div>
