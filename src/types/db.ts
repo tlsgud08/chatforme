@@ -17,6 +17,10 @@ export interface Profile {
   default_reasoning: import('@/lib/llm/types').ReasoningSelection | null;
   default_provider: Provider;
   default_model: string;
+  prefer_work_theme?: boolean;
+  preferred_theme_mode?: 'dark' | 'light' | 'custom' | null;
+  preferred_theme_id?: string | null;
+  preferred_theme_variant?: 'dark' | 'light';
   summary_prompt: string | null;
   summary_model: string | null;
   summary_reasoning: import('@/lib/llm/types').ReasoningSelection | null;
@@ -46,6 +50,8 @@ export interface Work {
   title: string;
   description: string;
   thumbnail_url: string | null;
+  default_theme_id?: string | null;
+  default_theme_variant?: 'dark' | 'light' | null;
   main_prompt: string;
   multichat_prompt: string;
   is_published: boolean;
@@ -116,6 +122,9 @@ export interface ActivePlugin {
 export type Plugin = Command;
 
 export interface Session {
+  theme_override?: 'builtin' | 'custom' | null;
+  theme_id?: string | null;
+  theme_variant?: 'dark' | 'light' | null;
   active_plugins?: ActivePlugin[];
   prompt_cache_enabled?: boolean;
   prompt_cache_auto_latest?: boolean;
@@ -203,6 +212,7 @@ export interface Message {
 
 export interface Command {
   id: string;
+  work_id?: string | null;
   owner_id: string;
   name: string;
   description: string;
