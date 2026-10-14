@@ -106,3 +106,10 @@ button:active {
 :root[data-theme='custom'] button:focus-visible,
 :root[data-theme='custom'] a:focus-visible,
 :root[data-theme='custom'] input:focus-visible { outline-color: rgb(var(--color-brand)); }
+
+:root.theme-transition, :root.theme-transition * {
+  transition: background-color .4s ease, color .4s ease, border-color .4s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root.theme-transition, :root.theme-transition * { transition: none; }
+}

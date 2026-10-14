@@ -10,6 +10,7 @@ type SavedChoice={id:string;variant:ThemeVariant;theme:SavedTheme|null};
 export default function SessionThemeSettings({session,userId,onUpdate,busy=false}:Props){
   const [theme,setTheme]=useState<SavedTheme|null>(null);
   const [open,setOpen]=useState(false);
+  const [pickerScope,setPickerScope]=useState<'work'|'global'>('global');
   const [saving,setSaving]=useState(false);
   const [lastCustom,setLastCustom]=useState<SavedChoice|null>(null);
   useEffect(()=>{
@@ -62,12 +63,15 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     return true;
   }
   const mode=session.theme_override??'inherit';
-  const shownMode=open?'custom':mode;
+  const selectedMode=mode==='custom'&&theme?.work_id?'work':mode;
+  const shownMode=open?(pickerScope==='work'?'work':'custom'):selectedMode;
   const variant=session.theme_variant??'light';
-  async function chooseMode(next:'inherit'|'builtin'|'custom'){
+  async function chooseMode(next:'inherit'|'work'|'builtin'|'custom'){
     if(busy||saving)return;
+    if(next==='work'){setPickerScope('work');setOpen(true);return;}
     if(next==='custom'){
-      if(lastCustom?.id){
+      setPickerScope('global');
+      if(lastCustom?.id&&!lastCustom.theme?.work_id){
         const ok=await save('custom',lastCustom.id,lastCustom.variant,lastCustom.theme??undefined);
         if(ok){setOpen(false);return;}
       }
@@ -80,8 +84,19 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
   return <section className="mt-4 border-t border-surface2 pt-4">
     <h3 className="mb-2 text-sm font-semibold text-white">채팅방 테마</h3>
     <p className="mb-3 text-xs text-slate-500">개별 선택이 가장 우선하며, 모든 기기에 동기화됩니다.</p>
-    <div className="grid grid-cols-3 gap-1 rounded-lg bg-surface p-1">
-      {([{value:'inherit',label:'기본값'},{value:'builtin',label:'기본 테마'},{value:'custom',label:'커스텀'}]as const).map(o=>
+    <label className="mb-3 flex items-center justify-between gap-2 text-sm text-slate-200">
+      자동 테마 변경
+      <input type="checkbox" checked={session.auto_theme_enabled??false} disabled={busy||saving} onChange={async e=>{
+        const enabled=e.target.checked;setSaving(true);
+        const {error}=await supabase.from('sessions').update({auto_theme_enabled:enabled}).eq('id',session.id).eq('user_id',userId);
+        setSaving(false);
+        if(error){showToast('자동 테마 변경 설정 실패: '+error.message);return;}
+        onUpdate({auto_theme_enabled:enabled});
+      }}/>
+    </label>
+    <p className="mb-3 text-xs text-slate-500">응답의 테마 태그로 변경합니다. 끄면 태그와 테마 지침을 AI에게 전송하지 않습니다.</p>
+    <div className="grid grid-cols-4 gap-1 rounded-lg bg-surface p-1">
+      {([{value:'inherit',label:'기본값'},{value:'work',label:'작품테마'},{value:'builtin',label:'기본 테마'},{value:'custom',label:'커스텀'}]as const).map(o=>
         <button key={o.value} disabled={busy||saving} aria-pressed={shownMode===o.value}
           onClick={()=>void chooseMode(o.value)}
           className={`rounded-lg px-1 py-2 text-xs ${shownMode===o.value?'bg-brand text-white':'text-slate-400'}`}>{o.label}</button>)}
@@ -89,7 +104,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     {mode==='inherit'&&!open&&<p className="mt-2 text-xs text-slate-500">개인 설정에 따라 작품 기본 테마 또는 사용자 기본 테마를 사용합니다.</p>}
     {mode==='custom'&&!open&&<div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-surface p-2">
       <span className="truncate text-xs text-white">{theme?.name??'테마를 다시 선택해 주세요'}</span>
-      <button disabled={busy||saving} onClick={()=>setOpen(true)} className="text-xs text-brand">변경</button>
+      <button disabled={busy||saving} onClick={()=>{setPickerScope(theme?.work_id?'work':'global');setOpen(true);}} className="text-xs text-brand">변경</button>
     </div>}
     {(mode==='builtin'&&!open||(mode==='custom'&&!open&&theme&&bothVariants(theme)))&&<div className="mt-2 grid grid-cols-2 gap-2">
       {(['dark','light']as const).map(v=>
@@ -99,7 +114,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
         </button>)}
     </div>}
     {open&&<div className="mt-3 rounded-lg border border-surface2">
-      <ThemeMenu userId={userId} workId={session.work_id} selectedId={session.theme_id}
+      <ThemeMenu userId={userId} workId={session.work_id} scope={pickerScope} selectedId={session.theme_id}
         onClose={()=>setOpen(false)} onSelect={selected=>{
           const next=paletteFor(selected,session.theme_variant??'light')?.variant??'light';
           void save('custom',selected.id,next,selected).then(ok=>{if(ok)setOpen(false);});
