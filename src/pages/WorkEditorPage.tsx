@@ -6,6 +6,8 @@ import type { KeywordBook, StartConfig, Work } from '@/types/db';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 import { registerNavigationGuard } from '@/lib/navigationGuard';
+import WorkThemeSettings from '@/components/WorkThemeSettings';
+import CommandMenu from '@/components/CommandMenu';
 
 type Tab = 'basic' | 'prompt' | 'multichat' | 'start' | 'keywords' | 'permissions';
 type EditorProfile = { user_id: string; display_name: string; avatar_url: string | null; created_at: string };
@@ -263,6 +265,8 @@ export default function WorkEditorPage() {
           main_prompt: work.main_prompt,
           multichat_prompt: work.multichat_prompt ?? '',
           thumbnail_url: work.thumbnail_url,
+          default_theme_id: work.default_theme_id ?? null,
+          default_theme_variant: work.default_theme_variant ?? null,
           visibility: work.visibility,
           is_published: work.visibility === 'public',
           updated_at: new Date().toISOString(),
@@ -397,7 +401,7 @@ export default function WorkEditorPage() {
           ['prompt', '메인 프롬프트'],
           ['multichat', '멀티챗'],
           ['start', '시작 설정'],
-          ['keywords', '키워드북'],
+          ['keywords', '키워드북 · 명령어'],
           ...(isCreator ? [['permissions', '수정 권한'] as [Tab, string]] : []),
         ] as [Tab, string][]).map(([k, label]) => (
           <button
@@ -452,6 +456,8 @@ export default function WorkEditorPage() {
                 className={`w-full resize-none rounded-lg bg-surface px-4 py-3 text-sm outline-none ring-1 ${descOver ? 'ring-red-500 text-red-300' : 'ring-transparent'}`}
               />
             </div>
+
+            {user && <WorkThemeSettings userId={user.id} workId={work.id} themeId={work.default_theme_id} variant={work.default_theme_variant} onChange={(id,variant)=>patch({default_theme_id:id,default_theme_variant:variant})}/>}
 
             <div>
               <label className="mb-2 block text-xs text-slate-400">공개 범위</label>
@@ -721,6 +727,7 @@ export default function WorkEditorPage() {
                 </div>
               );
             })}
+            {user && <section className="border-t border-surface2 pt-4"><h3 className="mb-2 font-semibold text-white">작품 전용 명령어</h3><p className="mb-3 text-xs text-slate-400">이 작품에서만 사용할 수 있는 명령어를 여러 개 만듭니다. 변경 사항은 즉시 저장됩니다.</p><CommandMenu userId={user.id} workId={work.id} allowWorkCreate embedded /></section>}
           </div>
         )}
 
