@@ -1163,6 +1163,7 @@ export default function ChatPage() {
     const { data: newSession, error } = await supabase.from('sessions').insert({
       user_id: user.id, work_id: session.work_id, title: `${session.title} (분기)`, persona_id: session.persona_id,
       start_config_id: session.start_config_id, user_note: session.user_note, active_plugins: session.active_plugins ?? [],
+      theme_override: session.theme_override ?? null, theme_id: session.theme_id ?? null, theme_variant: session.theme_variant ?? null,
       output_settings_override_enabled: session.output_settings_override_enabled,
       output_tokens_override: session.output_tokens_override,
       temperature_override: session.temperature_override,
@@ -1435,7 +1436,7 @@ export default function ChatPage() {
         )}
       </div>
 
-      {commandMenuOpen && user && <CommandMenu userId={user.id} onClose={() => setCommandMenuOpen(false)} onSelect={setSelectedCommand} />}
+      {commandMenuOpen && user && <CommandMenu userId={user.id} workId={work?.id} onClose={() => setCommandMenuOpen(false)} onSelect={setSelectedCommand} />}
 
       {menuOpen && !isGuest && session && (
         <SessionMenu
