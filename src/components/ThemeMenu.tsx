@@ -48,15 +48,36 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
   const [busy,setBusy]=useState(false);
   const [opened,setOpened]=useState<string|null>(null);
   const load=useCallback(async()=>{
-    const [{data,error},{data:stars}]=await Promise.all([
-      supabase.from('themes').select('*').order('updated_at',{ascending:false}),
-      supabase.from('theme_favorites').select('theme_id').eq('user_id',userId),
-    ]);
-    if(error){showToast('테마 목록을 불러오지 못했습니다: '+error.message);return;}
-    setThemes((data??[]) as SavedTheme[]);
-    const workIds=[...new Set((data??[]).map((t:SavedTheme)=>t.work_id).filter((id):id is string=>!!id))];
+    // Supabase limits single SELECT responses (usually 1,000 rows).
+    // Page both catalogs so "전체" and "즐겨찾기" do not silently truncate.
+    const fetchThemes = async () => {
+      const items: SavedTheme[] = [];
+      for(let start=0;;start+=500){
+        const {data,error}=await supabase.from('themes').select('*')
+          .order('updated_at',{ascending:false}).order('id',{ascending:false})
+          .range(start,start+499);
+        if(error)throw error;
+        items.push(...((data??[]) as SavedTheme[]));
+        if((data??[]).length<500)return items;
+      }
+    };
+    const fetchFavorites = async () => {
+      const ids:string[]=[];
+      for(let start=0;;start+=500){
+        const {data,error}=await supabase.from('theme_favorites').select('theme_id')
+          .eq('user_id',userId).order('theme_id').range(start,start+499);
+        if(error)throw error;
+        ids.push(...(data??[]).map(row=>row.theme_id));
+        if((data??[]).length<500)return ids;
+      }
+    };
+    let data: SavedTheme[], stars:string[];
+    try{[data,stars]=await Promise.all([fetchThemes(),fetchFavorites()]);}
+    catch(error){showToast('테마 목록을 불러오지 못했습니다: '+(error instanceof Error?error.message:String(error)));return;}
+    setThemes(data);
+    const workIds=[...new Set(data.map((t:SavedTheme)=>t.work_id).filter((id):id is string=>!!id))];
     if(workIds.length){const {data:works}=await supabase.from('works').select('id,title').in('id',workIds);setWorkNames(Object.fromEntries((works??[]).map(w=>[w.id,w.title])));}
-    setFavorites(new Set((stars??[]).map((f:{theme_id:string})=>f.theme_id)));
+    setFavorites(new Set(stars));
   },[userId]);
   useEffect(()=>{void load();},[load]);
   const visible=useMemo(()=>themes.filter(t=>{
@@ -96,7 +117,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
   }
   async function copy(t:SavedTheme){
     if(t.work_id){showToast('작품 전용 테마는 다른 작품으로 복사할 수 없습니다.');return;}
-    const {error}=await supabase.from('themes').insert({owner_id:userId,work_id:null,name:t.name+' (복사본)',description:t.description,dark_colors:t.dark_colors,light_colors:t.light_colors,is_published:false,copied_from_id:t.id});
+    const {error}=await supabase.from('themes').insert({owner_id:userId,work_id:null,name:t.name.slice(0,74)+' (복사본)',description:t.description,dark_colors:t.dark_colors,light_colors:t.light_colors,is_published:false,copied_from_id:t.id});
     if(error)showToast(error.message);else{setTab('mine');await load();}
   }
   async function remove(t:SavedTheme){
