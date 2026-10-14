@@ -56,7 +56,7 @@ assert.deepEqual(resolveThemeSelection(user,work,
   {themeId:'custom-scene',variant:'light'},'fixed custom → fluid preserves custom palette');
 assert.deepEqual(resolveThemeSelection(user,work,
   {theme_override:null,theme_id:null,theme_variant:null},'dark'),
-  {themeId:'work-palette',variant:'dark'},'new fluid rooms still honor the work default');
+  {themeId:'work-palette',variant:'light'},'new fluid rooms honor work palette and global variant');
 assert.equal(theme.preferredThemeVariant({preferred_theme_mode:'dark',preferred_theme_variant:'light'},'light'),'dark');
 assert.equal(theme.preferredThemeVariant({preferred_theme_mode:'custom',preferred_theme_variant:'light'},'dark'),'light');
 
