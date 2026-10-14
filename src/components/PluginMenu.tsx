@@ -168,8 +168,8 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
         <label className="mb-4 text-sm font-semibold text-slate-200">설명 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.description.length}/100</span>
           <input maxLength={100} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className="mt-2 w-full rounded-xl bg-surface px-3 py-3 outline-none" placeholder="이 플러그인이 하는 일" />
         </label>
-        <label className="text-sm font-semibold text-slate-200">프롬프트 본문 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.prompt.length}/4000</span>
-          <textarea maxLength={4000} rows={10} value={draft.prompt} onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} className="mt-2 w-full resize-none rounded-xl bg-surface px-3 py-3 text-sm outline-none" placeholder="활성화 중 매 요청에 AI에게 전달할 프롬프트" />
+        <label className="text-sm font-semibold text-slate-200">프롬프트 본문 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.prompt.length.toLocaleString('ko-KR')}자</span>
+          <textarea rows={10} value={draft.prompt} onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} className="mt-2 w-full resize-none rounded-xl bg-surface px-3 py-3 text-sm outline-none" placeholder="활성화 중 매 요청에 AI에게 전달할 프롬프트" />
         </label>
         <button disabled={busy || !draft.name.trim() || !draft.prompt.trim()} onClick={() => void save()} className="mt-5 rounded-xl bg-brand py-3 font-semibold text-white disabled:opacity-40">저장</button>
       </section>
