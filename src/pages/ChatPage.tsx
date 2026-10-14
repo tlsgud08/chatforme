@@ -25,6 +25,7 @@ import { isTurnPriceWarning, loadTurnPriceWarning } from '@/lib/turnPriceWarning
 import { showToast } from '@/lib/toast';
 import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
+import './ChatPage.css';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
 const GENERATION_TIMEOUT_MS = 8 * 60_000;
@@ -1296,8 +1297,11 @@ export default function ChatPage() {
               </button>
             </div>
           )}
-          {visibleMessages.map((m) => (
+          {visibleMessages.map((m, index) => (
             <div key={m.id} className="flex w-full min-w-0 flex-col gap-1">
+              {index > 0 && (
+                <hr className="chat-turn-divider" aria-label="메시지 구분" />
+              )}
               {m.is_hidden && debugMode && (
                 <p className="text-[10px] text-amber-400">🔍 숨김 메시지</p>
               )}
@@ -1318,7 +1322,7 @@ export default function ChatPage() {
                 </div>
               ) : (
                 <>
-                  <div className={`w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                  <div className={`w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere] px-4 py-2.5 text-sm leading-relaxed ${m.role === 'user' || m.is_hidden ? 'rounded-2xl' : ''} ${
                     m.is_hidden
                       ? 'border border-amber-500/40 bg-surface text-amber-200'
                       : m.role === 'user' && m.command_name
@@ -1326,8 +1330,8 @@ export default function ChatPage() {
                       : m.role === 'user'
                         ? 'bg-brand text-white'
                         : m.generation_status === 'interrupted' && !m.content
-                          ? 'bg-surface text-slate-500'
-                          : 'bg-surface text-slate-100'
+                          ? 'text-slate-500'
+                          : 'text-slate-100'
                   }`}>
                     {m.role === 'user' && m.command_name && <p className="mb-2 font-bold text-indigo-400">/{m.command_name}</p>}
                     <ReactMarkdown
@@ -1393,13 +1397,16 @@ export default function ChatPage() {
             </div>
           ))}
           {sending && (
-            <div className="self-start max-w-full rounded-2xl bg-surface px-4 py-2.5 text-sm leading-relaxed text-slate-100">
+            <>
+            {visibleMessages.length > 0 && <hr className="chat-turn-divider" aria-label="메시지 구분" />}
+            <div className="w-full min-w-0 max-w-full px-4 py-2.5 text-sm leading-relaxed text-slate-100">
               {streamingContent ? (
                 <p className="whitespace-pre-wrap break-words">{streamingContent}</p>
               ) : (
                 <span className="text-slate-400">생각 중…</span>
               )}
             </div>
+            </>
           )}
         </div>
       </div>
