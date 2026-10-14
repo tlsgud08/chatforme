@@ -12,9 +12,18 @@ export default function WorkThemeSettings({userId,workId,themeId,variant,onChang
   const [show,setShow]=useState(false);
   useEffect(()=>{
     let live=true;
-    if(!themeId){setSelected(null);return;}
-    void supabase.from('themes').select('*').eq('id',themeId).maybeSingle().then(({data})=>{if(live)setSelected(data as SavedTheme|null);});
-    return ()=>{live=false;};
+    const refresh=async()=>{
+      if(!themeId){setSelected(null);return;}
+      const {data}=await supabase.from('themes').select('*').eq('id',themeId).maybeSingle();
+      if(!live)return;
+      setSelected(data as SavedTheme|null);
+      // Theme deletion automatically clears works.default_theme_id in the DB.
+      if(!data)onChange(null,null);
+    };
+    const listener=()=>{void refresh();};
+    void refresh();
+    window.addEventListener('inuchat:theme-changed',listener);
+    return ()=>{live=false;window.removeEventListener('inuchat:theme-changed',listener);};
   },[themeId,show]);
   return <section className="rounded-xl border border-surface2 p-3">
     <h3 className="mb-1 text-sm font-semibold text-white">작품 기본 테마</h3>
