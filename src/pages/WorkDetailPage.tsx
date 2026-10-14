@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { guestCreateSession, guestAddMessage } from '@/lib/guest';
 import { formatCount } from '@/lib/works';
 import type { Persona, Profile, StartConfig, Work } from '@/types/db';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -12,7 +11,7 @@ import { showToast } from '@/lib/toast';
 export default function WorkDetailPage() {
   const { workId } = useParams();
   const navigate = useNavigate();
-  const { user, isGuest, isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [starting, setStarting] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>('');
@@ -51,7 +50,7 @@ export default function WorkDetailPage() {
       const { data } = await supabase.from('personas').select('*').eq('user_id', user!.id).order('created_at');
       return (data as Persona[]) ?? [];
     },
-    enabled: !!user && !isGuest,
+    enabled: !!user,
   });
 
   const { data: favoriteCount = 0 } = useQuery({
@@ -77,7 +76,7 @@ export default function WorkDetailPage() {
         .maybeSingle();
       return !!data;
     },
-    enabled: !!workId && !!user && !isGuest,
+    enabled: !!workId && !!user,
   });
 
   useEffect(() => {
@@ -95,7 +94,7 @@ export default function WorkDetailPage() {
   }, [startConfigs]);
 
   async function toggleFavorite() {
-    if (!user || isGuest) return;
+    if (!user) return;
     const newState = !isFavorited;
     queryClient.setQueryData(['work-fav-me', workId, user.id], newState);
     queryClient.setQueryData(['work-fav-count', workId], (old: number) => Math.max(0, old + (newState ? 1 : -1)));
@@ -112,29 +111,6 @@ export default function WorkDetailPage() {
     setStarting(true);
 
     const selectedConfig = startConfigs.find((c) => c.id === selectedConfigId) ?? null;
-    const now = new Date().toISOString();
-
-    if (isGuest) {
-      const session = guestCreateSession({ id: work.id, title: work.title });
-      if (selectedConfig?.initial_context.trim()) {
-        guestAddMessage(session.id, {
-          id: crypto.randomUUID(), role: 'user',
-          content: `[시작 설정: 아래 내용을 참고해 첫 장면을 시작하세요]\n\n${selectedConfig.initial_context}`,
-          turn_index: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: null, cache_write_tokens: null, cost: 0,
-          is_hidden: true, created_at: now,
-        });
-      }
-      if (selectedConfig?.initial_message.trim()) {
-        guestAddMessage(session.id, {
-          id: crypto.randomUUID(), role: 'assistant',
-          content: selectedConfig.initial_message,
-          turn_index: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: null, cache_write_tokens: null, cost: 0,
-          is_hidden: false, created_at: now,
-        });
-      }
-      navigate(`/chat/${session.id}`);
-      return;
-    }
 
     if (!user) { setStarting(false); return; }
 
@@ -198,11 +174,11 @@ export default function WorkDetailPage() {
     }
 
     queryClient.removeQueries({ queryKey: ['work', work.id] });
-    queryClient.setQueriesData({ queryKey: ['works-stats'] }, (old: unknown) =>
+    queryClient.setQueriesData({ queryKey: ['works-list'] }, (old: unknown) =>
       Array.isArray(old) ? old.filter((item: Work) => item.id !== work.id) : old,
     );
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['works-stats'] }),
+      queryClient.invalidateQueries({ queryKey: ['works-list'] }),
       queryClient.invalidateQueries({ queryKey: ['my-works', user.id] }),
     ]);
     showToast('작품을 삭제했습니다.');
@@ -265,7 +241,7 @@ export default function WorkDetailPage() {
             )}
           </div>
         )}
-        {user && !isGuest && (
+        {user && (
           <button
             onClick={toggleFavorite}
             className="shrink-0 text-2xl leading-none"
@@ -283,7 +259,7 @@ export default function WorkDetailPage() {
       <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">{work.description}</p>
 
       <div className="mt-6 flex flex-col gap-3">
-        {!isGuest && personas.length > 0 && (
+        {personas.length > 0 && (
           <div>
             <label className="mb-1 block text-xs text-slate-400">페르소나</label>
             <select
@@ -297,7 +273,7 @@ export default function WorkDetailPage() {
             </select>
           </div>
         )}
-        {!isGuest && personas.length === 0 && (
+        {personas.length === 0 && (
           <p className="text-xs text-slate-500">
             페르소나 없음 — 설정 탭에서 추가하면 여기서 선택할 수 있습니다.
           </p>
@@ -326,7 +302,7 @@ export default function WorkDetailPage() {
           >
             {starting ? '시작 중…' : '새 채팅 시작'}
           </button>
-          {!isGuest && (
+          {(
             <button
               type="button"
               onClick={() => navigate(`/multichat/new?workId=${work.id}`)}

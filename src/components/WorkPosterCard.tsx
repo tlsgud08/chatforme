@@ -1,25 +1,19 @@
 import { Link } from 'react-router-dom';
-import type { WorkStat } from '@/lib/works';
+import type { WorkCard } from '@/lib/works';
 
 interface Props {
-  work: WorkStat;
-  rank?: number;
+  work: WorkCard;
   className?: string;
   isFavorited?: boolean;
   onFavoriteToggle?: (workId: string, e: React.MouseEvent) => void;
 }
 
-export default function WorkPosterCard({ work, rank, className = '', isFavorited, onFavoriteToggle }: Props) {
+export default function WorkPosterCard({ work, className = '', isFavorited, onFavoriteToggle }: Props) {
   return (
     <Link to={`/works/${work.id}`} className={`block ${className}`}>
       <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-surface2">
         {work.thumbnail_url && (
           <img src={work.thumbnail_url} alt="" className="h-full w-full object-cover" />
-        )}
-        {rank != null && (
-          <span className="absolute left-1.5 top-1.5 flex h-6 min-w-6 items-center justify-center rounded-md bg-black/70 px-1.5 text-sm font-bold text-white">
-            {rank}
-          </span>
         )}
         {work.visibility === 'unlisted' && (
           <span className="absolute right-1.5 top-1.5 rounded bg-black/60 px-1 text-[10px] text-slate-200">

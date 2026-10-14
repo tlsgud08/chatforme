@@ -8,19 +8,39 @@ export interface OpenRouterModelInfo {
   contextLength?: number;
 }
 
+let cachedSource: string | null | undefined;
+let cachedLegacy = false;
+let catalog: OpenRouterModelInfo[] = [];
+let catalogById = new Map<string, OpenRouterModelInfo>();
+
 export function loadOpenRouterModels(): OpenRouterModelInfo[] {
   try {
     const stored = localStorage.getItem(MODEL_CATALOG_KEY);
-    if (stored) return JSON.parse(stored) as OpenRouterModelInfo[];
-    const legacy = JSON.parse(localStorage.getItem(LEGACY_VERIFIED_MODELS_KEY) ?? '[]') as string[];
-    return legacy.map((id) => ({ id, name: id, supportedParameters: [] }));
+    const legacy = stored ? null : localStorage.getItem(LEGACY_VERIFIED_MODELS_KEY);
+    const source = stored || legacy || '[]';
+    const isLegacy = !stored;
+    // Compare the saved value so same-tab updates, other tabs and test clients
+    // invalidate the cache without polling or permanently caching old metadata.
+    if (source === cachedSource && isLegacy === cachedLegacy) return catalog;
+    const parsed = JSON.parse(stored || legacy || '[]');
+    catalog = Array.isArray(parsed)
+      ? stored ? parsed as OpenRouterModelInfo[] : parsed.map((id: string) => ({ id, name: id, supportedParameters: [] }))
+      : [];
+    catalogById = new Map(catalog.map(model => [model.id, model]));
+    cachedSource = source;
+    cachedLegacy = isLegacy;
+    return catalog;
   } catch {
-    return [];
+    cachedSource = undefined;
+    catalog = [];
+    catalogById.clear();
+    return catalog;
   }
 }
 
 export function getOpenRouterModel(modelId: string): OpenRouterModelInfo | undefined {
-  return loadOpenRouterModels().find((model) => model.id === modelId);
+  loadOpenRouterModels();
+  return catalogById.get(modelId);
 }
 
 export function isModelVerified(modelId: string): boolean {

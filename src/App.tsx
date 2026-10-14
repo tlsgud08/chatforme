@@ -1,28 +1,33 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { isSupabaseConfigured } from './lib/supabase';
 import Layout from './components/Layout';
-import LoginPage from './pages/LoginPage';
-import WorksPage from './pages/WorksPage';
-import WorkDetailPage from './pages/WorkDetailPage';
-import SessionsPage from './pages/SessionsPage';
-import ChatPage from './pages/ChatPage';
-import CreatePage from './pages/CreatePage';
-import WorkEditorPage from './pages/WorkEditorPage';
-import SettingsPage from './pages/SettingsPage';
-import SearchPage from './pages/SearchPage';
-import MyPage from './pages/MyPage';
+import PageLoadBoundary from './components/PageLoadBoundary';
 import SetupNotice from './components/SetupNotice';
-import FavoritesPage from './pages/FavoritesPage';
-import UserPage from './pages/UserPage';
 import AppToast from './components/AppToast';
 import AppConfirmDialog from './components/AppConfirmDialog';
 import ThemeManager from './components/ThemeManager';
-import MultichatCreatePage from './pages/MultichatCreatePage';
-import MultichatPage from './pages/MultichatPage';
+
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const WorksPage = lazy(() => import('./pages/WorksPage'));
+const WorkDetailPage = lazy(() => import('./pages/WorkDetailPage'));
+const SessionsPage = lazy(() => import('./pages/SessionsPage'));
+const ChatPage = lazy(() => import('./pages/ChatPage'));
+const CreatePage = lazy(() => import('./pages/CreatePage'));
+const WorkEditorPage = lazy(() => import('./pages/WorkEditorPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const SearchPage = lazy(() => import('./pages/SearchPage'));
+const MyPage = lazy(() => import('./pages/MyPage'));
+const FavoritesPage = lazy(() => import('./pages/FavoritesPage'));
+const UserPage = lazy(() => import('./pages/UserPage'));
+const MultichatCreatePage = lazy(() => import('./pages/MultichatCreatePage'));
+const MultichatPage = lazy(() => import('./pages/MultichatPage'));
 
 export default function App() {
   const { user, loading } = useAuth();
+  const location = useLocation();
+  const fallback = <div className="flex h-full items-center justify-center text-slate-400" role="status">불러오는 중…</div>;
 
   if (!isSupabaseConfigured) return <SetupNotice />;
 
@@ -32,12 +37,14 @@ export default function App() {
     );
   }
 
-  if (!user) return <LoginPage />;
+  if (!user) return <PageLoadBoundary resetKey={location.pathname}><Suspense fallback={fallback}><LoginPage /></Suspense></PageLoadBoundary>;
 
   return (<>
     <AppToast />
     <AppConfirmDialog />
     <ThemeManager />
+    <PageLoadBoundary resetKey={location.pathname}>
+    <Suspense fallback={fallback}>
     <Routes>
       {/* 로그인 화면 (CreatePage에서 로그인 유도 시 이동) */}
       <Route path="/login" element={<LoginPage />} />
@@ -63,5 +70,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/works" replace />} />
       </Route>
     </Routes>
+    </Suspense>
+    </PageLoadBoundary>
   </>);
 }

@@ -3,15 +3,16 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import AvatarCircle from '@/components/AvatarCircle';
-import type { Profile, Work } from '@/types/db';
+import type { Profile } from '@/types/db';
+import { WORK_LIST_COLUMNS, type WorkListItem } from '@/lib/works';
 
 export default function UserPage() {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [works, setWorks] = useState<Work[]>([]);
+  const [profile, setProfile] = useState<Pick<Profile, 'id' | 'display_name' | 'avatar_url' | 'bio'> | null>(null);
+  const [works, setWorks] = useState<WorkListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const isOwnProfile = user?.id === userId;
@@ -19,11 +20,11 @@ export default function UserPage() {
   useEffect(() => {
     if (!userId) return;
     Promise.all([
-      supabase.from('profiles').select('*').eq('id', userId).single(),
-      supabase.from('works').select('*').eq('creator_id', userId).eq('visibility', 'public').order('created_at', { ascending: false }),
+      supabase.from('profiles').select('id,display_name,avatar_url,bio').eq('id', userId).single(),
+      supabase.from('works').select(WORK_LIST_COLUMNS).eq('creator_id', userId).eq('visibility', 'public').order('created_at', { ascending: false }),
     ]).then(([profileRes, worksRes]) => {
-      setProfile((profileRes.data as Profile) ?? null);
-      setWorks((worksRes.data as Work[]) ?? []);
+      setProfile((profileRes.data) ?? null);
+      setWorks((worksRes.data as WorkListItem[]) ?? []);
       setLoading(false);
     });
   }, [userId]);

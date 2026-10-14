@@ -14,7 +14,7 @@ import { useUsdKrwRate } from '@/lib/exchangeRate';
 import { loadTurnPriceWarning, saveTurnPriceWarning, type TurnPriceWarningCurrency } from '@/lib/turnPriceWarning';
 
 export default function SettingsPage() {
-  const { user, isGuest, signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const [keys, setKeys] = useState<ApiKeys>(loadApiKeys());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
@@ -40,7 +40,7 @@ export default function SettingsPage() {
   const [systemPromptLoaded, setSystemPromptLoaded] = useState(false);
 
   useEffect(() => {
-    if (isGuest || !user) return;
+    if (!user) return;
     supabase
       .from('profiles')
       .select('*')
@@ -71,7 +71,7 @@ export default function SettingsPage() {
           setSystemPromptLoaded(true);
         });
     }
-  }, [user, isGuest]);
+  }, [user]);
 
   useEffect(() => {
     if (!profile) return;
@@ -218,7 +218,7 @@ export default function SettingsPage() {
   return (
     <div className="flex flex-col gap-6 p-4">
       {/* 계정 동기화 테마 */}
-      <ThemePreferences userId={isGuest ? null : user?.id ?? null}/>
+      <ThemePreferences userId={user!.id}/>
 
       {/* 턴 가격 경고 */}
       <section>
@@ -312,7 +312,7 @@ export default function SettingsPage() {
       </section>
 
       {/* 기본 출력 설정 */}
-      {!isGuest && profile && (
+      {profile && (
         <section>
           <h2 className="mb-3 font-semibold text-white">기본 출력 설정</h2>
           <div className="flex flex-col gap-3">
@@ -336,7 +336,7 @@ export default function SettingsPage() {
         </section>
       )}
 
-      {!isGuest && profile && (
+      {profile && (
         <section>
           <h2 className="mb-1 font-semibold text-white">요약 메모리 프롬프트</h2>
           <p className="mb-3 text-xs text-slate-500">모든 채팅방의 요약 노트 생성에 사용됩니다. 비워 저장하면 기본 프롬프트를 사용합니다.</p>
@@ -443,7 +443,7 @@ export default function SettingsPage() {
         </section>
       )}
 
-      {!isGuest && user && (
+      {user && (
         <section className="border-t border-slate-700 pt-6">
           <h2 className="mb-1 font-semibold text-white">비밀번호 변경</h2>
           <p className="mb-3 text-xs text-slate-500">
@@ -496,7 +496,7 @@ export default function SettingsPage() {
       )}
 
       <button onClick={() => signOut()} className="mt-2 text-sm text-red-400">
-        {isGuest ? '비회원 모드 종료' : '로그아웃'}
+        로그아웃
       </button>
 
       <p className="pb-2 text-center text-[11px] text-slate-600">v0.2.0</p>

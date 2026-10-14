@@ -7,7 +7,6 @@ interface AuthState {
   session: AuthSession | null;
   loading: boolean;
   isAdmin: boolean;
-  isGuest: boolean;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string, masterPassword: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -18,7 +17,6 @@ const AuthContext = createContext<AuthState | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
-  const isGuest = false;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -39,7 +37,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     session,
     loading,
     isAdmin,
-    isGuest,
     async signInWithEmail(email, password) {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
