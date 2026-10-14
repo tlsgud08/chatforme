@@ -17,6 +17,7 @@ import FavoritesPage from './pages/FavoritesPage';
 import UserPage from './pages/UserPage';
 import AppToast from './components/AppToast';
 import AppConfirmDialog from './components/AppConfirmDialog';
+import ThemeManager from './components/ThemeManager';
 import MultichatCreatePage from './pages/MultichatCreatePage';
 import MultichatPage from './pages/MultichatPage';
 
@@ -36,6 +37,7 @@ export default function App() {
   return (<>
     <AppToast />
     <AppConfirmDialog />
+    <ThemeManager />
     <Routes>
       {/* 로그인 화면 (CreatePage에서 로그인 유도 시 이동) */}
       <Route path="/login" element={<LoginPage />} />

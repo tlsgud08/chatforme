@@ -7,7 +7,7 @@ import { AuthProvider } from './hooks/useAuth';
 import { applyTheme, loadTheme } from './lib/theme';
 import './index.css';
 
-applyTheme(loadTheme());
+applyTheme(loadTheme() === 'dark' ? 'dark' : 'light');
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },

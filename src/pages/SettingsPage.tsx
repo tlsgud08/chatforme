@@ -6,7 +6,7 @@ import type { ReasoningSelection } from '@/lib/llm/types';
 import { discoverOpenRouterModels } from '@/lib/llm/modelDiscovery';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, saveDefaultReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import ModelSelector from '@/components/ModelSelector';
-import { loadTheme, saveTheme, type Theme } from '@/lib/theme';
+import ThemePreferences from '@/components/ThemePreferences';
 import type { Profile, Provider } from '@/types/db';
 import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/OutputSettingsEditor';
@@ -24,7 +24,6 @@ export default function SettingsPage() {
   const [summaryReasoning, setSummaryReasoning] = useState<ReasoningSelection>({});
   const [masterPassword, setMasterPassword] = useState('');
   const [masterPasswordConfirm, setMasterPasswordConfirm] = useState('');
-  const [theme, setTheme] = useState<Theme>(loadTheme());
   const [checkingModels, setCheckingModels] = useState(false);
   const [defaultOutputSettings, setDefaultOutputSettings] = useState<OutputSettingsValue | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -200,11 +199,6 @@ export default function SettingsPage() {
     setTimeout(() => setSavedMsg(''), 2000);
   }
 
-  function changeTheme(nextTheme: Theme) {
-    setTheme(nextTheme);
-    saveTheme(nextTheme);
-  }
-
   function updateTurnPriceWarning(next: typeof turnPriceWarning) {
     setTurnPriceWarning(next);
     saveTurnPriceWarning(next);
@@ -220,28 +214,8 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-6 p-4">
-      {/* 화면 테마 */}
-      <section>
-        <h2 className="mb-1 font-semibold text-white">화면 테마</h2>
-        <p className="mb-3 text-xs text-slate-500">
-          선택한 테마는 이 기기에 저장됩니다.
-        </p>
-        <div className="grid grid-cols-2 gap-2 rounded-xl bg-surface p-1.5" role="group" aria-label="화면 테마 선택">
-          {(['dark', 'light'] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={theme === option}
-              onClick={() => changeTheme(option)}
-              className={`rounded-lg px-3 py-2.5 text-sm font-semibold ${
-                theme === option ? 'bg-brand text-white shadow-sm' : 'text-slate-400'
-              }`}
-            >
-              {option === 'dark' ? '🌙 다크' : '☀️ 라이트'}
-            </button>
-          ))}
-        </div>
-      </section>
+      {/* 계정 동기화 테마 */}
+      <ThemePreferences userId={isGuest ? null : user?.id ?? null}/>
 
       {/* 턴 가격 경고 */}
       <section>

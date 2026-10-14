@@ -1,6 +1,7 @@
 import { useSearchParams } from 'react-router-dom';
 import CommandMenu from '@/components/CommandMenu';
 import PluginMenu from '@/components/PluginMenu';
+import ThemeMenu from '@/components/ThemeMenu';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import WorkPosterCard from '@/components/WorkPosterCard';
 import { supabase } from '@/lib/supabase';
@@ -11,8 +12,8 @@ export default function WorksPage() {
   const { user, isAdmin } = useAuth();
   const [params, setParams] = useSearchParams();
   const category = params.get('category');
-  const selected = category === 'commands' || category === 'plugins' ? category : 'works';
-  const labels = { works: '작품', commands: '명령어', plugins: '플러그인' };
+  const selected = category === 'commands' || category === 'plugins' || category === 'themes' ? category : 'works';
+  const labels = { works: '작품', commands: '명령어', plugins: '플러그인', themes: '테마' };
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ['works-stats', { includePrivate: isAdmin }],
@@ -51,7 +52,7 @@ export default function WorksPage() {
         {selected === 'works' && latest.length > 0 && <span className="ml-auto text-xs text-slate-500">최신순</span>}
       </div>
       <nav aria-label="콘텐츠 종류" className="flex gap-2 overflow-x-auto px-4 py-3">
-        {(['works', 'commands', 'plugins'] as const).map((value) => <button key={value} type="button"
+        {(['works', 'commands', 'plugins', 'themes'] as const).map((value) => <button key={value} type="button"
           aria-pressed={selected === value}
           onClick={() => setParams((current) => { const next = new URLSearchParams(current); next.set('category', value); return next; })}
           className={`rounded-full border px-5 py-2 text-sm font-semibold ${selected === value ? 'border-brand bg-brand text-white' : 'border-surface2 bg-surface text-slate-400'}`}>
@@ -60,6 +61,7 @@ export default function WorksPage() {
       </nav>
       {selected === 'commands' && (user ? <CommandMenu userId={user.id} embedded /> : <p className="p-4 text-sm text-slate-400">로그인 후 명령어를 관리할 수 있어요.</p>)}
       {selected === 'plugins' && (user ? <PluginMenu userId={user.id} embedded /> : <p className="p-4 text-sm text-slate-400">로그인 후 플러그인을 관리할 수 있어요.</p>)}
+      {selected === 'themes' && (user ? <ThemeMenu userId={user.id} embedded /> : <p className="p-4 text-sm text-slate-400">로그인 후 테마를 관리할 수 있어요.</p>)}
       {selected === 'works' && <>
         {isLoading && <p className="p-6 text-slate-400">불러오는 중…</p>}
         {error && <p className="p-6 text-amber-400">목록을 불러오지 못했습니다.</p>}

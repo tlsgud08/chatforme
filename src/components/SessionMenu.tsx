@@ -12,6 +12,7 @@ import { normalizeOutputTokens } from './OutputTokenSelector';
 import OutputSettingsEditor, { type OutputSettingsValue } from './OutputSettingsEditor';
 import PromptCacheSettings from './PromptCacheSettings';
 import SessionPluginSettings from './SessionPluginSettings';
+import SessionThemeSettings from './SessionThemeSettings';
 
 interface OpenRouterCredit {
   usage: number;
@@ -392,6 +393,7 @@ export default function SessionMenu({
         </section>
 
         {user && <SessionPluginSettings session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
+          {user && <SessionThemeSettings session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate}/>}
 
         {/* 요약 메모리 */}
         <section className="rounded-xl border border-surface2 p-3">

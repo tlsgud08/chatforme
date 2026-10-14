@@ -7,7 +7,7 @@ export default {
         bg: 'rgb(var(--color-bg) / <alpha-value>)',
         surface: 'rgb(var(--color-surface) / <alpha-value>)',
         surface2: 'rgb(var(--color-surface2) / <alpha-value>)',
-        brand: '#6366f1',
+        brand: 'rgb(var(--color-brand, 99 102 241) / <alpha-value>)',
       },
       maxWidth: {
         app: '480px',
