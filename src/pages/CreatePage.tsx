@@ -116,17 +116,16 @@ export default function CreatePage() {
       const {error:commandError}=await supabase.from('commands').insert(commands.map(item=>({...item,work_id:created.id,owner_id:user!.id,is_published:false})));
       if(commandError)showToast('작품 전용 명령어 복제 실패: '+commandError.message);
     }
+    // Map old IDs to the newly inserted IDs explicitly. INSERT RETURNING row
+    // ordering is not guaranteed, so index-based mapping can attach the wrong theme.
     let copiedDefaultId = work.default_theme_id ?? null;
-    if(themes?.length) {
-      const {data:createdThemes,error:themesError}=await supabase.from('themes').insert(themes.map(item=>({
-        owner_id:user!.id,work_id:created.id,name:item.name,description:item.description,
-        dark_colors:item.dark_colors,light_colors:item.light_colors,is_published:false,
-      }))).select('id,name');
-      if(themesError)showToast('작품 전용 테마 복제 실패: '+themesError.message);
-      else {
-        const defaultIndex=themes.findIndex(item=>item.id===work.default_theme_id);
-        if(defaultIndex>=0)copiedDefaultId=createdThemes?.[defaultIndex]?.id??null;
-      }
+    for (const original of themes??[]) {
+      const {data:copiedTheme,error:themesError}=await supabase.from('themes').insert({
+        owner_id:user!.id,work_id:created.id,name:original.name,description:original.description,
+        dark_colors:original.dark_colors,light_colors:original.light_colors,is_published:false,
+      }).select('id').single();
+      if(themesError){showToast('작품 전용 테마 복제 실패: '+themesError.message);continue;}
+      if(original.id===work.default_theme_id) copiedDefaultId=copiedTheme!.id;
     }
     if (copiedDefaultId && (copiedDefaultId!==work.default_theme_id || !themes?.some(item=>item.id===work.default_theme_id))) {
       const {error:defaultError}=await supabase.from('works').update({
