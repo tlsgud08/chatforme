@@ -5,6 +5,7 @@
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;
+  --color-brand: 99 102 241;
   --color-bg: 15 23 42;
   --color-surface: 30 41 59;
   --color-surface2: 51 65 85;
@@ -14,6 +15,7 @@
 
 :root[data-theme='light'] {
   color-scheme: light;
+  --color-brand: 99 102 241;
   --color-bg: 248 250 252;
   --color-surface: 241 245 249;
   --color-surface2: 203 213 225;
@@ -89,3 +91,18 @@ button:active {
 .toast-enter {
   animation: toast-in 0.2s ease-out;
 }
+
+/* Custom palette is isolated: built-in dark/light rules above remain unchanged. */
+:root[data-theme='custom'] { color-scheme: var(--custom-scheme, light); }
+:root[data-theme='custom'] .text-white { color: var(--page-text); }
+:root[data-theme='custom'] [class*='bg-brand'].text-white,
+:root[data-theme='custom'] [class*='bg-brand'] > .text-white { color: var(--custom-accent-text); }
+:root[data-theme='custom'] .text-slate-100,
+:root[data-theme='custom'] .text-slate-200,
+:root[data-theme='custom'] .text-slate-300 { color: var(--page-text); }
+:root[data-theme='custom'] .text-slate-400 { color: color-mix(in srgb, var(--page-text) 70%, var(--page-bg)); }
+:root[data-theme='custom'] .text-slate-500,
+:root[data-theme='custom'] .text-slate-600 { color: color-mix(in srgb, var(--page-text) 52%, var(--page-bg)); }
+:root[data-theme='custom'] button:focus-visible,
+:root[data-theme='custom'] a:focus-visible,
+:root[data-theme='custom'] input:focus-visible { outline-color: rgb(var(--color-brand)); }
