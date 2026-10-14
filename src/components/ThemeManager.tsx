@@ -36,7 +36,7 @@ export default function ThemeManager() {
         const { data, error: sessionError } = await shareInFlight(`theme:session:${user.id}:${chatMatch[1]}`, () => supabase.from('sessions').select('work_id,theme_override,theme_id,theme_variant').eq('id',chatMatch[1]).maybeSingle());
         if (!current || run!==generation || sessionError) return;
         session = data as SessionTheme | null;
-        if (!session?.theme_override && session?.work_id && pref?.prefer_work_theme !== false) {
+        if (!session?.theme_override && !session?.theme_id && !session?.theme_variant && session?.work_id && pref?.prefer_work_theme !== false) {
           const { data: work, error: workError } = await shareInFlight(`theme:work:${user.id}:${session.work_id}`, () => supabase.from('works').select('default_theme_id,default_theme_variant').eq('id',session!.work_id).maybeSingle());
           if (!current || run!==generation || workError) return;
           workDefault = work as WorkDefault | null;

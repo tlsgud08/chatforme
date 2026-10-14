@@ -11,6 +11,20 @@ const migration = read('supabase/migrations/20261014172000_unlimited_plugin_fiel
 
 assert.match(session, /mode==='inherit'&&!open&&<>/);
 assert.match(session, /aria-label="사이트 기본 테마"/);
+assert.match(session, /value:'inherit',label:'유동적'/);
+assert.match(session, /if\(next==='inherit'&&isFluid\)/);
+assert.match(session, /auto_theme_enabled:override===null\?/);
+assert.match(session, /disabled=\{busy\|\|saving\|\|siteSaving\|\|!isFluid\}/);
+assert.match(session, /await save\(null,session.theme_override==='custom'\?/);
+assert.doesNotMatch(session, /label:'기본값'/);
+const chat = read('src/pages/ChatPage.tsx');
+assert.match(chat, /session.theme_override!=null\)return/);
+assert.match(chat, /\.is\('theme_override',null\)/);
+assert.match(chat, /autoThemeEnabled:!!session.auto_theme_enabled&&session.theme_override==null/);
+assert.doesNotMatch(chat, /theme_override:'custom' as const/);
+const fluidMigration=read('supabase/migrations/20261014173500_fluid_chat_theme.sql');
+assert.match(fluidMigration, /CREATE OR REPLACE FUNCTION public.sync_fluid_theme_variant/);
+assert.match(fluidMigration, /CHECK \(NOT auto_theme_enabled OR theme_override IS NULL\)/);
 assert.match(session, /update\(\{preferred_theme_mode:next\}\)/);
 assert.match(prefs, /update\(\{ preferred_theme_mode: mode \}\)/);
 assert.match(session, /\['light','dark'\]as const/);
