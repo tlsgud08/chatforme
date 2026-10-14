@@ -81,9 +81,11 @@ globalThis.window = {
 globalThis.Event = class Event { constructor(type){ this.type = type; } };
 
 theme.applyTheme('dark');
+assert.equal(theme.appliedThemeVariant(), 'dark');
 assert.equal(theme.loadTheme(), 'dark');
 assert.equal(document.documentElement.dataset.theme, 'dark');
 theme.applyCustomTheme(DEFAULT_LIGHT, 'light');
+assert.equal(theme.appliedThemeVariant(), 'light', 'visible custom variant beats a stored dark preference');
 assert.equal(document.documentElement.dataset.theme, 'custom');
 assert.equal(document.documentElement.dataset.themeVariant, 'light');
 assert.equal(style.colorScheme, 'light');
@@ -96,6 +98,26 @@ assert.equal(properties.has('--color-brand'), false);
 assert.equal(properties.has('--page-bg'), false);
 theme.requestThemeRefresh();
 assert.deepEqual(events, ['inuchat:theme-changed']);
+
+theme.applyCustomTheme(paletteFor(lightOnly, 'dark').palette, paletteFor(lightOnly, 'dark').variant);
+assert.equal(theme.appliedThemeVariant(), 'light', 'a light-only palette reports its actual fallback variant');
+theme.applyCustomTheme(DEFAULT_DARK, 'dark');
+assert.equal(theme.appliedThemeVariant(), 'dark');
+let observation, disconnected=false, notifications=0, notify;
+globalThis.MutationObserver=class {
+  constructor(callback){notify=callback;}
+  observe(target,options){observation={target,options};}
+  disconnect(){disconnected=true;}
+};
+const unsubscribe=theme.subscribeAppliedTheme(()=>notifications++);
+assert.equal(observation.target,document.documentElement);
+assert.deepEqual(observation.options,{attributes:true,attributeFilter:['data-theme','data-theme-variant']});
+theme.applyTheme('light');
+notify();
+assert.equal(notifications,1);
+assert.equal(theme.appliedThemeVariant(),'light');
+unsubscribe();
+assert.equal(disconnected,true,'sidebar subscription cleans up on unmount');
 
 console.log('Theme palettes, inheritance priority, and runtime reset: OK');
 

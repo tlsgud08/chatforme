@@ -79,6 +79,18 @@ export function loadTheme(): Theme {
   const saved = window.localStorage.getItem(KEY);
   return saved === 'dark' || saved === 'custom' ? saved : 'light';
 }
+/** Read the variant actually rendered, including single-variant palette fallback. */
+export function appliedThemeVariant(): ThemeVariant {
+  if (typeof document === 'undefined') return 'light';
+  const root = document.documentElement.dataset;
+  return (root.theme === 'custom' ? root.themeVariant : root.theme) === 'dark' ? 'dark' : 'light';
+}
+/** Observe application, not the refresh request that starts asynchronous reads. */
+export function subscribeAppliedTheme(listener: () => void): () => void {
+  const observer = new MutationObserver(listener);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-variant'] });
+  return () => observer.disconnect();
+}
 const vars = ['--color-brand','--color-bg','--color-surface','--color-surface2','--page-bg','--page-text','--custom-accent-text','--secondary-text','--secondary-text-soft','--secondary-text-muted','--chat-secondary-color','--chat-secondary-opacity','--secondary-extra-opacity'];
 const rgb = (hex: string) => [1,3,5].map(i => parseInt(hex.slice(i,i+2), 16));
 const rgbValue = (hex: string) => rgb(hex).join(' ');
