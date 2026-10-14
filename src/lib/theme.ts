@@ -42,7 +42,12 @@ export type ThemeSessionOverride = {
   theme_id?: string | null;
   theme_variant?: ThemeVariant | null;
 };
-/** Strict priority: session choice > work default (if enabled) > user preference. */
+/** The global light/dark preference is independent from a fluid chat's visible scene. */
+export function preferredThemeVariant(preference:ThemePreference|null,fallback:ThemeVariant):ThemeVariant {
+  const mode=preference?.preferred_theme_mode;
+  return mode==='light'||mode==='dark'?mode:preference?.preferred_theme_variant??fallback;
+}
+/** Strict priority: fixed session > fluid scene > work default > user preference. */
 export function resolveThemeSelection(
   preference: ThemePreference | null,
   work: ThemeWorkDefault | null,
@@ -50,13 +55,17 @@ export function resolveThemeSelection(
   fallback: ThemeVariant,
 ): { themeId: string | null; variant: ThemeVariant } {
   const mode = preference?.preferred_theme_mode;
-  const preferredVariant = mode === 'dark' || mode === 'light' ? mode
-    : preference?.preferred_theme_variant ?? fallback;
+  const preferredVariant = preferredThemeVariant(preference,fallback);
   if (session?.theme_override === 'builtin') {
     return { themeId: null, variant: session.theme_variant ?? preferredVariant };
   }
   if (session?.theme_override === 'custom') {
     return { themeId: session.theme_id ?? null, variant: session.theme_variant ?? preferredVariant };
+  }
+  // In fluid mode, keep the last displayed palette/variant (including after
+  // switching from a fixed mode). These fields do not select a fixed tab.
+  if (session && (session.theme_id || session.theme_variant)) {
+    return {themeId:session.theme_id??null,variant:session.theme_variant??preferredVariant};
   }
   if (preference?.prefer_work_theme !== false && work?.default_theme_id) {
     return { themeId: work.default_theme_id, variant: work.default_theme_variant ?? preferredVariant };
