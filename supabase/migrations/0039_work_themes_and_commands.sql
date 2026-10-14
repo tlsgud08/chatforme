@@ -27,7 +27,11 @@ CREATE INDEX themes_work_idx ON public.themes (work_id) WHERE work_id IS NOT NUL
 CREATE INDEX themes_owner_idx ON public.themes (owner_id);
 CREATE INDEX themes_published_idx ON public.themes (updated_at DESC) WHERE is_published;
 ALTER TABLE public.themes ENABLE ROW LEVEL SECURITY;
-CREATE POLICY themes_read ON public.themes FOR SELECT TO authenticated
+CREATE OR REPLACE FUNCTION public.set_theme_updated_at() RETURNS trigger
+LANGUAGE plpgsql AS $ BEGIN NEW.updated_at:=now(); RETURN NEW; END; $;
+CREATE TRIGGER themes_updated_at BEFORE UPDATE ON public.themes
+  FOR EACH ROW EXECUTE FUNCTION public.set_theme_updated_at();
+CREATE POLICY themes_read ON public.themes FOR SELECT TO public
   USING (owner_id = auth.uid() OR (work_id IS NULL AND is_published)
     OR (work_id IS NOT NULL AND EXISTS (SELECT 1 FROM public.works w WHERE w.id=themes.work_id)));
 CREATE POLICY themes_insert ON public.themes FOR INSERT TO authenticated
