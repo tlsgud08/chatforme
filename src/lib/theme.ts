@@ -117,10 +117,18 @@ export function appliedThemeIsSingle(): boolean {
   return typeof document !== 'undefined' && document.documentElement.dataset.theme === 'custom'
     && document.documentElement.dataset.themeMode === 'single';
 }
+/** Describe the palette actually applied, including inherited defaults and fallbacks. */
+export function appliedThemeLabel(): string {
+  const name = typeof document !== 'undefined' && document.documentElement.dataset.theme === 'custom'
+    ? document.documentElement.dataset.themeName || '커스텀 테마'
+    : '기본 테마';
+  const variant = appliedThemeIsSingle() ? '단일' : appliedThemeVariant() === 'dark' ? '다크' : '라이트';
+  return `${name} · ${variant}`;
+}
 /** Observe application, not the refresh request that starts asynchronous reads. */
 export function subscribeAppliedTheme(listener: () => void): () => void {
   const observer = new MutationObserver(listener);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-variant', 'data-theme-mode'] });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-variant', 'data-theme-mode', 'data-theme-name'] });
   return () => observer.disconnect();
 }
 const vars = ['--color-brand','--color-bg','--color-surface','--color-surface2','--page-bg','--page-text','--custom-accent-text','--secondary-text','--secondary-text-soft','--secondary-text-muted','--chat-secondary-color','--chat-secondary-opacity','--secondary-extra-opacity'];
@@ -145,6 +153,7 @@ export function applyTheme(theme: ThemeVariant) {
   root.dataset.theme=theme;
   delete root.dataset.themeVariant;
   delete root.dataset.themeMode;
+  delete root.dataset.themeName;
   root.style.colorScheme=theme;
   window.localStorage.setItem(KEY,theme);
 }
@@ -163,13 +172,15 @@ export function secondaryTextStyles(palette: ThemePalette) {
     extraOpacity:1,
   };
 }
-export function applyCustomTheme(palette: ThemePalette, variant: ThemeVariant, mode: ThemePaletteMode = 'dual') {
+export function applyCustomTheme(palette: ThemePalette, variant: ThemeVariant, mode: ThemePaletteMode = 'dual', name?: string) {
   const root=document.documentElement;
   const secondary=secondaryTextStyles(palette);
   if(root.dataset.theme!=='custom'||root.style.getPropertyValue('--page-bg')!==palette.main||root.style.getPropertyValue('--color-brand')!==rgbValue(palette.accent)||root.style.getPropertyValue('--page-text')!==palette.mainText||root.style.getPropertyValue('--custom-accent-text')!==palette.accentText||root.style.getPropertyValue('--secondary-text')!==secondary.color||root.style.getPropertyValue('--chat-secondary-opacity')!==String(secondary.chatOpacity))beginThemeTransition();
   root.dataset.theme='custom';
   root.dataset.themeVariant=variant;
   root.dataset.themeMode=mode;
+  if(name)root.dataset.themeName=name;
+  else delete root.dataset.themeName;
   root.style.colorScheme=variant;
   root.style.setProperty('--color-brand',rgbValue(palette.accent));
   root.style.setProperty('--color-bg',rgbValue(palette.main));

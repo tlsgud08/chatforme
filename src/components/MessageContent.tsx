@@ -12,18 +12,19 @@ const remarkPlugins = [remarkGfm];
 const MessageContent = memo(function MessageContent({ content, role, status, showImages }: {
   content: string; role: Message['role']; status: Message['generation_status']; showImages: boolean;
 }) {
+  const mutedTextClassName = role === 'user' ? 'chat-user-muted-text' : 'chat-muted-text';
   return (
     <ReactMarkdown
       remarkPlugins={remarkPlugins}
       components={{
         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
         strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-        em: ({ children }) => <em className="chat-muted-text">{children}</em>,
+        em: ({ children }) => <em className={mutedTextClassName}>{children}</em>,
         ul: ({ children }) => <ul className="mb-2 list-outside list-disc pl-5">{children}</ul>,
         ol: ({ children }) => <ol className="mb-2 list-outside list-decimal pl-5">{children}</ol>,
         li: ({ children }) => <li className="mb-0.5">{children}</li>,
         code: ({ children }) => <code className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>,
-        pre: ({ children }) => <MarkdownCodeBlock>{children}</MarkdownCodeBlock>,
+        pre: ({ children }) => <MarkdownCodeBlock mutedTextClassName={mutedTextClassName}>{children}</MarkdownCodeBlock>,
         blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
         h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
         h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,
