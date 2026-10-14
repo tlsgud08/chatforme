@@ -101,7 +101,8 @@ await db.query('update sessions set auto_theme_enabled=true where id=$1',[fluidI
 await db.query("update profiles set preferred_theme_mode='dark' where id=$1",[a]);
 assert.equal((await db.query('select theme_variant from sessions where id=$1',[fluidId])).rows[0].theme_variant,'dark','global mode must sync even if selected already');
 await login(b);
-await deny('update sessions set theme_id=$1 where id=$2',[personal,fluidId]);
+const unauthorizedFluid='30000000-0000-0000-0000-000000000003';
+await deny('insert into sessions(id,user_id,work_id,theme_id,theme_variant) values($1,$2,$3,$4,$5)',[unauthorizedFluid,b,other,personal,'light']);
 await login(a);
 console.log('Fluid theme DB: preserved scene, globally synced variant, fixed auto lock, reference access and RLS OK');
 console.log('Postgres migration and RLS checks: private read/write isolation, scope immutability, reference guards, deletion reset and admin-only config OK');
