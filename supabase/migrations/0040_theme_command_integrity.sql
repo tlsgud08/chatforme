@@ -68,7 +68,7 @@ ALTER TABLE public.themes ADD CONSTRAINT theme_light_colors_valid
 -- The original guard rejected custom+NULL, preventing deletion. Reset those
 -- sessions to "inherit" when a formerly selected theme is cleared.
 CREATE OR REPLACE FUNCTION public.validate_theme_reference()
-RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE linked public.themes%ROWTYPE;
 BEGIN
   IF TG_TABLE_NAME='works' THEN
@@ -104,6 +104,6 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 COMMIT;
