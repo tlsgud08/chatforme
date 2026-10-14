@@ -100,9 +100,9 @@ button:active {
 :root[data-theme='custom'] .text-slate-100,
 :root[data-theme='custom'] .text-slate-200,
 :root[data-theme='custom'] .text-slate-300 { color: var(--page-text); }
-:root[data-theme='custom'] .text-slate-400 { color: color-mix(in srgb, var(--page-text) 70%, var(--page-bg)); }
+:root[data-theme='custom'] .text-slate-400 { color: var(--secondary-text-soft); }
 :root[data-theme='custom'] .text-slate-500,
-:root[data-theme='custom'] .text-slate-600 { color: color-mix(in srgb, var(--page-text) 52%, var(--page-bg)); }
+:root[data-theme='custom'] .text-slate-600 { color: var(--secondary-text-muted); }
 :root[data-theme='custom'] button:focus-visible,
 :root[data-theme='custom'] a:focus-visible,
 :root[data-theme='custom'] input:focus-visible { outline-color: rgb(var(--color-brand)); }
@@ -113,3 +113,10 @@ button:active {
 @media (prefers-reduced-motion: reduce) {
   :root.theme-transition, :root.theme-transition * { transition: none; }
 }
+
+.chat-muted-text { font-style: normal; opacity: .65; }
+:root[data-theme='custom'] .chat-muted-text {
+  color: var(--chat-secondary-color);
+  opacity: var(--chat-secondary-opacity);
+}
+:root[data-theme='custom'] .chat-image-link { opacity: var(--secondary-extra-opacity); }

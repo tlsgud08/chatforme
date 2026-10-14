@@ -1397,7 +1397,7 @@ export default function ChatPage() {
                       components={{
                         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                         strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                        em: ({ children }) => <em className="not-italic opacity-50">{children}</em>,
+                        em: ({ children }) => <em className="chat-muted-text">{children}</em>,
                         ul: ({ children }) => <ul className="mb-2 list-outside list-disc pl-5">{children}</ul>,
                         ol: ({ children }) => <ol className="mb-2 list-outside list-decimal pl-5">{children}</ol>,
                         li: ({ children }) => <li className="mb-0.5">{children}</li>,
@@ -1419,7 +1419,7 @@ export default function ChatPage() {
                             href={typeof src === 'string' ? src : undefined}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="my-2 block w-fit max-w-full break-all text-slate-500 opacity-60 hover:text-slate-400"
+                            className="my-2 block w-fit max-w-full break-all text-slate-500 opacity-60 chat-image-link hover:text-slate-400"
                           >
                             {typeof src === 'string' ? src : (alt || '이미지')}
                           </a>

@@ -1,0 +1,18 @@
+-- Optional fields keep all existing four-color palettes valid and unchanged.
+BEGIN;
+CREATE OR REPLACE FUNCTION public.valid_theme_palette(p jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=public AS $$
+SELECT CASE WHEN p IS NULL THEN true ELSE COALESCE(
+  jsonb_typeof(p)='object'
+  AND (p->>'accent') ~ '^#[0-9A-Fa-f]{6}$'
+  AND (p->>'accentText') ~ '^#[0-9A-Fa-f]{6}$'
+  AND (p->>'main') ~ '^#[0-9A-Fa-f]{6}$'
+  AND (p->>'mainText') ~ '^#[0-9A-Fa-f]{6}$'
+  AND (NOT (p ? 'secondaryText') OR (
+    jsonb_typeof(p->'secondaryText')='string'
+    AND (p->>'secondaryText') ~ '^#[0-9A-Fa-f]{6}$'
+  ))
+  AND (NOT (p ? 'softenSecondaryText') OR jsonb_typeof(p->'softenSecondaryText')='boolean')
+, false) END
+$$;
+COMMIT;

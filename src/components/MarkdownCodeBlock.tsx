@@ -19,7 +19,7 @@ function formatCodeEmphasis(value: ReactNode): ReactNode {
 
     parts.push(match[2]
       ? <strong key={index} className="font-bold">{match[2]}</strong>
-      : <em key={index} className="not-italic opacity-50">{match[3]}</em>);
+      : <em key={index} className="chat-muted-text">{match[3]}</em>);
     cursor = index + match[0].length;
   }
 
@@ -27,7 +27,7 @@ function formatCodeEmphasis(value: ReactNode): ReactNode {
   return parts.length ? parts.map((part, index) => <Fragment key={index}>{part}</Fragment>) : value;
 }
 
-/** Render fenced Markdown code independently of the application's color theme. */
+/** Keep fenced-code surfaces fixed while emphasis follows chat secondary text settings. */
 export default function MarkdownCodeBlock({ children }: MarkdownCodeBlockProps) {
   const codeElement = isValidElement<{ className?: string; children?: ReactNode }>(children)
     ? children

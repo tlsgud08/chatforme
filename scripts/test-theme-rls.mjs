@@ -28,6 +28,8 @@ for(const name of ['0039','0040']){
  await db.exec(readFileSync(root+'supabase/migrations/'+file,'utf8'));
 }
 await db.exec(readFileSync(root+'supabase/migrations/20261014031245_automatic_work_themes.sql','utf8'));
+await db.exec(readFileSync(root+'supabase/migrations/20261014034744_theme_secondary_text.sql','utf8'));
+await db.exec(readFileSync(root+'supabase/migrations/20261014044407_theme_secondary_opacity.sql','utf8'));
 await db.exec('grant select,insert,update,delete on all tables in schema public to authenticated,anon;');
 const a='00000000-0000-0000-0000-000000000001',b='00000000-0000-0000-0000-000000000002',c='00000000-0000-0000-0000-000000000003';
 const w='10000000-0000-0000-0000-000000000001',other='10000000-0000-0000-0000-000000000002';
@@ -63,5 +65,17 @@ assert.deepEqual(session,{theme_override:null,theme_id:null});
 await db.exec('reset role;set role anon');
 assert.equal((await db.query('select * from themes')).rows.length,1);
 await deny("insert into themes(owner_id,work_id,name,dark_colors) values($1,$2,'anon',$3)",[a,w,palette]);
+await db.exec('reset role');
+const basic={accent:'#123456',accentText:'#ffffff',main:'#000000',mainText:'#ffffff'};
+for(const [p,expected] of [[basic,true],[{...basic,secondaryText:'#aa33ee',softenSecondaryText:false},true],[{...basic,secondaryText:'pink'},false],[{...basic,secondaryText:null},false],[{...basic,softenSecondaryText:'false'},false],...([0,35,65,100].map(value=>[{...basic,secondaryTextOpacity:value},true])),...([-1,101,3.5,'65',null].map(value=>[{...basic,secondaryTextOpacity:value},false]))]){
+  const {rows}=await db.query('select public.valid_theme_palette($1::jsonb) as valid',[JSON.stringify(p)]);
+  assert.equal(rows[0].valid,expected);
+}
+await login(a);
+await db.query('update themes set dark_colors=$1 where id=$2',[JSON.stringify({...basic,secondaryText:'#aa33ee',softenSecondaryText:false}),shared]);
+await deny('update themes set dark_colors=$1 where id=$2',[JSON.stringify({...basic,softenSecondaryText:'false'}),shared]);
+await db.query('update themes set dark_colors=$1 where id=$2',[JSON.stringify({...basic,secondaryTextOpacity:35}),shared]);
+await deny('update themes set dark_colors=$1 where id=$2',[JSON.stringify({...basic,secondaryTextOpacity:101}),shared]);
+console.log('Optional secondary colors and toggle: Postgres validator and actual theme UPDATE allow/deny OK');
 console.log('Postgres migration and RLS checks: private read/write isolation, scope immutability, reference guards, deletion reset and admin-only config OK');
 await db.close();

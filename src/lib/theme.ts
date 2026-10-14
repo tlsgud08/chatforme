@@ -1,6 +1,6 @@
 export type Theme = 'dark' | 'light' | 'custom';
 export type ThemeVariant = 'dark' | 'light';
-export type ThemePalette = { accent: string; accentText: string; main: string; mainText: string };
+export type ThemePalette = { accent: string; accentText: string; main: string; mainText: string; secondaryText?: string; softenSecondaryText?: boolean; secondaryTextOpacity?: number };
 export type SavedTheme = { id: string; owner_id: string; work_id: string | null; name: string; description: string; ai_prompt?: string; work_shared?: boolean; dark_colors: ThemePalette | null; light_colors: ThemePalette | null; is_published: boolean; copied_from_id: string | null; created_at: string; updated_at: string };
 
 const KEY = 'inuchat.theme';
@@ -11,7 +11,10 @@ export const DEFAULT_LIGHT: ThemePalette = { accent:'#6366f1', accentText:'#ffff
 export function validPalette(value: unknown): value is ThemePalette {
   if (!value || typeof value !== 'object') return false;
   const palette = value as Record<string, unknown>;
-  return ['accent','accentText','main','mainText'].every(key => typeof palette[key] === 'string' && HEX.test(palette[key]));
+  return ['accent','accentText','main','mainText'].every(key => typeof palette[key] === 'string' && HEX.test(palette[key]))
+    && (palette.secondaryText === undefined || typeof palette.secondaryText === 'string' && HEX.test(palette.secondaryText))
+    && (palette.softenSecondaryText === undefined || typeof palette.softenSecondaryText === 'boolean')
+    && (palette.secondaryTextOpacity === undefined || typeof palette.secondaryTextOpacity === 'number' && Number.isInteger(palette.secondaryTextOpacity) && palette.secondaryTextOpacity >= 0 && palette.secondaryTextOpacity <= 100);
 }
 export function paletteFor(theme: Pick<SavedTheme,'dark_colors'|'light_colors'>, choice: ThemeVariant): {palette: ThemePalette; variant: ThemeVariant} | null {
   if (choice === 'dark' && validPalette(theme.dark_colors)) return { palette:theme.dark_colors, variant:'dark' };
@@ -65,7 +68,7 @@ export function loadTheme(): Theme {
   const saved = window.localStorage.getItem(KEY);
   return saved === 'dark' || saved === 'custom' ? saved : 'light';
 }
-const vars = ['--color-brand','--color-bg','--color-surface','--color-surface2','--page-bg','--page-text','--custom-accent-text'];
+const vars = ['--color-brand','--color-bg','--color-surface','--color-surface2','--page-bg','--page-text','--custom-accent-text','--secondary-text','--secondary-text-soft','--secondary-text-muted','--chat-secondary-color','--chat-secondary-opacity','--secondary-extra-opacity'];
 const rgb = (hex: string) => [1,3,5].map(i => parseInt(hex.slice(i,i+2), 16));
 const rgbValue = (hex: string) => rgb(hex).join(' ');
 const mix = (a: string, b: string, ratio: number) => {
@@ -89,9 +92,25 @@ export function applyTheme(theme: ThemeVariant) {
   root.style.colorScheme=theme;
   window.localStorage.setItem(KEY,theme);
 }
+/** Missing opacity uses the default 65%; old palettes still inherit their chat foreground. */
+export function secondaryTextStyles(palette: ThemePalette) {
+  const color=palette.secondaryText??palette.mainText;
+  const soften=palette.softenSecondaryText!==false;
+  const opacity=palette.secondaryTextOpacity??65;
+  return {
+    color,
+    soft:soften?`color-mix(in srgb, ${color} ${opacity}%, ${palette.main})`:color,
+    muted:soften?`color-mix(in srgb, ${color} ${opacity}%, ${palette.main})`:color,
+    chatColor:palette.secondaryText??'inherit',
+    chatOpacity:soften?opacity/100:1,
+    // Links already use the faded secondary color; avoid applying opacity twice.
+    extraOpacity:1,
+  };
+}
 export function applyCustomTheme(palette: ThemePalette, variant: ThemeVariant) {
   const root=document.documentElement;
-  if(root.dataset.theme!=='custom'||root.style.getPropertyValue('--page-bg')!==palette.main||root.style.getPropertyValue('--color-brand')!==rgbValue(palette.accent)||root.style.getPropertyValue('--page-text')!==palette.mainText||root.style.getPropertyValue('--custom-accent-text')!==palette.accentText)beginThemeTransition();
+  const secondary=secondaryTextStyles(palette);
+  if(root.dataset.theme!=='custom'||root.style.getPropertyValue('--page-bg')!==palette.main||root.style.getPropertyValue('--color-brand')!==rgbValue(palette.accent)||root.style.getPropertyValue('--page-text')!==palette.mainText||root.style.getPropertyValue('--custom-accent-text')!==palette.accentText||root.style.getPropertyValue('--secondary-text')!==secondary.color||root.style.getPropertyValue('--chat-secondary-opacity')!==String(secondary.chatOpacity))beginThemeTransition();
   root.dataset.theme='custom';
   root.dataset.themeVariant=variant;
   root.style.colorScheme=variant;
@@ -102,6 +121,12 @@ export function applyCustomTheme(palette: ThemePalette, variant: ThemeVariant) {
   root.style.setProperty('--page-bg',palette.main);
   root.style.setProperty('--page-text',palette.mainText);
   root.style.setProperty('--custom-accent-text',palette.accentText);
+  root.style.setProperty('--secondary-text',secondary.color);
+  root.style.setProperty('--secondary-text-soft',secondary.soft);
+  root.style.setProperty('--secondary-text-muted',secondary.muted);
+  root.style.setProperty('--chat-secondary-color',secondary.chatColor);
+  root.style.setProperty('--chat-secondary-opacity',String(secondary.chatOpacity));
+  root.style.setProperty('--secondary-extra-opacity',String(secondary.extraOpacity));
 }
 export function saveTheme(theme: ThemeVariant) { applyTheme(theme); }
 export function requestThemeRefresh() { window.dispatchEvent(new Event('inuchat:theme-changed')); }
