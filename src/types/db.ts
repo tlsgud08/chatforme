@@ -123,7 +123,7 @@ export interface ActivePlugin {
 export type Plugin = Command;
 
 export interface Session {
-  auto_theme_enabled?: boolean;
+  auto_theme_enabled?: boolean; // Only enabled when theme_override is null (유동적).
   theme_override?: 'builtin' | 'custom' | null;
   theme_id?: string | null;
   theme_variant?: 'dark' | 'light' | null;
