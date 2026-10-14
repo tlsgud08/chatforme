@@ -111,7 +111,7 @@ export default function ThemePreferences({ userId }: { userId: string }) {
     </p>
     {loading ? <p className="text-sm text-slate-400">불러오는 중…</p> : <>
       <div className="grid grid-cols-3 gap-1 rounded-xl bg-surface p-1.5" role="group" aria-label="기본 테마">
-        {(['dark', 'light', 'custom'] as const).map(mode =>
+        {(['light', 'dark', 'custom'] as const).map(mode =>
           <button
             key={mode}
             type="button"
@@ -140,7 +140,7 @@ export default function ThemePreferences({ userId }: { userId: string }) {
           테마를 선택하거나 제작하면 지정한 커스텀 색상이 적용됩니다.
         </p>}
         {chosen && bothVariants(chosen) && <div className="mt-3 grid grid-cols-2 gap-2">
-          {(['dark', 'light'] as const).map(variant =>
+          {(['light', 'dark'] as const).map(variant =>
             <button
               key={variant}
               type="button"
