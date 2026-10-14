@@ -44,6 +44,22 @@ assert.deepEqual(resolveThemeSelection({preferred_theme_mode:'dark',prefer_work_
   {themeId:null,variant:'dark'});
 assert.deepEqual(resolveThemeSelection(null,null,null,'light'), {themeId:null,variant:'light'});
 
+assert.deepEqual(resolveThemeSelection({preferred_theme_mode:'dark',prefer_work_theme:true},work,
+  {theme_override:null,theme_id:null,theme_variant:'light'},'dark'),
+  {themeId:null,variant:'light'},'fixed light → fluid retains the visible light scene');
+assert.deepEqual(resolveThemeSelection({preferred_theme_mode:'dark',prefer_work_theme:true},work,
+  {theme_override:null,theme_id:'ai-scene',theme_variant:'dark'},'light'),
+  {themeId:'ai-scene',variant:'dark'},'AI tag changes the scene but leaves override null');
+assert.deepEqual(resolveThemeSelection(user,work,
+  {theme_override:null,theme_id:'custom-scene',theme_variant:'light'},'dark'),
+  {themeId:'custom-scene',variant:'light'},'fixed custom → fluid preserves custom palette');
+assert.deepEqual(resolveThemeSelection(user,work,
+  {theme_override:null,theme_id:null,theme_variant:null},'dark'),
+  {themeId:'work-palette',variant:'dark'},'new fluid rooms still honor the work default');
+assert.equal(theme.preferredThemeVariant({preferred_theme_mode:'dark',preferred_theme_variant:'light'},'light'),'dark');
+assert.equal(theme.preferredThemeVariant({preferred_theme_mode:'custom',preferred_theme_variant:'light'},'dark'),'light');
+
+
 const properties = new Map();
 const storage = new Map();
 const events = [];
