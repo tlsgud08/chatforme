@@ -88,7 +88,7 @@ BEGIN
     IF NEW.default_theme_id IS NULL THEN RETURN NEW; END IF;
     SELECT * INTO linked FROM public.themes WHERE id=NEW.default_theme_id;
     IF NOT FOUND OR (linked.work_id IS DISTINCT FROM NEW.id AND
-      (linked.work_id IS NOT NULL OR NOT (linked.is_published OR linked.owner_id=auth.uid()))) THEN
+      (linked.work_id IS NOT NULL OR NOT linked.is_published)) THEN
       RAISE EXCEPTION 'Theme is not available to this work';
     END IF;
   ELSIF TG_TABLE_NAME='sessions' THEN
