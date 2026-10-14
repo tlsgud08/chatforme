@@ -25,6 +25,8 @@ import { isTurnPriceWarning, loadTurnPriceWarning } from '@/lib/turnPriceWarning
 import { showToast } from '@/lib/toast';
 import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
+import { availableWorkThemes, finalThemeDirective, observeThemeDirective, resolveDirectiveTheme, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
+import { paletteFor, requestThemeRefresh, resolveThemeSelection, type SavedTheme } from '@/lib/theme';
 import './ChatPage.css';
 
 const GUEST_SETTINGS_KEY = 'inuchat.guest.settings';
@@ -239,6 +241,9 @@ export default function ChatPage() {
   const [persona, setPersona] = useState<Persona | null>(null);
   const [startConfig, setStartConfig] = useState<StartConfig | null>(null);
   const [keywordBooks, setKeywordBooks] = useState<KeywordBook[]>([]);
+  const [themePrompt,setThemePrompt]=useState('');
+  const [workThemes,setWorkThemes]=useState<SavedTheme[]>([]);
+  const themeMessageRef=useRef<{sessionId:string;fingerprint:string}|null>(null);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -412,7 +417,7 @@ export default function ChatPage() {
       setTotalUserTurnCount(gs.messages.filter((message) => message.role === 'user' && !message.is_hidden).length);
       supabase.from('works').select('*').eq('id', gs.work_id).single()
         .then(({ data }) => setWork(data as Work));
-      supabase.from('platform_config').select('system_prompt').eq('id', 1).single()
+      supabase.from('platform_config').select('system_prompt,theme_prompt').eq('id', 1).single()
         .then(({ data }) => setSystemPrompt((data as { system_prompt: string } | null)?.system_prompt ?? ''));
       supabase.from('keyword_books').select('*').eq('work_id', gs.work_id).order('sort_order')
         .then(({ data }) => setKeywordBooks((data as KeywordBook[]) ?? []));
@@ -429,7 +434,7 @@ export default function ChatPage() {
       const [{ data: w }, { data: p }, { data: cfg }, messagePage, { count: userTurnCount }, { data: kbs }, { data: notes }] = await Promise.all([
         supabase.from('works').select('*').eq('id', sess.work_id).single(),
         supabase.from('profiles').select('*').eq('id', user!.id).single(),
-        supabase.from('platform_config').select('system_prompt').eq('id', 1).single(),
+        supabase.from('platform_config').select('system_prompt,theme_prompt').eq('id', 1).single(),
         fetchMessagePage(sessionId!),
         supabase.from('messages').select('id', { count: 'exact', head: true }).eq('session_id', sessionId).eq('role', 'user').eq('is_hidden', false).eq('is_active_variant', true),
         supabase.from('keyword_books').select('*').eq('work_id', sess.work_id).order('sort_order'),
@@ -442,6 +447,7 @@ export default function ChatPage() {
       setSessionModel(savedSettings.model);
       setSessionReasoning(savedSettings.reasoning);
       settingsSessionIdRef.current = sess.id;
+      setThemePrompt((cfg as {theme_prompt?:string}|null)?.theme_prompt??'');
       setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
       const loadedMessages = messagePage.messages;
       // A missing in-memory controller does not prove that generation stopped:
@@ -487,6 +493,50 @@ export default function ChatPage() {
     if (!shouldAutoScrollRef.current) return;
     requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
   }, [messages, sending]);
+
+  // Stable ordering keeps the theme catalog cacheable in the system core.
+  useEffect(()=>{
+    if(!session?.work_id||!user?.id){setWorkThemes([]);return;}
+    let live=true;
+    const refresh=async()=>{
+      const items:SavedTheme[]=[];
+      for(let offset=0;;offset+=500){
+        const {data,error}=await supabase.from('themes').select('*').eq('work_id',session.work_id).order('id').range(offset,offset+499);
+        if(error){if(live)addError('작품 테마 목록 불러오기 실패: '+error.message);return;}
+        items.push(...(data??[]) as SavedTheme[]);
+        if((data??[]).length<500)break;
+      }
+      if(live)setWorkThemes(availableWorkThemes(items,session.work_id,user.id));
+    };
+    void refresh();
+    window.addEventListener('inuchat:theme-changed',refresh);
+    return ()=>{live=false;window.removeEventListener('inuchat:theme-changed',refresh);};
+  },[session?.work_id,user?.id]);
+
+  useEffect(()=>{
+    if(!session)return;
+    const latest=[...messages].reverse().find(m=>m.role==='assistant'&&!m.is_hidden&&m.is_active_variant!==false&&m.generation_status!=='streaming');
+    const {observation,changed}=observeThemeDirective(themeMessageRef.current,session.id,latest??null);
+    themeMessageRef.current=observation;
+    const fingerprint=observation.fingerprint;
+    // Initial load and toggling ON never replay old tags over a manual choice.
+    if(!changed||!latest||latest.generation_status==='interrupted'||!session.auto_theme_enabled)return;
+    const selected=resolveDirectiveTheme(finalThemeDirective(latest.content),workThemes);
+    if(!selected)return;
+    const root=document.documentElement.dataset;
+    const currentVariant=(root.theme==='custom'?root.themeVariant:root.theme)==='dark'?'dark':'light';
+    const variant=paletteFor(selected,session.theme_variant??currentVariant)?.variant;
+    if(!variant||session.theme_override==='custom'&&session.theme_id===selected.id&&session.theme_variant===variant)return;
+    const targetSessionId=session.id;
+    const patch={theme_override:'custom' as const,theme_id:selected.id,theme_variant:variant};
+    void supabase.from('sessions').update(patch).eq('id',targetSessionId).eq('user_id',session.user_id).eq('auto_theme_enabled',true).select('id').maybeSingle().then(({data,error})=>{
+      if(themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
+      if(error){addError('자동 테마 변경 실패: '+error.message);return;}
+      if(!data)return;
+      setSession(current=>current?.id===targetSessionId?{...current,...patch}:current);
+      requestThemeRefresh();
+    });
+  },[messages,session?.id,session?.auto_theme_enabled,workThemes]);
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
@@ -574,8 +624,9 @@ export default function ChatPage() {
         ? activeSourceMessages
         : messagesAfterSummary(activeSourceMessages, previousTurn);
       if (candidates.length === 0 && archivesToMerge.length === 0) throw new Error('새로 요약할 대화가 없습니다.');
-      const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${message.content}`).join('\n\n');
-      const input = `${previous ? `=== Previous Summary Notes${archivesToMerge.length > 1 ? ' (merge the selected notes into one)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== Dialogue to Summarize ===\n${dialogue}` : '=== Request ===\nMerge the selected summary notes into one up-to-date summary without omissions or discontinuities.'}`;
+      const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${session.auto_theme_enabled?message.content:stripThemeDirectives(message.content)}`).join('\n\n');
+      const summaryInput = `${previous ? `=== Previous Summary Notes${archivesToMerge.length > 1 ? ' (merge the selected notes into one)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== Dialogue to Summarize ===\n${dialogue}` : '=== Request ===\nMerge the selected summary notes into one up-to-date summary without omissions or discontinuities.'}`;
+      const input=session.auto_theme_enabled?summaryInput:stripThemeDirectives(summaryInput);
       const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
       const allowOmission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
       const parametersEnabled = !profile.summary_prompt?.trim() || (session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true);
@@ -892,7 +943,13 @@ export default function ChatPage() {
       }
     }
 
+    const rootTheme=document.documentElement.dataset;
+    const baseVariant=(rootTheme.theme==='custom'?rootTheme.themeVariant:rootTheme.theme)==='dark'?'dark':'light';
+    const currentSelection=resolveThemeSelection(profile,work,session,baseVariant);
+    const currentThemeName=workThemes.find(t=>t.id===currentSelection.themeId)?.name??(currentSelection.themeId?'작품 외 커스텀 테마':currentSelection.variant==='dark'?'기본 다크':'기본 라이트');
     const assembled = assemblePrompt({
+      autoThemeEnabled:session.auto_theme_enabled??false,themePrompt,themeCatalog:themeCatalogPrompt(workThemes),
+      currentTheme:currentThemeName,
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
       plugins: session.active_plugins,
@@ -951,7 +1008,7 @@ export default function ChatPage() {
         .update({ total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn, updated_at: new Date().toISOString() })
         .eq('id', session.id);
       if (totalsError) throw totalsError;
-      setSession({ ...session, total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn });
+      setSession(current=>current?.id===session.id?{...current,total_input_tokens:newIn,total_output_tokens:newOut,total_cost:newCost,summary:effectiveSummary,summary_last_turn:effectiveSummaryTurn}:current);
     } catch (err) {
       const isAbort = controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError');
       if (partialText) {
@@ -1164,6 +1221,7 @@ export default function ChatPage() {
     const { data: newSession, error } = await supabase.from('sessions').insert({
       user_id: user.id, work_id: session.work_id, title: `${session.title} (분기)`, persona_id: session.persona_id,
       start_config_id: session.start_config_id, user_note: session.user_note, active_plugins: session.active_plugins ?? [],
+      auto_theme_enabled:session.auto_theme_enabled??false,
       theme_override: session.theme_override ?? null, theme_id: session.theme_id ?? null, theme_variant: session.theme_variant ?? null,
       output_settings_override_enabled: session.output_settings_override_enabled,
       output_tokens_override: session.output_tokens_override,
@@ -1371,7 +1429,7 @@ export default function ChatPage() {
                         ),
                       }}
                     >
-                      {m.content || (m.generation_status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : m.generation_status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
+                      {(m.role==='assistant'?stripThemeDirectives(m.content,m.generation_status==='streaming'):m.content) || (m.generation_status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : m.generation_status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
                     </ReactMarkdown>
                   </div>
                   {m.role === 'assistant' && m.generation_status === 'interrupted' && m.content && (
@@ -1401,7 +1459,7 @@ export default function ChatPage() {
             {visibleMessages.length > 0 && <hr className="chat-turn-divider" aria-label="메시지 구분" />}
             <div className="w-full min-w-0 max-w-full px-4 py-2.5 text-sm leading-relaxed text-slate-100">
               {streamingContent ? (
-                <p className="whitespace-pre-wrap break-words">{streamingContent}</p>
+                <p className="whitespace-pre-wrap break-words">{stripThemeDirectives(streamingContent,true)}</p>
               ) : (
                 <span className="text-slate-400">생각 중…</span>
               )}

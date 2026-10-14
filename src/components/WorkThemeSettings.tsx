@@ -38,7 +38,7 @@ export default function WorkThemeSettings({userId,workId,themeId,variant,onChang
     {themeId&&<button type="button" onClick={()=>onChange(null,null)} className="mt-2 text-xs text-slate-400 underline">작품 기본 테마 해제</button>}
     {show&&<div className="mt-3 rounded-lg border border-surface2">
       <ThemeMenu userId={userId} workId={workId} allowWorkCreate embedded selectedId={themeId} onSelect={t=>{
-        if(!t.work_id&&!t.is_published){showToast('개인 비공개 테마는 작품 기본값으로 사용할 수 없어요. 허브 공개하거나 작품 전용 테마를 만들어 주세요.');return;}
+        if(t.work_shared===false&&t.work_id||!t.work_id&&!t.is_published){showToast('개인 비공개 테마는 작품 기본값으로 사용할 수 없어요. 허브 공개하거나 작품 전용 테마를 만들어 주세요.');return;}
         onChange(t.id,paletteFor(t,variant??'light')?.variant??'light');
         setShow(false);
       }}/>

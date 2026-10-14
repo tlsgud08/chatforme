@@ -1,7 +1,7 @@
 export type Theme = 'dark' | 'light' | 'custom';
 export type ThemeVariant = 'dark' | 'light';
 export type ThemePalette = { accent: string; accentText: string; main: string; mainText: string };
-export type SavedTheme = { id: string; owner_id: string; work_id: string | null; name: string; description: string; dark_colors: ThemePalette | null; light_colors: ThemePalette | null; is_published: boolean; copied_from_id: string | null; created_at: string; updated_at: string };
+export type SavedTheme = { id: string; owner_id: string; work_id: string | null; name: string; description: string; ai_prompt?: string; work_shared?: boolean; dark_colors: ThemePalette | null; light_colors: ThemePalette | null; is_published: boolean; copied_from_id: string | null; created_at: string; updated_at: string };
 
 const KEY = 'inuchat.theme';
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -72,8 +72,17 @@ const mix = (a: string, b: string, ratio: number) => {
   const first=rgb(a), second=rgb(b);
   return first.map((channel,index)=>Math.round(channel*(1-ratio)+second[index]*ratio)).join(' ');
 };
+let transitionTimer: ReturnType<typeof setTimeout> | undefined;
+function beginThemeTransition() {
+  const root=document.documentElement;
+  if(!root.classList)return;
+  root.classList.add('theme-transition');
+  if(transitionTimer)clearTimeout(transitionTimer);
+  transitionTimer=setTimeout(()=>root.classList.remove('theme-transition'),450);
+}
 export function applyTheme(theme: ThemeVariant) {
   const root=document.documentElement;
+  if(root.dataset.theme!==theme)beginThemeTransition();
   vars.forEach(name => root.style.removeProperty(name));
   root.dataset.theme=theme;
   delete root.dataset.themeVariant;
@@ -82,6 +91,7 @@ export function applyTheme(theme: ThemeVariant) {
 }
 export function applyCustomTheme(palette: ThemePalette, variant: ThemeVariant) {
   const root=document.documentElement;
+  if(root.dataset.theme!=='custom'||root.style.getPropertyValue('--page-bg')!==palette.main||root.style.getPropertyValue('--color-brand')!==rgbValue(palette.accent)||root.style.getPropertyValue('--page-text')!==palette.mainText||root.style.getPropertyValue('--custom-accent-text')!==palette.accentText)beginThemeTransition();
   root.dataset.theme='custom';
   root.dataset.themeVariant=variant;
   root.style.colorScheme=variant;

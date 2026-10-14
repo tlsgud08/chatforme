@@ -34,6 +34,7 @@ export default function SettingsPage() {
 
   const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
+  const [themePrompt, setThemePrompt] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [multichatSystemPrompt, setMultichatSystemPrompt] = useState('');
   const [systemPromptLoaded, setSystemPromptLoaded] = useState(false);
@@ -60,10 +61,11 @@ export default function SettingsPage() {
     if (user.email === ADMIN_EMAIL && ADMIN_EMAIL) {
       supabase
         .from('platform_config')
-        .select('system_prompt,multichat_system_prompt')
+        .select('system_prompt,multichat_system_prompt,theme_prompt')
         .eq('id', 1)
         .single()
         .then(({ data }) => {
+          setThemePrompt(data?.theme_prompt ?? '');
           setSystemPrompt(data?.system_prompt ?? '');
           setMultichatSystemPrompt(data?.multichat_system_prompt ?? '');
           setSystemPromptLoaded(true);
@@ -130,9 +132,10 @@ export default function SettingsPage() {
   }
 
   async function saveSystemPrompt() {
+    if (!isAdmin) return;
     const { error } = await supabase
       .from('platform_config')
-      .update({ system_prompt: systemPrompt, multichat_system_prompt: multichatSystemPrompt, updated_at: new Date().toISOString() })
+      .update({ system_prompt: systemPrompt, theme_prompt: themePrompt, multichat_system_prompt: multichatSystemPrompt, updated_at: new Date().toISOString() })
       .eq('id', 1);
     if (error) { flash('저장 실패: ' + error.message); return; }
     flash('전역 시스템 프롬프트를 저장했습니다.');
@@ -431,6 +434,9 @@ export default function SettingsPage() {
               저장
             </button>
           </div>
+          <p className="mb-2 mt-5 text-xs font-semibold text-yellow-400">테마 변경 및 판단 전역 프롬프트</p>
+          <p className="mb-2 text-xs text-slate-500">자동 테마 변경을 켠 채팅에서 작품 메인 프롬프트 바로 뒤에 적용됩니다. 사용 가능한 테마와 적용 조건이 이어집니다.</p>
+          <textarea aria-label="테마 변경 및 판단 전역 프롬프트" value={themePrompt} onChange={e=>setThemePrompt(e.target.value)} rows={6} className="w-full resize-y rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none" />
           <p className="mb-2 mt-5 text-xs font-semibold text-yellow-400">멀티챗 전용 추가 프롬프트</p>
           <p className="mb-2 text-xs text-slate-500">일반 전역 프롬프트 뒤에 추가됩니다. 참여자를 user1, user2로 지칭할 수 있습니다.</p>
           <textarea value={multichatSystemPrompt} onChange={e=>setMultichatSystemPrompt(e.target.value)} rows={6} placeholder="예: user1과 user2의 입력을 하나의 동시 행동으로 처리하세요." className="w-full resize-y rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none" />

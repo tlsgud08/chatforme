@@ -1,9 +1,14 @@
+import { stripThemeDirectives } from '../themeDirectives';
 import type { ChatMessage, SystemParts } from '@/lib/llm/types';
 import type { ActivePlugin, Message, Persona } from '@/types/db';
 
 export interface AssembleInput {
   systemPrompt: string;
   mainPrompt: string;
+  autoThemeEnabled?: boolean;
+  themePrompt?: string;
+  themeCatalog?: string;
+  currentTheme?: string;
   keywordBookContents?: string[];
   summary?: string;
   storyNotes?: string[];
@@ -28,6 +33,12 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
   const coreParts: string[] = [];
   if (input.systemPrompt.trim()) coreParts.push(input.systemPrompt.trim());
   if (input.mainPrompt.trim()) coreParts.push(section('Main Prompt', input.mainPrompt));
+
+  if (input.autoThemeEnabled) {
+    if (input.themePrompt?.trim()) coreParts.push(section('Theme Change Rules', input.themePrompt));
+    if (input.themeCatalog?.trim()) coreParts.push(section('Available Work Themes', input.themeCatalog));
+  }
+  const outgoing = (text: string) => input.autoThemeEnabled ? text : stripThemeDirectives(text);
 
   // L2: persona — 희소 변경
   let persona = '';
@@ -63,13 +74,15 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
     keywords = section('Active Keywords', input.keywordBookContents.join('\n\n'));
   }
 
+  if(input.autoThemeEnabled&&input.currentTheme)keywords=[keywords,section('Current Theme',input.currentTheme)].filter(Boolean).join('\n\n');
+
   const messages: ChatMessage[] = [
-    ...input.history.map((m) => ({ role: m.role, content: m.content, ...(m.cacheBreakpoint && { cacheBreakpoint: true }) })),
-    ...(input.latestUserMessage ? [{ role: 'user' as const, content: input.latestUserMessage }] : []),
+    ...input.history.map((m) => ({ role: m.role, content: outgoing(m.content), ...(m.cacheBreakpoint && { cacheBreakpoint: true }) })),
+    ...(input.latestUserMessage ? [{ role: 'user' as const, content: outgoing(input.latestUserMessage) }] : []),
   ];
 
   return {
-    systemParts: { core: coreParts.join('\n\n'), persona, userNote, summary, storyNotes, keywords },
+    systemParts: { core: outgoing(coreParts.join('\n\n')), persona:outgoing(persona), userNote:outgoing(userNote), summary:outgoing(summary), storyNotes:outgoing(storyNotes), keywords:outgoing(keywords) },
     messages,
   };
 }

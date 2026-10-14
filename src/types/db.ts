@@ -41,6 +41,7 @@ export interface PlatformConfig {
   id: number;
   system_prompt: string;
   multichat_system_prompt: string;
+  theme_prompt: string;
   updated_at: string;
 }
 
@@ -122,6 +123,7 @@ export interface ActivePlugin {
 export type Plugin = Command;
 
 export interface Session {
+  auto_theme_enabled?: boolean;
   theme_override?: 'builtin' | 'custom' | null;
   theme_id?: string | null;
   theme_variant?: 'dark' | 'light' | null;

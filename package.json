@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node scripts/test-model-capabilities.mjs && node scripts/test-prompt-cache.mjs && node scripts/test-theme.mjs",
+    "test": "node scripts/test-model-capabilities.mjs && node scripts/test-prompt-cache.mjs && node scripts/test-theme.mjs && node scripts/test-theme-directives.mjs && node scripts/test-theme-rls.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -23,6 +23,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.9",
     "@types/node": "^22.19.19",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
