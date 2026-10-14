@@ -25,27 +25,39 @@ export default function ThemePreferences({ userId }: { userId: string | null }) 
   const latestUpdate = useRef(0);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) { setLoading(false); return; }
     let live = true;
-    void (async () => {
+    async function refresh() {
+      // Ignore background fetches started before a newer local preference edit.
+      const startUpdate = latestUpdate.current;
       const { data, error } = await supabase.from('profiles')
         .select('prefer_work_theme,preferred_theme_mode,preferred_theme_id,preferred_theme_variant')
         .eq('id', userId).single();
       if (!live) return;
       if (error) {
         showToast('테마 설정을 불러오지 못했습니다: ' + error.message);
-      } else if (data) {
-        setPref(data as Pref);
-        if (data.preferred_theme_id) {
-          const { data: theme } = await supabase.from('themes')
-            .select('*').eq('id', data.preferred_theme_id).maybeSingle();
-          if (!live) return;
-          setChosen(theme as SavedTheme | null);
-        }
+        setLoading(false);
+        return;
       }
-      if (live) setLoading(false);
-    })();
-    return () => { live = false; };
+      const selectedId = data?.preferred_theme_id;
+      const { data: theme } = selectedId
+        ? await supabase.from('themes').select('*').eq('id', selectedId).maybeSingle()
+        : { data: null };
+      if (!live || latestUpdate.current !== startUpdate) return;
+      if (data) setPref(data as Pref);
+      setChosen((theme as SavedTheme | null) ?? null);
+      setLoading(false);
+    }
+    const reload = () => { void refresh(); };
+    void refresh();
+    // Reconcile theme edits/deletions and cross-device changes on resume.
+    window.addEventListener('inuchat:theme-changed', reload);
+    window.addEventListener('focus', reload);
+    return () => {
+      live = false;
+      window.removeEventListener('inuchat:theme-changed', reload);
+      window.removeEventListener('focus', reload);
+    };
   }, [userId]);
 
   // Update the selected tab immediately; use the account database as the source
