@@ -64,4 +64,46 @@ ALTER TABLE public.themes ADD CONSTRAINT theme_dark_colors_valid
 ALTER TABLE public.themes ADD CONSTRAINT theme_light_colors_valid
   CHECK (public.valid_theme_palette(light_colors));
 
+-- Deleting a theme referenced by sessions uses ON DELETE SET NULL.
+-- The original guard rejected custom+NULL, preventing deletion. Reset those
+-- sessions to "inherit" when a formerly selected theme is cleared.
+CREATE OR REPLACE FUNCTION public.validate_theme_reference()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $
+DECLARE linked public.themes%ROWTYPE;
+BEGIN
+  IF TG_TABLE_NAME='works' THEN
+    IF NEW.default_theme_id IS NULL THEN
+      NEW.default_theme_variant:=NULL;
+      RETURN NEW;
+    END IF;
+    SELECT * INTO linked FROM public.themes WHERE id=NEW.default_theme_id;
+    IF NOT FOUND OR (linked.work_id IS DISTINCT FROM NEW.id AND
+      (linked.work_id IS NOT NULL OR NOT linked.is_published)) THEN
+      RAISE EXCEPTION 'Theme is not available to this work';
+    END IF;
+  ELSIF TG_TABLE_NAME='sessions' THEN
+    IF NEW.theme_override IS NULL THEN
+      NEW.theme_id:=NULL; NEW.theme_variant:=NULL; RETURN NEW;
+    END IF;
+    IF NEW.theme_override='builtin' THEN
+      NEW.theme_id:=NULL; RETURN NEW;
+    END IF;
+    IF NEW.theme_id IS NULL THEN
+      IF TG_OP='UPDATE' AND OLD.theme_id IS NOT NULL THEN
+        NEW.theme_override:=NULL;
+        NEW.theme_variant:=NULL;
+        RETURN NEW;
+      END IF;
+      RAISE EXCEPTION 'Custom theme requires theme_id';
+    END IF;
+    SELECT * INTO linked FROM public.themes WHERE id=NEW.theme_id;
+    IF NOT FOUND OR (linked.work_id IS DISTINCT FROM NEW.work_id AND
+      (linked.work_id IS NOT NULL OR NOT (linked.is_published OR linked.owner_id=auth.uid()))) THEN
+      RAISE EXCEPTION 'Theme is not available to this session';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$;
+
 COMMIT;
