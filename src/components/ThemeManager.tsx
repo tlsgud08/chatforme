@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
+import { guestGetSession } from '@/lib/guest';
 import { applyCustomTheme, applyTheme, loadTheme, paletteFor, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 
 type Preference = { prefer_work_theme: boolean; preferred_theme_mode: 'dark' | 'light' | 'custom' | null; preferred_theme_id: string | null; preferred_theme_variant: ThemeVariant | null };
@@ -18,7 +19,22 @@ export default function ThemeManager() {
     let generation = 0;
     async function refresh() {
       const run = ++generation;
-      if (!user || isGuest) { applyTheme(loadTheme()==='dark'?'dark':'light'); return; }
+      if (!user || isGuest) {
+        const base=loadTheme()==='dark'?'dark':'light';
+        const guestMatch=/^\\/chat\\/([0-9a-f-]+)$/i.exec(location.pathname);
+        const guestSession=guestMatch?guestGetSession(guestMatch[1]):null;
+        if(guestSession) {
+          const {data:work}=await supabase.from('works').select('default_theme_id,default_theme_variant').eq('id',guestSession.work_id).maybeSingle();
+          if(!current||generation!==run)return;
+          if(work?.default_theme_id){
+            const {data:theme}=await supabase.from('themes').select('*').eq('id',work.default_theme_id).maybeSingle();
+            if(!current||generation!==run)return;
+            const chosen=theme?paletteFor(theme as SavedTheme,work.default_theme_variant??base):null;
+            if(chosen){applyCustomTheme(chosen.palette,chosen.variant);return;}
+          }
+        }
+        applyTheme(base); return;
+      }
       const { data: profile } = await supabase.from('profiles')
         .select('prefer_work_theme,preferred_theme_mode,preferred_theme_id,preferred_theme_variant')
         .eq('id', user.id).maybeSingle();
