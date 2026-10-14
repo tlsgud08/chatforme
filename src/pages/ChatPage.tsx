@@ -525,8 +525,10 @@ export default function ChatPage() {
     if(!selected)return;
     const root=document.documentElement.dataset;
     const currentVariant=(root.theme==='custom'?root.themeVariant:root.theme)==='dark'?'dark':'light';
-    const variant=paletteFor(selected,session.theme_variant??currentVariant)?.variant;
-    if(!variant||session.theme_override==='custom'&&session.theme_id===selected.id&&session.theme_variant===variant)return;
+    // Store the user's preferred variant, not a palette's temporary fallback.
+    // A single-variant theme must not change the preference for later themes.
+    const variant=session.theme_variant??currentVariant;
+    if(!paletteFor(selected,variant)||session.theme_override==='custom'&&session.theme_id===selected.id&&session.theme_variant===variant)return;
     const targetSessionId=session.id;
     const patch={theme_override:'custom' as const,theme_id:selected.id,theme_variant:variant};
     void supabase.from('sessions').update(patch).eq('id',targetSessionId).eq('user_id',session.user_id).eq('auto_theme_enabled',true).select('id').maybeSingle().then(({data,error})=>{

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Session } from '@/types/db';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
-import { bothVariants, paletteFor, requestThemeRefresh, type SavedTheme, type ThemeVariant } from '@/lib/theme';
+import { requestThemeRefresh, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 import ThemeMenu from './ThemeMenu';
 
 type Props={session:Session;userId:string;onUpdate:(patch:Partial<Session>)=>void;busy?:boolean};
@@ -106,17 +106,18 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
       <span className="truncate text-xs text-white">{theme?.name??'테마를 다시 선택해 주세요'}</span>
       <button disabled={busy||saving} onClick={()=>{setPickerScope(theme?.work_id?'work':'global');setOpen(true);}} className="text-xs text-brand">변경</button>
     </div>}
-    {(mode==='builtin'&&!open||(mode==='custom'&&!open&&theme&&bothVariants(theme)))&&<div className="mt-2 grid grid-cols-2 gap-2">
+    {(mode==='builtin'||mode==='custom')&&!open&&<div className="mt-2 grid grid-cols-2 gap-2">
       {(['dark','light']as const).map(v=>
-        <button key={v} disabled={busy||saving} onClick={()=>void save(mode==='custom'?'custom':'builtin',mode==='custom'?session.theme_id??null:null,v)}
+        <button key={v} disabled={busy||saving} aria-pressed={variant===v} onClick={()=>void save(mode==='custom'?'custom':'builtin',mode==='custom'?session.theme_id??null:null,v)}
           className={`rounded-lg px-3 py-2 text-xs ${variant===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>
           {v==='dark'?'🌙 다크':'☀️ 라이트'}
         </button>)}
     </div>}
+    {mode==='custom'&&!open&&<p className="mt-2 text-xs text-slate-500">자동으로 테마가 바뀌어도 선택한 라이트·다크를 유지합니다. 해당 색상이 없는 테마는 제공되는 색상으로 표시됩니다.</p>}
     {open&&<div className="mt-3 rounded-lg border border-surface2">
       <ThemeMenu userId={userId} workId={session.work_id} scope={pickerScope} selectedId={session.theme_id}
         onClose={()=>setOpen(false)} onSelect={selected=>{
-          const next=paletteFor(selected,session.theme_variant??'light')?.variant??'light';
+          const next=session.theme_variant??'light';
           void save('custom',selected.id,next,selected).then(ok=>{if(ok)setOpen(false);});
         }}/>
     </div>}
