@@ -26,11 +26,11 @@ export function useState(initial){
 const writes=[];
 globalThis.__themeTestDb={from(table){
   const builder={
-    update(patch){writes.push({table,patch});return this;},
+    update(patch){writes.push({table,patch});if(table==='profiles'&&globalThis.__profileResponse)Object.assign(globalThis.__profileResponse,patch);return this;},
     insert(patch){writes.push({table,patch});return this;},
-    select(){return this;},eq(){return this;},is(){return this;},order(){return this;},range(){return this;},
+    select(){return this;},eq(){return this;},is(){return this;},or(){return this;},order(){return this;},range(){return this;},
     single(){return this;},maybeSingle(){return this;},
-    then(resolve,reject){return Promise.resolve({data:table==='sessions'?globalThis.__sessionResponse:[],error:null}).then(resolve,reject);},
+    then(resolve,reject){return Promise.resolve({data:table==='sessions'?globalThis.__sessionResponse:table==='profiles'?globalThis.__profileResponse:[],error:null}).then(resolve,reject);},
   };
   return builder;
 }};
@@ -96,7 +96,7 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
 
   const pref={prefer_work_theme:true,preferred_theme_mode:'custom',preferred_theme_id:selected.id,preferred_theme_variant:'light'};
   const prefs=tree(ThemePreferences,{userId:'owner'},[pref,selected,true,false]);
-  assert.equal(elements(prefs).filter(el=>el.type==='button'&&['🌙 다크','☀️ 라이트'].includes(el.props.children)).length,isDual?4:2,'only dual custom themes expose their own variant selector');
+  assert.equal(elements(prefs).filter(el=>el.type==='button'&&['🌙 다크','☀️ 라이트'].includes(el.props.children)).length,4,'single and dual global custom themes both expose the shared preference');
   // A dark-only theme followed by a dual theme must still choose light.
   elements(prefs).find(el=>typeof el.props.onSelect==='function').props.onSelect(selected);
   await flush();
@@ -119,7 +119,7 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
   }
 }
 
-const fluid={id:'room',work_id:'work',theme_override:null,theme_id:single.id,theme_variant:'light',auto_theme_enabled:true};
+const fluid={id:'room',work_id:'work',theme_override:null,theme_id:single.id,theme_variant:'light',auto_theme_enabled:false};
 const sidebar=tree(SessionThemeSettings,{session:fluid,userId:'owner',onUpdate:()=>{}},[single,false,'global',false,null,'light','light',false]);
 const siteButtons=elements(sidebar).filter(el=>el.type==='button'&&['🌙 다크','☀️ 라이트'].includes(el.props.children));
 assert.equal(siteButtons.find(el=>el.props.children==='☀️ 라이트').props['aria-pressed'],true,'single scene displays the site preference instead of internal dark metadata');
@@ -128,3 +128,77 @@ root.dataset.themeMode='dual';
 const dualSidebar=tree(SessionThemeSettings,{session:fluid,userId:'owner',onUpdate:()=>{}},[dual,false,'global',false,null,'light','light',false]);
 assert.equal(elements(dualSidebar).find(el=>el.type==='button'&&el.props.children==='🌙 다크').props['aria-pressed'],true,'dual fluid scenes still show the actual applied variant');
 console.log('Single theme UI: actual editor/card JSX, save payloads, global/work/room selectors and fluid preference preservation OK');
+
+// Execute the actual sidebar variant handler with a global single palette.
+// Both storage slots and both preferences must retain the account's palette.
+for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEFAULT_LIGHT},dual]){
+  root.dataset.themeMode=theme.bothVariants(selected)?'dual':'single';
+  const pref={preferred_theme_mode:'custom',preferred_theme_id:selected.id,preferred_theme_variant:'light'};
+  globalThis.__profileResponse={...pref};
+  const view=tree(SessionThemeSettings,{session:fluid,userId:'owner',onUpdate:()=>{}},[selected,false,'global',false,null,'custom','light',false]);
+  assert.equal(elements(view).some(el=>el.type==='input'&&el.props.type==='checkbox'),false,'automation has no toggle even for legacy OFF rooms');
+  elements(view).find(el=>el.type==='button'&&el.props.children==='🌙 다크').props.onClick();
+  await flush();
+  assert.deepEqual(writes.findLast(write=>write.table==='profiles').patch,{preferred_theme_variant:'dark'});
+  assert.equal(globalThis.__profileResponse.preferred_theme_mode,'custom');
+  assert.equal(globalThis.__profileResponse.preferred_theme_id,selected.id);
+  const globalChoice=theme.resolveThemeSelection(globalThis.__profileResponse,null,null,'light');
+  assert.equal(globalChoice.themeId,selected.id);
+  assert.deepEqual(theme.paletteFor(selected,globalChoice.variant).palette,selected.dark_colors??selected.light_colors);
+  for(const mode of ['builtin','custom']){
+    const fixedView=tree(SessionThemeSettings,{session:{...fluid,theme_override:mode},userId:'owner',onUpdate:()=>{}},[selected,false,'global',false,null,'custom','dark',false]);
+    globalThis.__sessionResponse={...fluid,theme_override:null};
+    elements(fixedView).find(el=>el.type==='button'&&el.props.children==='유동적').props.onClick();
+    await flush();
+    assert.equal(writes.findLast(write=>write.table==='sessions').patch.auto_theme_enabled,true);
+  }
+}
+for(const mode of ['light','dark',null]){
+  assert.deepEqual(theme.themeVariantPreferencePatch({preferred_theme_mode:mode},'dark'),{preferred_theme_mode:'dark',preferred_theme_variant:'dark'});
+}
+// Render every outside catalog with deliberately contaminated cached records.
+const local={...single,id:'local',work_id:'work',name:'LOCAL WORK',work_shared:true};
+const foreign={...local,id:'foreign',work_id:'other',name:'OTHER WORK'};
+const catalog=[single,dual,local,foreign];
+for(const tab of ['all','work','mine','hub','favorites']){
+  const outside=tree(ThemeMenu,{userId:'owner'},['light',catalog,new Set(catalog.map(t=>t.id)),{},tab,'',null,undefined,false,null]);
+  const html=renderToStaticMarkup(outside);
+  assert.ok(!html.includes('LOCAL WORK')&&!html.includes('OTHER WORK'),'outside tabs never expose work themes');
+  assert.ok(!elements(outside).some(el=>el.type==='button'&&el.props.children==='작품'),'outside catalog has no work tab');
+  const inside=tree(ThemeMenu,{userId:'owner',workId:'work',allowWorkCreate:true},['light',catalog,new Set(),{},tab,'',null,undefined,false,null]);
+  assert.ok(!renderToStaticMarkup(inside).includes('OTHER WORK'),'work editor never lists another work');
+  if(tab==='all'||tab==='work')assert.ok(renderToStaticMarkup(inside).includes('LOCAL WORK'));
+}
+const roomPicker=tree(ThemeMenu,{userId:'owner',workId:'work',scope:'work'},['light',catalog,new Set(),{},'work','',null,undefined,false,null]);
+assert.ok(renderToStaticMarkup(roomPicker).includes('LOCAL WORK'),'matching work chat still selects its work themes');
+assert.ok(!renderToStaticMarkup(roomPicker).includes('OTHER WORK'));
+console.log('Fluid variant handler, custom global identity, legacy OFF mode transitions and work catalog isolation OK');
+
+// Global custom preference → sidebar, then sidebar → global settings.
+for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEFAULT_LIGHT},dual]){
+  root.dataset.themeMode=theme.bothVariants(selected)?'dual':'single';
+  root.dataset.themeVariant='dark';
+  const pref={prefer_work_theme:true,preferred_theme_mode:'custom',preferred_theme_id:selected.id,preferred_theme_variant:'light'};
+  globalThis.__profileResponse={...pref};
+  const globalView=tree(ThemePreferences,{userId:'owner'},[pref,selected,false,false]);
+  const group=elements(globalView).find(el=>el.props['aria-label']==='라이트·다크 선호');
+  elements(group).find(el=>el.type==='button'&&el.props.children==='🌙 다크').props.onClick();
+  await flush();
+  assert.deepEqual(writes.findLast(write=>write.table==='profiles').patch,{preferred_theme_variant:'dark'});
+  assert.equal(globalThis.__profileResponse.preferred_theme_mode,'custom');
+  assert.equal(globalThis.__profileResponse.preferred_theme_id,selected.id);
+  const sidebarView=tree(SessionThemeSettings,{session:{...fluid,theme_variant:'dark'},userId:'owner',onUpdate:()=>{}},[selected,false,'global',false,null,'custom','dark',false]);
+  assert.equal(elements(sidebarView).find(el=>el.type==='button'&&el.props.children==='🌙 다크').props['aria-pressed'],true);
+  elements(sidebarView).find(el=>el.type==='button'&&el.props.children==='☀️ 라이트').props.onClick();
+  await flush();
+  assert.equal(globalThis.__profileResponse.preferred_theme_variant,'light');
+  const refreshedGlobal=tree(ThemePreferences,{userId:'owner'},[{...globalThis.__profileResponse},selected,false,false]);
+  const refreshedGroup=elements(refreshedGlobal).find(el=>el.props['aria-label']==='라이트·다크 선호');
+  assert.equal(elements(refreshedGroup).find(el=>el.type==='button'&&el.props.children==='☀️ 라이트').props['aria-pressed'],true);
+  if(!theme.bothVariants(selected)){
+    const choice=theme.resolveThemeSelection(globalThis.__profileResponse,null,null,'dark');
+    assert.equal(choice.themeId,selected.id);
+    assert.deepEqual(theme.paletteFor(selected,choice.variant).palette,selected.dark_colors??selected.light_colors);
+  }
+}
+console.log('Global custom preference controls: both single slots, dual themes and bidirectional sidebar preference payloads OK');

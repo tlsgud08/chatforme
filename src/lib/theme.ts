@@ -75,6 +75,12 @@ export function preferredThemeVariant(preference:ThemePreference|null,fallback:T
   const mode=preference?.preferred_theme_mode;
   return mode==='light'||mode==='dark'?mode:preference?.preferred_theme_variant??fallback;
 }
+/** A chat's variant buttons must never deselect the account's custom palette. */
+export function themeVariantPreferencePatch(preference:ThemePreference|null,variant:ThemeVariant):Partial<ThemePreference> {
+  return preference?.preferred_theme_mode==='custom'
+    ? {preferred_theme_variant:variant}
+    : {preferred_theme_mode:variant,preferred_theme_variant:variant};
+}
 /** Strict priority: fixed session > fluid scene > work default > user preference. */
 export function resolveThemeSelection(
   preference: ThemePreference | null,

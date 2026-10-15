@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Session } from '@/types/db';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
-import { appliedThemeIsSingle, appliedThemeLabel, appliedThemeVariant, bothVariants, loadTheme, preferredThemeVariant, requestThemeRefresh, subscribeAppliedTheme, type SavedTheme, type ThemeVariant } from '@/lib/theme';
+import { appliedThemeIsSingle, appliedThemeLabel, appliedThemeVariant, bothVariants, loadTheme, preferredThemeVariant, requestThemeRefresh, subscribeAppliedTheme, themeVariantPreferencePatch, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 import ThemeMenu from './ThemeMenu';
 
 type Props={session:Session;userId:string;onUpdate:(patch:Partial<Session>)=>void;busy?:boolean};
@@ -62,9 +62,9 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     const refresh=async()=>{
       if(writePending.current)return;
       const run=++generation,revision=mutationRevision.current;
-      const {data}=await supabase.from('sessions').select('theme_override,theme_id,theme_variant,auto_theme_enabled').eq('id',session.id).eq('user_id',userId).maybeSingle();
+      const {data}=await supabase.from('sessions').select('theme_override,theme_id,theme_variant').eq('id',session.id).eq('user_id',userId).maybeSingle();
       if(!active||!data||run!==generation||revision!==mutationRevision.current)return;
-      if(data.theme_override!==session.theme_override||data.theme_id!==session.theme_id||data.theme_variant!==session.theme_variant||data.auto_theme_enabled!==session.auto_theme_enabled){
+      if(data.theme_override!==session.theme_override||data.theme_id!==session.theme_id||data.theme_variant!==session.theme_variant){
         onUpdate(data);
       }
       if(session.theme_id){
@@ -76,7 +76,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     window.addEventListener('inuchat:theme-changed',listener);
     window.addEventListener('focus',listener);
     return ()=>{active=false;window.removeEventListener('inuchat:theme-changed',listener);window.removeEventListener('focus',listener);};
-  },[session.id,session.theme_override,session.theme_id,session.theme_variant,session.auto_theme_enabled,userId,onUpdate]);
+  },[session.id,session.theme_override,session.theme_id,session.theme_variant,userId,onUpdate]);
 
   async function save(override:'builtin'|'custom'|null,id:string|null,variant:ThemeVariant|null,selected?:SavedTheme):Promise<boolean>{
     if(busy||writePending.current)return false;
@@ -85,8 +85,8 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     setSaving(true);
     const {data,error}=await supabase.from('sessions').update({
       theme_override:override,theme_id:id,theme_variant:variant,
-      // Fixed variants never accept AI tags, even if automation was enabled before.
-      auto_theme_enabled:override===null?(session.auto_theme_enabled??false):false,
+      // Keep the legacy column compatible; behavior is determined by mode alone.
+      auto_theme_enabled:override===null,
     }).eq('id',session.id).eq('user_id',userId).select('*').single();
     writePending.current=false;
     setSaving(false);
@@ -106,16 +106,24 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     writePending.current=true;
     mutationRevision.current++;
     setSiteSaving(true);
-    // The fluid light/dark buttons edit the same profile setting as 화면 테마.
-    // The currently displayed scene is retained; only its variant changes.
-    const {error}=await supabase.from('profiles').update({preferred_theme_mode:next}).eq('id',userId);
-    writePending.current=false;
-    if(error){setSiteSaving(false);showToast('사이트 테마 변경 실패: '+error.message);return;}
-    setSiteMode(next);
-    setSiteVariant(next);
-    // The profile's DB trigger synchronizes fluid scenes across rooms,
-    // while leaving all three fixed modes untouched.
-    setSiteSaving(false);
+    try{
+      // Read the current mode so an edit in another settings surface is retained.
+      const {data:preference,error:readError}=await supabase.from('profiles')
+        .select('preferred_theme_mode,preferred_theme_variant').eq('id',userId).single();
+      if(readError)throw readError;
+      const {data,error}=await supabase.from('profiles').update(themeVariantPreferencePatch(preference,next))
+        .eq('id',userId).select('preferred_theme_mode,preferred_theme_variant').single();
+      if(error)throw error;
+      setSiteMode(data.preferred_theme_mode);
+      setSiteVariant(preferredThemeVariant(data,next));
+      // The existing DB trigger updates fluid variants, retaining all palette IDs.
+    }catch(error){
+      showToast('사이트 테마 변경 실패: '+(error instanceof Error?error.message:(error as {message?:string})?.message??String(error)));
+      return;
+    }finally{
+      writePending.current=false;
+      setSiteSaving(false);
+    }
     requestThemeRefresh();
   }
   async function chooseMode(next:'inherit'|'work'|'builtin'|'custom'){
@@ -143,20 +151,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
   return <section className="mt-4 border-t border-surface2 pt-4">
     <h3 className="mb-2 text-sm font-semibold text-white">채팅방 테마</h3>
     <p className="mb-3 text-xs text-slate-500">개별 선택이 가장 우선하며, 모든 기기에 동기화됩니다.</p>
-    <label className="mb-3 flex items-center justify-between gap-2 text-sm text-slate-200">
-      자동 테마 변경
-      <input type="checkbox" checked={isFluid&&(session.auto_theme_enabled??false)} disabled={busy||saving||siteSaving||!isFluid} onChange={async e=>{
-        if(busy||writePending.current||!isFluid)return;
-        writePending.current=true;mutationRevision.current++;
-        const enabled=e.target.checked;setSaving(true);
-        const {data,error}=await supabase.from('sessions').update({auto_theme_enabled:enabled}).eq('id',session.id).eq('user_id',userId).is('theme_override',null).select('auto_theme_enabled').maybeSingle();
-        writePending.current=false;
-        setSaving(false);
-        if(error||!data){showToast('자동 테마 변경 설정 실패: '+(error?.message??'유동적 모드에서만 활성화할 수 있습니다.'));return;}
-        onUpdate({auto_theme_enabled:data.auto_theme_enabled});
-      }}/>
-    </label>
-    <p className="mb-3 text-xs text-slate-500">유동적 모드에서만 켤 수 있습니다. 켜면 AI 응답 태그에 따라 화면 테마만 바뀌며, 선택 모드는 유지됩니다.</p>
+    <p className="mb-3 text-xs text-slate-500">유동적에서는 AI 응답에 따라 테마가 자동으로 변경됩니다. 다른 모드에서는 선택한 테마를 유지합니다.</p>
     <div className="grid grid-cols-4 gap-1 rounded-lg bg-surface p-1">
       {([{value:'inherit',label:'유동적'},{value:'work',label:'작품테마'},{value:'builtin',label:'기본 테마'},{value:'custom',label:'커스텀'}]as const).map(o=>
         <button key={o.value} disabled={busy||saving||siteSaving} aria-pressed={shownMode===o.value}
@@ -173,7 +168,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
         </button>)}
       </div>
       <p className="mt-2 text-xs text-slate-500">{appliedSingle?'현재 화면은 단일 테마입니다. 라이트·다크는 이후 두 버전이 있는 테마에 사용할 사이트 전역 설정이며, 단일 테마의 색상은 바뀌지 않습니다.':'선택 표시는 현재 화면에 적용된 라이트·다크를 따릅니다. 버튼을 누르면 사이트 전역 설정도 함께 변경됩니다.'} 유동적 선택 자체는 현재 화면을 바꾸지 않으며, AI가 테마를 바꾸어도 유동적 모드는 유지됩니다.</p>
-      {siteMode==='custom'&&<p className="mt-1 text-xs text-slate-500">현재 전역 설정은 커스텀입니다. 라이트 또는 다크를 선택하면 전역 설정도 변경됩니다.</p>}
+      {siteMode==='custom'&&<p className="mt-1 text-xs text-slate-500">전역 커스텀 테마는 유지되며, 라이트·다크 선호값만 함께 저장됩니다.</p>}
     </>}
     {mode==='custom'&&!open&&<div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-surface p-2">
       <span className="truncate text-xs text-white">{theme?.name??'테마를 다시 선택해 주세요'}</span>

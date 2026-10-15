@@ -124,5 +124,21 @@ assert.deepEqual((await db.query('select dark_colors from themes where id=$1',[s
 await db.query('update themes set dark_colors=NULL,light_colors=$1 where id=$2',[JSON.stringify(savedPalette),shared]);
 assert.deepEqual((await db.query('select light_colors from themes where id=$1',[shared])).rows[0].light_colors,savedPalette,'either legacy slot can store the same single palette');
 console.log('Single theme DB: single/dual edits, unchanged identity/references/colors and independent global variant OK');
+// A sidebar variant edit while the account uses a custom single theme must
+// retain the global theme ID, and sync only fluid scenes (even legacy OFF ones).
+const globalTheme='20000000-0000-0000-0000-000000000010';
+await db.query('insert into themes(id,owner_id,work_id,name,light_colors) values($1,$2,NULL,$3,$4)',[globalTheme,a,'전역 단일',JSON.stringify(savedPalette)]);
+await db.query("update profiles set preferred_theme_mode='custom',preferred_theme_id=$1,preferred_theme_variant='light' where id=$2",[globalTheme,a]);
+await db.query('update sessions set auto_theme_enabled=false where id=$1',[fluidId]);
+await db.query("update profiles set preferred_theme_variant='dark' where id=$1",[a]);
+assert.deepEqual((await db.query('select preferred_theme_mode,preferred_theme_id,preferred_theme_variant from profiles where id=$1',[a])).rows[0],{preferred_theme_mode:'custom',preferred_theme_id:globalTheme,preferred_theme_variant:'dark'});
+assert.deepEqual((await db.query('select theme_override,theme_id,theme_variant,auto_theme_enabled from sessions where id=$1',[fluidId])).rows[0],{theme_override:null,theme_id:shared,theme_variant:'dark',auto_theme_enabled:false});
+assert.deepEqual((await db.query('select light_colors from themes where id=$1',[globalTheme])).rows[0].light_colors,savedPalette);
+assert.equal((await db.query('select theme_variant from sessions where id=$1',[fixedId])).rows[0].theme_variant,'light');
+// Actual automatic write: obsolete OFF flags do not block fluid updates, and
+// the mode guard still prevents an in-flight response from touching fixed rooms.
+assert.equal((await db.query("update sessions set theme_id=$1,theme_variant='dark' where id=$2 and user_id=$3 and theme_override is null returning id",[shared,fluidId,a])).rows.length,1);
+assert.equal((await db.query("update sessions set theme_id=$1,theme_variant='dark' where id=$2 and user_id=$3 and theme_override is null returning id",[shared,fixedId,a])).rows.length,0);
+console.log('Custom global variant sync: unchanged IDs/colors, legacy OFF fluid writes and fixed-mode race guard OK');
 console.log('Postgres migration and RLS checks: private read/write isolation, scope immutability, reference guards, deletion reset and admin-only config OK');
 await db.close();
