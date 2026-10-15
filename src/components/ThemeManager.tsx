@@ -3,11 +3,12 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { invalidateInFlight, shareInFlight } from '@/lib/inFlight';
+import { dayNightDisplayVariant } from '@/lib/themeDirectives';
 import { applyCustomTheme, applyTheme, bothVariants, loadTheme, paletteFor, preferredThemeVariant, resolveThemeSelection, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 
 type Preference = { prefer_work_theme: boolean; preferred_theme_mode: 'dark' | 'light' | 'custom' | null; preferred_theme_id: string | null; preferred_theme_variant: ThemeVariant | null };
 type WorkDefault = { default_theme_id: string | null; default_theme_variant: ThemeVariant | null };
-type SessionTheme = { work_id: string; theme_override: 'builtin' | 'custom' | null; theme_id: string | null; theme_variant: ThemeVariant | null };
+type SessionTheme = { work_id: string; theme_override: 'builtin' | 'custom' | null; theme_id: string | null; theme_variant: ThemeVariant | null; theme_day_night_enabled?:boolean; theme_period?:'day'|'night'|null };
 
 /** Single owner of document-level theme application. Refetches on route changes,
  * explicit preference updates and browser focus (cross-device sync). */
@@ -34,7 +35,7 @@ export default function ThemeManager() {
       let workDefault: WorkDefault | null = null;
       const chatMatch = /^\/chat\/([0-9a-f-]+)$/i.exec(location.pathname);
       if (chatMatch) {
-        const { data, error: sessionError } = await shareInFlight(`theme:session:${user.id}:${chatMatch[1]}`, () => supabase.from('sessions').select('work_id,theme_override,theme_id,theme_variant').eq('id',chatMatch[1]).maybeSingle());
+        const { data, error: sessionError } = await shareInFlight(`theme:session:${user.id}:${chatMatch[1]}`, () => supabase.from('sessions').select('work_id,theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period').eq('id',chatMatch[1]).maybeSingle());
         if (!current || run!==generation || sessionError) return;
         session = data as SessionTheme | null;
         if (!session?.theme_override && !session?.theme_id && !session?.theme_variant && session?.work_id && pref?.prefer_work_theme !== false) {
@@ -47,7 +48,7 @@ export default function ThemeManager() {
       if (themeId) {
         const { data: theme, error: themeError } = await shareInFlight(`theme:palette:${user.id}:${themeId}`, () => supabase.from('themes').select('*').eq('id',themeId).maybeSingle());
         if (!current || run!==generation || themeError) return;
-        const selected=theme ? paletteFor(theme as SavedTheme,variant):null;
+        const selected=theme ? paletteFor(theme as SavedTheme,dayNightDisplayVariant(theme as SavedTheme,session,preferredVariant,variant)):null;
         if (selected) { applyCustomTheme(selected.palette,selected.variant,bothVariants(theme as SavedTheme)?'dual':'single',(theme as SavedTheme).name,preferredVariant); return; }
       }
       applyTheme(variant,preferredVariant);

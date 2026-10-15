@@ -1,4 +1,4 @@
-import { stripThemeDirectives } from '../themeDirectives';
+import { normalizeThemePeriods, stripThemeDirectives } from '../themeDirectives';
 import type { ChatMessage, SystemParts } from '@/lib/llm/types';
 import type { ActivePlugin, Message, Persona } from '@/types/db';
 
@@ -6,6 +6,7 @@ export interface AssembleInput {
   systemPrompt: string;
   mainPrompt: string;
   autoThemeEnabled?: boolean;
+  dayNightThemeNames?: string[];
   themePrompt?: string;
   themeCatalog?: string;
   currentTheme?: string;
@@ -38,7 +39,7 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
     if (input.themePrompt?.trim()) coreParts.push(section('Theme Change Rules', input.themePrompt));
     if (input.themeCatalog?.trim()) coreParts.push(section('Available Work Themes', input.themeCatalog));
   }
-  const outgoing = (text: string) => input.autoThemeEnabled ? text : stripThemeDirectives(text);
+  const outgoing = (text: string) => input.autoThemeEnabled ? normalizeThemePeriods(text,input.dayNightThemeNames) : stripThemeDirectives(text);
 
   // L2: persona — 희소 변경
   let persona = '';

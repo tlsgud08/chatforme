@@ -1,4 +1,28 @@
-import type { SavedTheme } from './theme';
+import { bothVariants, type SavedTheme, type ThemeSessionOverride, type ThemeVariant } from './theme';
+
+export type ThemePeriod='day'|'night';
+export const DAY_THEME_CONDITION='해가 떠 있는 낮에 사용하세요.';
+export const NIGHT_THEME_CONDITION='해가 완전히 진 밤애 사용하세요.';
+export function dayNightModeEnabled(session:ThemeSessionOverride|null,preference:ThemeVariant):boolean {
+  return session?.theme_override==null&&session?.theme_day_night_enabled===true&&preference==='light';
+}
+export function dayNightThemeEligible(theme:SavedTheme):boolean {
+  return !!theme.work_id&&theme.day_night_enabled===true&&bothVariants(theme);
+}
+export function dayNightDisplayVariant(theme:SavedTheme,session:ThemeSessionOverride|null,preference:ThemeVariant,fallback:ThemeVariant):ThemeVariant {
+  if(dayNightModeEnabled(session,preference)&&dayNightThemeEligible(theme)){
+    return session?.theme_period==='night'?'dark':'light';
+  }
+  return fallback;
+}
+export function themeDirectiveName(theme:SavedTheme,period:ThemePeriod|null|undefined,enabled:boolean):string {
+  return enabled&&dayNightThemeEligible(theme)?`${theme.name}:${period==='night'?'밤':'낮'}`:theme.name;
+}
+/** Transform request copies only. Stored messages, summaries and cache markers remain intact. */
+export function normalizeThemePeriods(content:string,enabledNames:readonly string[]=[]):string {
+  const enabled=new Set(enabledNames);
+  return content.replace(/\{\{theme::([^{}]+):(낮|밤)\}\}/g,(tag,name:string)=>enabled.has(name.trim())?tag:`{{theme::${name}}}`);
+}
 
 export const DEFAULT_THEME_PROMPT = `장면의 장소, 시간, 분위기와 테마별 적용 조건을 판단하세요.
 응답 맨 아래에 {{theme::테마이름}}을 한 개 출력하세요. 변경할 필요가 없으면 {{theme::keep}}을 출력하세요.
@@ -21,15 +45,31 @@ export function finalThemeDirective(content: string): string | null {
 export function availableWorkThemes(themes: SavedTheme[], workId: string, userId: string): SavedTheme[] {
   return themes.filter(t => t.work_id === workId && (t.work_shared !== false || t.owner_id === userId));
 }
-export function themeCatalogPrompt(themes: SavedTheme[]): string {
-  return [...themes].sort((a,b)=>a.id.localeCompare(b.id)).map(t =>
-    `- 이름: ${t.name}\n  적용 조건: ${t.ai_prompt?.trim() || '별도 조건 없음'}`).join('\n\n');
+function themeChoices(themes:SavedTheme[],enabled:boolean){
+  const choices=[...themes].sort((a,b)=>a.id.localeCompare(b.id)).flatMap(theme=>
+    enabled&&dayNightThemeEligible(theme)
+      ?(['day','night']as const).map(period=>({theme,period,name:themeDirectiveName(theme,period,true)}))
+      :[{theme,period:null as ThemePeriod|null,name:theme.name}]);
+  // Legacy suffix names can collide with generated choices. Never choose arbitrarily.
+  const counts=new Map<string,number>();
+  for(const choice of choices)counts.set(choice.name.trim(),(counts.get(choice.name.trim())??0)+1);
+  return choices.filter(choice=>counts.get(choice.name.trim())===1);
+}
+export function themeCatalogPrompt(themes: SavedTheme[],enabled=false): string {
+  return themeChoices(themes,enabled).map(({theme,period,name})=>
+    `- 이름: ${name}\n  적용 조건: ${theme.ai_prompt?.trim() || '별도 조건 없음'}${period?'\n  '+(period==='day'?DAY_THEME_CONDITION:NIGHT_THEME_CONDITION):''}`).join('\n\n');
+}
+export function resolveThemeDirectiveChoice(name:string|null,themes:SavedTheme[],enabled=false):{theme:SavedTheme;period:ThemePeriod|null}|null {
+  if(!name||name==='keep')return null;
+  const choices=themeChoices(themes,enabled);
+  const matches=choices.filter(choice=>choice.name.trim()===name);
+  if(matches.length===1)return {theme:matches[0].theme,period:matches[0].period};
+  // With the feature OFF, old suffixed responses still select the original theme.
+  if(!enabled&&/:(낮|밤)$/.test(name))return resolveThemeDirectiveChoice(name.replace(/:(낮|밤)$/,''),themes,false);
+  return null;
 }
 export function resolveDirectiveTheme(name: string | null, themes: SavedTheme[]): SavedTheme | null {
-  if (!name || name === 'keep') return null;
-  const matches = themes.filter(t => t.name.trim() === name);
-  // Ambiguous or unavailable names never select an arbitrary palette.
-  return matches.length === 1 ? matches[0] : null;
+  return resolveThemeDirectiveChoice(name,themes)?.theme??null;
 }
 
 export type ThemeObservation = { sessionId: string; fingerprint: string };

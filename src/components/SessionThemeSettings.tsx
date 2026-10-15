@@ -19,7 +19,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
   const appliedVariant=useSyncExternalStore(subscribeAppliedTheme,appliedThemeVariant,()=> 'light' as const);
   const appliedSingle=useSyncExternalStore(subscribeAppliedTheme,appliedThemeIsSingle,()=>false);
   const appliedLabel=useSyncExternalStore(subscribeAppliedTheme,appliedThemeLabel,()=> '기본 테마 · 라이트');
-  const shownVariant=appliedSingle?(siteMode===null?null:siteVariant):appliedVariant;
+  const shownVariant=appliedSingle||session.theme_override==null&&session.theme_day_night_enabled&&siteVariant==='light'?(siteMode===null?null:siteVariant):appliedVariant;
   const mutationRevision=useRef(0);
   const writePending=useRef(false);
   const isFluid=session.theme_override==null;
@@ -62,9 +62,9 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     const refresh=async()=>{
       if(writePending.current)return;
       const run=++generation,revision=mutationRevision.current;
-      const {data}=await supabase.from('sessions').select('theme_override,theme_id,theme_variant').eq('id',session.id).eq('user_id',userId).maybeSingle();
+      const {data}=await supabase.from('sessions').select('theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period').eq('id',session.id).eq('user_id',userId).maybeSingle();
       if(!active||!data||run!==generation||revision!==mutationRevision.current)return;
-      if(data.theme_override!==session.theme_override||data.theme_id!==session.theme_id||data.theme_variant!==session.theme_variant){
+      if(data.theme_override!==session.theme_override||data.theme_id!==session.theme_id||data.theme_variant!==session.theme_variant||data.theme_day_night_enabled!==session.theme_day_night_enabled||data.theme_period!==session.theme_period){
         onUpdate(data);
       }
       if(session.theme_id){
@@ -76,7 +76,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     window.addEventListener('inuchat:theme-changed',listener);
     window.addEventListener('focus',listener);
     return ()=>{active=false;window.removeEventListener('inuchat:theme-changed',listener);window.removeEventListener('focus',listener);};
-  },[session.id,session.theme_override,session.theme_id,session.theme_variant,userId,onUpdate]);
+  },[session.id,session.theme_override,session.theme_id,session.theme_variant,session.theme_day_night_enabled,session.theme_period,userId,onUpdate]);
 
   async function save(override:'builtin'|'custom'|null,id:string|null,variant:ThemeVariant|null,selected?:SavedTheme):Promise<boolean>{
     if(busy||writePending.current)return false;
@@ -85,6 +85,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     setSaving(true);
     const {data,error}=await supabase.from('sessions').update({
       theme_override:override,theme_id:id,theme_variant:variant,
+      theme_period:null,
       // Keep the legacy column compatible; behavior is determined by mode alone.
       auto_theme_enabled:override===null,
     }).eq('id',session.id).eq('user_id',userId).select('*').single();
@@ -102,6 +103,23 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
   const shownMode=open?(pickerScope==='work'?'work':'custom'):selectedMode;
   const variant=session.theme_variant??'light';
   const singlePreference=siteMode===null?previewThemeVariant():siteVariant;
+  async function chooseDayNight(enabled:boolean){
+    if(busy||writePending.current||!isFluid)return;
+    writePending.current=true;mutationRevision.current++;setSaving(true);
+    try{
+      if(enabled){
+        const {data,error}=await supabase.from('profiles').select('preferred_theme_mode,preferred_theme_variant').eq('id',userId).single();
+        if(error)throw error;
+        if(preferredThemeVariant(data,previewThemeVariant())!=='light')throw new Error('라이트 선호에서만 켤 수 있습니다.');
+      }
+      const {data,error}=await supabase.from('sessions').update({theme_day_night_enabled:enabled,theme_period:null})
+        .eq('id',session.id).eq('user_id',userId).is('theme_override',null).select('*').single();
+      if(error)throw error;
+      onUpdate(data as Session);
+    }catch(error){showToast('낮·밤 테마 설정 실패: '+((error as {message?:string})?.message??String(error)));return;}
+    finally{writePending.current=false;setSaving(false);}
+    requestThemeRefresh();
+  }
   async function chooseSiteTheme(next:ThemeVariant){
     if(busy||writePending.current)return;
     writePending.current=true;
@@ -161,6 +179,13 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     </div>
     {mode==='inherit'&&!open&&<>
       <p className="mt-2 break-words rounded-lg bg-surface p-2 text-xs text-slate-200" role="status">현재 적용: {appliedLabel}</p>
+      <label className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-surface p-2 text-xs text-slate-200">
+        <span>다크 버전을 밤 테마로 사용</span>
+        <input type="checkbox" aria-label="다크 버전을 밤 테마로 사용" checked={session.theme_day_night_enabled??false}
+          disabled={busy||saving||siteSaving||siteMode===null||siteVariant!=='light'&&!session.theme_day_night_enabled}
+          onChange={e=>void chooseDayNight(e.target.checked)}/>
+      </label>
+      <p className="mt-1 text-xs text-slate-500">라이트 선호의 유동적 모드에서만 작동합니다. 작품 테마에서 시간 전환에 사용할 복수 테마를 지정하세요. 옵션을 끄면 기존 낮·밤 태그는 전송 시 일반 테마 이름으로 정리됩니다.</p>
       <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="사이트 기본 테마">
         {(['light','dark']as const).map(v=><button key={v} type="button" disabled={busy||saving||siteSaving}
           aria-pressed={shownVariant===v} onClick={()=>void chooseSiteTheme(v)}

@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 const transpile = source=>ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2020}}).outputText;
 const uri=code=>'data:text/javascript;base64,'+Buffer.from(code).toString('base64');
-const helpersURL=uri(transpile(readFileSync(new URL('../src/lib/themeDirectives.ts',import.meta.url),'utf8')));
+const themeURL=uri(transpile(readFileSync(new URL('../src/lib/theme.ts',import.meta.url),'utf8')));
+const theme=await import(themeURL);
+const helpersURL=uri(transpile(readFileSync(new URL('../src/lib/themeDirectives.ts',import.meta.url),'utf8').replace("'./theme'",JSON.stringify(themeURL))));
 const h=await import(helpersURL);
 const assemblySource=readFileSync(new URL('../src/lib/prompt/assemble.ts',import.meta.url),'utf8').replace("'../themeDirectives'",JSON.stringify(helpersURL));
 const {assemblePrompt}=await import(uri(transpile(assemblySource)));
@@ -52,3 +54,45 @@ assert.equal(h.observeThemeDirective(state,'s',{id:'reroll',content:text}).chang
 assert.equal(h.observeThemeDirective(state,'other',{id:'first',content:text}).changed,false,'route change does not replay');
 assert.equal(h.observeThemeDirective(null,'s',{id:'first',content:text}).changed,false,'initial load preserves saved manual theme');
 console.log('Theme observation lifecycle: first response, edit, reroll, manual choice, reload and navigation OK');
+
+const dual={id:'dual',name:'정원',work_id:'w',owner_id:'a',work_shared:true,day_night_enabled:true,ai_prompt:'정원에서 사용',dark_colors:theme.DEFAULT_DARK,light_colors:theme.DEFAULT_LIGHT};
+const normal={...dual,id:'normal',name:'실내',day_night_enabled:false};
+const single={...dual,id:'single',name:'단일',light_colors:null};
+const catalog=[dual,normal,single];
+const split=h.themeCatalogPrompt(catalog,true);
+assert.ok(split.includes('- 이름: 정원:낮\n  적용 조건: 정원에서 사용\n  해가 떠 있는 낮에 사용하세요.'));
+assert.ok(split.includes('- 이름: 정원:밤\n  적용 조건: 정원에서 사용\n  해가 완전히 진 밤애 사용하세요.'));
+assert.ok(split.includes('- 이름: 실내\n'));
+assert.ok(!split.includes('단일:밤'));
+assert.equal(split,h.themeCatalogPrompt([...catalog].reverse(),true));
+assert.equal(h.resolveThemeDirectiveChoice('정원:밤',catalog,true).period,'night');
+assert.equal(h.resolveThemeDirectiveChoice('정원:낮',catalog,true).period,'day');
+assert.equal(h.resolveThemeDirectiveChoice('정원',catalog,true),null,'split catalogs require an exact day/night choice');
+assert.equal(h.resolveThemeDirectiveChoice('정원:밤',catalog,false).period,null,'OFF maps old suffixes to the ordinary theme');
+assert.equal(h.resolveThemeDirectiveChoice('실내:밤',catalog,true),null,'unchecked themes never request a night override');
+assert.equal(h.resolveThemeDirectiveChoice('정원:새벽',catalog,true),null);
+const collision={...normal,id:'collision',name:'정원:밤'};
+assert.equal(h.resolveThemeDirectiveChoice('정원:밤',[...catalog,collision],true),null,'legacy name collisions never select arbitrarily');
+for(const [override,preference,enabled,expected] of [[null,'light',true,true],[null,'dark',true,false],['custom','light',true,false],['builtin','light',true,false],[null,'light',false,false]]){
+ const room={theme_override:override,theme_day_night_enabled:enabled,theme_period:'night'};
+ assert.equal(h.dayNightModeEnabled(room,preference),expected);
+ assert.equal(h.dayNightDisplayVariant(dual,room,preference,'light'),expected?'dark':'light');
+}
+const nightText='본문\n{{theme::정원:밤}}';
+const timed={...input,history:[{role:'assistant',content:nightText,cacheBreakpoint:true}],summary:nightText,userNote:nightText,storyNotes:[nightText],themeCatalog:split,dayNightThemeNames:['정원']};
+assert.equal(assemblePrompt(timed).messages[0].content,nightText);
+const normalized=assemblePrompt({...timed,dayNightThemeNames:[],themeCatalog:h.themeCatalogPrompt(catalog)});
+assert.equal(normalized.messages[0].content,'본문\n{{theme::정원}}');
+assert.equal(normalized.messages[0].cacheBreakpoint,true);
+assert.ok(!JSON.stringify(normalized).includes('정원:밤'));
+assert.equal(timed.history[0].content,nightText,'request normalization never rewrites records');
+const fixed=assemblePrompt({...timed,autoThemeEnabled:false});
+assert.ok(!JSON.stringify(fixed).includes('{{theme::'));
+assert.ok(!fixed.systemParts.core.includes('해가 떠 있는'));
+assert.equal(h.normalizeThemePeriods('{{theme::정원:밤}} {{theme::실내:낮}}',['정원']),'{{theme::정원:밤}} {{theme::실내}}');
+const eveningTag='{{theme::정원:밤}}';
+for(let i=1;i<=eveningTag.length;i++)assert.equal(h.stripThemeDirectives('본문\n'+eveningTag.slice(0,i),true),'본문\n');
+console.log('Day/night: exact conditions, eligibility, stable split catalog, collision safety, runtime gate, OFF history/summary normalization and raw cache preservation OK');
+
+assert.equal(h.dayNightDisplayVariant(dual,{theme_override:null,theme_day_night_enabled:true,theme_period:null},'light','dark'),'light','enabling time mode starts from day rather than an old manual variant');
+assert.equal(h.themeDirectiveName(dual,null,true),'정원:낮','current theme uses a catalog name even before the first tagged response');

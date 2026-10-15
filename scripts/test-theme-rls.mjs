@@ -31,6 +31,7 @@ await db.exec(readFileSync(root+'supabase/migrations/20261014031245_automatic_wo
 await db.exec(readFileSync(root+'supabase/migrations/20261014034744_theme_secondary_text.sql','utf8'));
 await db.exec(readFileSync(root+'supabase/migrations/20261014044407_theme_secondary_opacity.sql','utf8'));
 await db.exec(readFileSync(root+'supabase/migrations/20261014173500_fluid_chat_theme.sql','utf8'));
+await db.exec(readFileSync(root+'supabase/migrations/20261015020249_day_night_work_themes.sql','utf8'));
 await db.exec('grant select,insert,update,delete on all tables in schema public to authenticated,anon;');
 const a='00000000-0000-0000-0000-000000000001',b='00000000-0000-0000-0000-000000000002',c='00000000-0000-0000-0000-000000000003';
 const w='10000000-0000-0000-0000-000000000001',other='10000000-0000-0000-0000-000000000002';
@@ -141,4 +142,27 @@ assert.equal((await db.query("update sessions set theme_id=$1,theme_variant='dar
 assert.equal((await db.query("update sessions set theme_id=$1,theme_variant='dark' where id=$2 and user_id=$3 and theme_override is null returning id",[shared,fixedId,a])).rows.length,0);
 console.log('Custom global variant sync: unchanged IDs/colors, legacy OFF fluid writes and fixed-mode race guard OK');
 console.log('Postgres migration and RLS checks: private read/write isolation, scope immutability, reference guards, deletion reset and admin-only config OK');
+// Defaults preserve all old rooms/themes. Night is a separate scene column.
+assert.equal((await db.query('select theme_day_night_enabled from sessions where id=$1',[fluidId])).rows[0].theme_day_night_enabled,false);
+await deny('update themes set day_night_enabled=true where id=$1',[shared]);
+await deny('update themes set day_night_enabled=true where id=$1',[globalTheme]);
+await db.query('update themes set dark_colors=$1,day_night_enabled=true where id=$2',[JSON.stringify(basic),shared]);
+await db.query("update sessions set theme_day_night_enabled=true,theme_period='night' where id=$1",[fluidId]);
+assert.deepEqual((await db.query('select theme_variant,theme_period from sessions where id=$1',[fluidId])).rows[0],{theme_variant:'dark',theme_period:'night'});
+await deny("update sessions set theme_period='sunset' where id=$1",[fluidId]);
+await db.query("update profiles set preferred_theme_variant='light' where id=$1",[a]);
+assert.deepEqual((await db.query('select theme_variant,theme_period from sessions where id=$1',[fluidId])).rows[0],{theme_variant:'light',theme_period:'night'},'preference sync never destroys night scene state');
+await db.query('update sessions set theme_day_night_enabled=false where id=$1',[fluidId]);
+assert.equal((await db.query('select theme_period from sessions where id=$1',[fluidId])).rows[0].theme_period,null);
+await db.query("update sessions set theme_day_night_enabled=true,theme_period='night' where id=$1",[fluidId]);
+await db.query("update sessions set theme_override='custom',auto_theme_enabled=false where id=$1",[fluidId]);
+assert.equal((await db.query('select theme_period from sessions where id=$1',[fluidId])).rows[0].theme_period,null,'fixed choices clear an old night override');
+await db.query('update sessions set theme_override=null where id=$1',[fluidId]);
+await db.query("update sessions set theme_period='night' where id=$1",[fluidId]);
+await login(c);
+assert.equal((await db.query('update themes set day_night_enabled=false where id=$1 returning id',[shared])).rows.length,0,'theme option follows existing work edit permissions');
+await login(a);
+await db.query('delete from themes where id=$1',[shared]);
+assert.equal((await db.query('select theme_period from sessions where id=$1',[fluidId])).rows[0].theme_period,null,'theme deletion clears scene period without blocking FK recovery');
+console.log('Day/night SQL: default OFF, work/dual integrity, independent preference sync, fixed/deleted cleanup and RLS OK');
 await db.close();
