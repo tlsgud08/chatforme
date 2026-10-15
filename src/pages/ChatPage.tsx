@@ -478,8 +478,8 @@ export default function ChatPage() {
     const {observation,changed}=observeThemeDirective(themeMessageRef.current,session.id,latest??null);
     themeMessageRef.current=observation;
     const fingerprint=observation.fingerprint;
-    // Initial load and toggling ON never replay old tags over a manual choice.
-    if(!changed||!latest||latest.generation_status==='interrupted'||!session.auto_theme_enabled||session.theme_override!=null)return;
+    // Initial load and switching modes never replay old tags over a manual choice.
+    if(!changed||!latest||latest.generation_status==='interrupted'||session.theme_override!=null)return;
     const selected=resolveDirectiveTheme(finalThemeDirective(latest.content),workThemes);
     if(!selected)return;
     const root=document.documentElement.dataset;
@@ -496,7 +496,7 @@ export default function ChatPage() {
       if(!paletteFor(selected,variant)||(session.theme_id===selected.id&&session.theme_variant===variant))return;
       const patch={theme_id:selected.id,theme_variant:variant};
       const {data,error}=await supabase.from('sessions').update(patch).eq('id',targetSessionId)
-        .eq('user_id',session.user_id).eq('auto_theme_enabled',true).is('theme_override',null)
+        .eq('user_id',session.user_id).is('theme_override',null)
         .select('id').maybeSingle();
       if(themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
       if(error){addError('자동 테마 변경 실패: '+error.message);return;}
@@ -504,7 +504,7 @@ export default function ChatPage() {
       setSession(current=>current?.id===targetSessionId&&current.theme_override==null?{...current,...patch}:current);
       requestThemeRefresh();
     })();
-  },[messages,session?.id,session?.auto_theme_enabled,session?.theme_override,workThemes]);
+  },[messages,session?.id,session?.theme_override,workThemes]);
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
@@ -592,9 +592,9 @@ export default function ChatPage() {
         ? activeSourceMessages
         : messagesAfterSummary(activeSourceMessages, previousTurn);
       if (candidates.length === 0 && archivesToMerge.length === 0) throw new Error('새로 요약할 대화가 없습니다.');
-      const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${session.auto_theme_enabled&&session.theme_override==null?message.content:stripThemeDirectives(message.content)}`).join('\n\n');
+      const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${session.theme_override==null?message.content:stripThemeDirectives(message.content)}`).join('\n\n');
       const summaryInput = `${previous ? `=== Previous Summary Notes${archivesToMerge.length > 1 ? ' (merge the selected notes into one)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== Dialogue to Summarize ===\n${dialogue}` : '=== Request ===\nMerge the selected summary notes into one up-to-date summary without omissions or discontinuities.'}`;
-      const input=session.auto_theme_enabled&&session.theme_override==null?summaryInput:stripThemeDirectives(summaryInput);
+      const input=session.theme_override==null?summaryInput:stripThemeDirectives(summaryInput);
       const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
       const allowOmission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
       const parametersEnabled = !profile.summary_prompt?.trim() || (session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true);
@@ -844,7 +844,7 @@ export default function ChatPage() {
     const currentSelection=resolveThemeSelection(profile,work,session,baseVariant);
     const currentThemeName=workThemes.find(t=>t.id===currentSelection.themeId)?.name??(currentSelection.themeId?'작품 외 커스텀 테마':currentSelection.variant==='dark'?'기본 다크':'기본 라이트');
     const assembled = assemblePrompt({
-      autoThemeEnabled:!!session.auto_theme_enabled&&session.theme_override==null,themePrompt,themeCatalog:themeCatalogPrompt(workThemes),
+      autoThemeEnabled:session.theme_override==null,themePrompt,themeCatalog:themeCatalogPrompt(workThemes),
       currentTheme:currentThemeName,
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
@@ -1108,7 +1108,7 @@ export default function ChatPage() {
     const { data: newSession, error } = await supabase.from('sessions').insert({
       user_id: user.id, work_id: session.work_id, title: `${session.title} (분기)`, persona_id: session.persona_id,
       start_config_id: session.start_config_id, user_note: session.user_note, active_plugins: session.active_plugins ?? [],
-      auto_theme_enabled:session.auto_theme_enabled??false,
+      auto_theme_enabled:session.theme_override==null,
       theme_override: session.theme_override ?? null, theme_id: session.theme_id ?? null, theme_variant: session.theme_variant ?? null,
       output_settings_override_enabled: session.output_settings_override_enabled,
       output_tokens_override: session.output_tokens_override,

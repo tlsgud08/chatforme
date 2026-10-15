@@ -37,11 +37,12 @@ function useCurrentVariant() {
   return variant;
 }
 export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=false,scope,selectedId,onSelect,onClose}:Props){
+  const catalogScope=scope??(workId?'all':'global');
   const variant = useCurrentVariant();
   const [themes,setThemes]=useState<SavedTheme[]>([]);
   const [favorites,setFavorites]=useState<Set<string>>(new Set());
   const [workNames,setWorkNames]=useState<Record<string,string>>({});
-  const [tab,setTab]=useState<Tab>(scope==='global'?'all':workId?'work':'all');
+  const [tab,setTab]=useState<Tab>(catalogScope==='global'?'all':workId?'work':'all');
   const [search,setSearch]=useState('');
   const [editing,setEditing]=useState<SavedTheme|'new'|null>(null);
   const [draft,setDraft]=useState<Draft>(defaultDraft);
@@ -53,7 +54,11 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     const fetchThemes = async () => {
       const items: SavedTheme[] = [];
       for(let start=0;;start+=500){
-        const {data,error}=await supabase.from('themes').select('*')
+        let query=supabase.from('themes').select('*');
+        if(catalogScope==='global')query=query.is('work_id',null);
+        else if(catalogScope==='work')query=query.eq('work_id',workId!);
+        else query=query.or(`work_id.is.null,work_id.eq.${workId}`);
+        const {data,error}=await query
           .order('updated_at',{ascending:false}).order('id',{ascending:false})
           .range(start,start+499);
         if(error)throw error;
@@ -78,18 +83,19 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     const workIds=[...new Set(data.map((t:SavedTheme)=>t.work_id).filter((id):id is string=>!!id))];
     if(workIds.length){const {data:works}=await supabase.from('works').select('id,title').in('id',workIds);setWorkNames(Object.fromEntries((works??[]).map(w=>[w.id,w.title])));}
     setFavorites(new Set(stars));
-  },[userId]);
+  },[userId,workId,catalogScope]);
   useEffect(()=>{void load();},[load]);
   const visible=useMemo(()=>themes.filter(t=>{
-    if(scope==='work'&&t.work_id!==workId)return false;
-    if(scope==='global'&&t.work_id)return false;
+    if(t.work_id&&t.work_id!==workId)return false;
+    if(catalogScope==='work'&&t.work_id!==workId)return false;
+    if(catalogScope==='global'&&t.work_id)return false;
     const active=tab==='all'?(t.work_id===null||!workId||t.work_id===workId)
       :tab==='work'?!!t.work_id&&(!workId||t.work_id===workId)
       :tab==='mine'?t.work_id===null&&t.owner_id===userId
       :tab==='hub'?t.work_id===null&&t.is_published
       :favorites.has(t.id);
     return active&&(!search.trim()||[t.name,t.description].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
-  }),[themes,tab,workId,userId,favorites,search,scope]);
+  }),[themes,tab,workId,userId,favorites,search,catalogScope]);
   function edit(theme?:SavedTheme,preferred=variant){setEditing(theme??'new');setDraft(theme?{name:theme.name,description:theme.description,ai_prompt:theme.ai_prompt??'',...createPaletteDraft(theme,preferred)}:defaultDraft());}
   async function save(){
     if(busy)return;
@@ -164,7 +170,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
       {onClose&&<button className="text-slate-400" onClick={onClose} aria-label="닫기">✕</button>}
     </header>
     <nav aria-label="테마 목록" className="flex gap-2 overflow-x-auto px-3 py-3">
-      {(['all','work','mine','hub','favorites']as const).filter(t=>scope==='work'?t==='work':scope==='global'?t!=='work':true).map(t=><button key={t} aria-pressed={tab===t} onClick={()=>setTab(t)} className={`shrink-0 rounded-full px-3 py-2 text-xs ${tab===t?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>{labels[t]}</button>)}
+      {(['all','work','mine','hub','favorites']as const).filter(t=>catalogScope==='work'?t==='work':catalogScope==='global'?t!=='work':true).map(t=><button key={t} aria-pressed={tab===t} onClick={()=>setTab(t)} className={`shrink-0 rounded-full px-3 py-2 text-xs ${tab===t?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>{labels[t]}</button>)}
     </nav>
     <div className="px-3 pb-3"><input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="테마 이름·설명 검색" className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-white"/></div>
     {visible.length===0&&<p className="p-5 text-center text-sm text-slate-500">테마가 없습니다.</p>}

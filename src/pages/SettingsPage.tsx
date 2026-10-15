@@ -435,7 +435,7 @@ export default function SettingsPage() {
             </button>
           </div>
           <p className="mb-2 mt-5 text-xs font-semibold text-yellow-400">테마 변경 및 판단 전역 프롬프트</p>
-          <p className="mb-2 text-xs text-slate-500">자동 테마 변경을 켠 채팅에서 작품 메인 프롬프트 바로 뒤에 적용됩니다. 사용 가능한 테마와 적용 조건이 이어집니다.</p>
+          <p className="mb-2 text-xs text-slate-500">유동적 모드의 채팅에서 작품 메인 프롬프트 바로 뒤에 적용됩니다. 사용 가능한 테마와 적용 조건이 이어집니다.</p>
           <textarea aria-label="테마 변경 및 판단 전역 프롬프트" value={themePrompt} onChange={e=>setThemePrompt(e.target.value)} rows={6} className="w-full resize-y rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none" />
           <p className="mb-2 mt-5 text-xs font-semibold text-yellow-400">멀티챗 전용 추가 프롬프트</p>
           <p className="mb-2 text-xs text-slate-500">일반 전역 프롬프트 뒤에 추가됩니다. 참여자를 user1, user2로 지칭할 수 있습니다.</p>
