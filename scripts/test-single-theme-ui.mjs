@@ -96,7 +96,7 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
 
   const pref={prefer_work_theme:true,preferred_theme_mode:'custom',preferred_theme_id:selected.id,preferred_theme_variant:'light'};
   const prefs=tree(ThemePreferences,{userId:'owner'},[pref,selected,true,false]);
-  assert.equal(elements(prefs).filter(el=>el.type==='button'&&['🌙 다크','☀️ 라이트'].includes(el.props.children)).length,isDual?4:2,'only dual custom themes expose their own variant selector');
+  assert.equal(elements(prefs).filter(el=>el.type==='button'&&['🌙 다크','☀️ 라이트'].includes(el.props.children)).length,4,'single and dual global custom themes both expose the shared preference');
   // A dark-only theme followed by a dual theme must still choose light.
   elements(prefs).find(el=>typeof el.props.onSelect==='function').props.onSelect(selected);
   await flush();
@@ -173,3 +173,32 @@ const roomPicker=tree(ThemeMenu,{userId:'owner',workId:'work',scope:'work'},['li
 assert.ok(renderToStaticMarkup(roomPicker).includes('LOCAL WORK'),'matching work chat still selects its work themes');
 assert.ok(!renderToStaticMarkup(roomPicker).includes('OTHER WORK'));
 console.log('Fluid variant handler, custom global identity, legacy OFF mode transitions and work catalog isolation OK');
+
+// Global custom preference → sidebar, then sidebar → global settings.
+for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEFAULT_LIGHT},dual]){
+  root.dataset.themeMode=theme.bothVariants(selected)?'dual':'single';
+  root.dataset.themeVariant='dark';
+  const pref={prefer_work_theme:true,preferred_theme_mode:'custom',preferred_theme_id:selected.id,preferred_theme_variant:'light'};
+  globalThis.__profileResponse={...pref};
+  const globalView=tree(ThemePreferences,{userId:'owner'},[pref,selected,false,false]);
+  const group=elements(globalView).find(el=>el.props['aria-label']==='라이트·다크 선호');
+  elements(group).find(el=>el.type==='button'&&el.props.children==='🌙 다크').props.onClick();
+  await flush();
+  assert.deepEqual(writes.findLast(write=>write.table==='profiles').patch,{preferred_theme_variant:'dark'});
+  assert.equal(globalThis.__profileResponse.preferred_theme_mode,'custom');
+  assert.equal(globalThis.__profileResponse.preferred_theme_id,selected.id);
+  const sidebarView=tree(SessionThemeSettings,{session:{...fluid,theme_variant:'dark'},userId:'owner',onUpdate:()=>{}},[selected,false,'global',false,null,'custom','dark',false]);
+  assert.equal(elements(sidebarView).find(el=>el.type==='button'&&el.props.children==='🌙 다크').props['aria-pressed'],true);
+  elements(sidebarView).find(el=>el.type==='button'&&el.props.children==='☀️ 라이트').props.onClick();
+  await flush();
+  assert.equal(globalThis.__profileResponse.preferred_theme_variant,'light');
+  const refreshedGlobal=tree(ThemePreferences,{userId:'owner'},[{...globalThis.__profileResponse},selected,false,false]);
+  const refreshedGroup=elements(refreshedGlobal).find(el=>el.props['aria-label']==='라이트·다크 선호');
+  assert.equal(elements(refreshedGroup).find(el=>el.type==='button'&&el.props.children==='☀️ 라이트').props['aria-pressed'],true);
+  if(!theme.bothVariants(selected)){
+    const choice=theme.resolveThemeSelection(globalThis.__profileResponse,null,null,'dark');
+    assert.equal(choice.themeId,selected.id);
+    assert.deepEqual(theme.paletteFor(selected,choice.variant).palette,selected.dark_colors??selected.light_colors);
+  }
+}
+console.log('Global custom preference controls: both single slots, dual themes and bidirectional sidebar preference payloads OK');

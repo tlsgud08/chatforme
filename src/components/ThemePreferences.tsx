@@ -139,8 +139,8 @@ export default function ThemePreferences({ userId }: { userId: string }) {
         {!chosen && <p className="mt-2 text-xs text-slate-400">
           테마를 선택하거나 제작하면 지정한 커스텀 색상이 적용됩니다.
         </p>}
-        {chosen && !bothVariants(chosen) && <p className="mt-2 text-xs text-slate-400">단일 테마 · 라이트·다크 설정에 관계없이 같은 색상으로 표시됩니다.</p>}
-        {chosen && bothVariants(chosen) && <div className="mt-3 grid grid-cols-2 gap-2">
+        {chosen && !bothVariants(chosen) && <p className="mt-2 text-xs text-slate-400">단일 테마 · 색상은 유지되며, 선호값은 이후 라이트·다크 버전이 있는 테마에 사용됩니다.</p>}
+        <div className="mt-3 grid grid-cols-2 gap-2" role="group" aria-label="라이트·다크 선호">
           {(['light', 'dark'] as const).map(variant =>
             <button
               key={variant}
@@ -152,7 +152,8 @@ export default function ThemePreferences({ userId }: { userId: string }) {
               {variant === 'dark' ? '🌙 다크' : '☀️ 라이트'}
             </button>
           )}
-        </div>}
+        </div>
+        <p className="mt-2 text-xs text-slate-400">채팅방 유동적 모드의 라이트·다크 선호 설정과 함께 동기화됩니다.</p>
         {picker && userId && <div className="mt-3 overflow-hidden rounded-xl border border-surface2 bg-bg">
           <ThemeMenu
             userId={userId}
