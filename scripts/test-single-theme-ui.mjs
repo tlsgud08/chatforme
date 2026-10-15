@@ -23,7 +23,10 @@ export const useId=()=> 'test-'+globalThis.__themeHooks.index++;
 export function useState(initial){
   const state=globalThis.__themeHooks,index=state.index++;
   if(!(index in state.values))state.values[index]=typeof initial==='function'?initial():initial;
-  return [state.values[index],next=>{state.values[index]=typeof next==='function'?next(state.values[index]):next;}];
+  return [state.values[index],next=>{
+    const update=()=>{state.values[index]=typeof next==='function'?next(state.values[index]):next;};
+    if(state.pending)state.pending.push(update);else update();
+  }];
 }`);
 const writes=[];
 globalThis.__themeTestDb={from(table){
@@ -323,13 +326,51 @@ for(const mode of ['single','dual']){
  const values=['light',[],new Set(),{},'work','',dayTheme,draft,false,null];
  const editView=tree(ThemeMenu,{userId:'owner',workId:'work',allowWorkCreate:true},values);
  const toggle=elements(editView).find(el=>el.props['aria-label']==='다크·라이트 시간 전환에 사용');
- assert.equal(toggle.props.disabled,mode==='single');assert.equal(toggle.props.checked,false);
- if(mode==='dual')toggle.props.onChange({target:{checked:true}});
+ assert.equal(toggle.props.disabled,false);assert.equal(toggle.props.checked,false);
+ if(mode==='dual')toggle.props.onChange({target:{checked:true},currentTarget:{checked:true}});
  const edited=tree(ThemeMenu,{userId:'owner',workId:'work',allowWorkCreate:true},values);
  elements(edited).find(el=>el.type==='button'&&el.props.children==='테마 저장').props.onClick();await flush();
  assert.equal(writes.findLast(w=>w.table==='themes').patch.day_night_enabled,mode==='dual');
 }
 console.log('Day/night UI: default OFF, light-only live guard, night preference display, OFF reset and work dual save payloads OK');
+
+// A new or legacy single work theme must be able to opt into time switching
+// directly. Keep its existing palette and initialize only the missing version.
+for(const selected of [null,{...single,work_id:'work'},{...single,work_id:'work',dark_colors:null,light_colors:theme.DEFAULT_LIGHT},dayTheme]){
+ for(const shared of [false,true]){
+  const props={userId:'owner',workId:'work',scope:'work',allowWorkCreate:shared};
+  const draft={name:'정원',description:'',ai_prompt:'정원 조건',day_night_enabled:false,...theme.createPaletteDraft(selected,'light')};
+  const values=['light',[],new Set(),{},'work','',selected??'new',draft,false,null];
+  let view=tree(ThemeMenu,props,values);
+  let toggle=elements(view).find(el=>el.props['aria-label']==='다크·라이트 시간 전환에 사용');
+  assert.equal(toggle.props.disabled,false,'single work themes can enable time switching without a separate mode change');
+  // React may run a functional updater after the controlled DOM input has
+  // been restored. The handler must capture checked before queuing the update.
+  const target={checked:true},event={target,currentTarget:target};
+  globalThis.__themeHooks.pending=[];
+  toggle.props.onChange(event);
+  target.checked=false;event.currentTarget=null;
+  globalThis.__themeHooks.pending.forEach(update=>update());
+  assert.equal(values[7].day_night_enabled,true);
+  assert.equal(values[7].mode,'dual');
+  assert.ok(theme.bothVariants(values[7]));
+  for(const variant of ['dark','light']){
+   if(draft[variant+'_colors'])assert.deepEqual(values[7][variant+'_colors'],draft[variant+'_colors'],'existing work theme colors are preserved');
+  }
+  view=tree(ThemeMenu,props,values);
+  toggle=elements(view).find(el=>el.props['aria-label']==='다크·라이트 시간 전환에 사용');
+  assert.equal(toggle.props.checked,true);
+  assert.equal(elements(view).filter(el=>el.type?.name==='ThemePaletteEditor').length,2,'both versions are immediately editable');
+  elements(view).find(el=>el.type==='button'&&el.props.children==='테마 저장').props.onClick();await flush();
+  const saved=writes.findLast(w=>w.table==='themes').patch;
+  assert.equal(saved.day_night_enabled,true);
+  assert.ok(theme.bothVariants(saved));
+  toggle.props.onChange({target:{checked:false},currentTarget:{checked:false}});
+  assert.equal(values[7].day_night_enabled,false);
+  assert.equal(values[7].mode,'dual','turning the option off preserves both edited palettes');
+ }
+}
+console.log('Work time-switch checkbox: new/single/dual, private/shared, delayed events, palette preservation, save and OFF OK');
 
 for(const [preference,override,enabled,flagged,period,expected] of [
  ['light',null,true,true,'night','dark'],['light',null,true,true,'day','light'],
