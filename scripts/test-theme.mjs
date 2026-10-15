@@ -207,3 +207,17 @@ for(const opacity of [0,1,35,65,100]){
 }
 for(const opacity of [-1,101,3.5,'65',null,NaN])assert.equal(validPalette({...DEFAULT_DARK,secondaryTextOpacity:opacity}),false);
 console.log('Secondary opacity: 0-100 adjustment, default 65%, invalid values and OFF override OK');
+
+for(const [single,preferred] of [[darkOnly,'light'],[lightOnly,'dark']]){
+  const palette=paletteFor(single,preferred);
+  theme.applyCustomTheme(palette.palette,palette.variant,'single','기존 단일',preferred);
+  assert.equal(theme.appliedThemeVariant(),preferred);
+  assert.equal(theme.previewThemeVariant(),preferred);
+  assert.equal(properties.get('--page-bg'),palette.palette.main);
+  assert.equal(style.colorScheme,preferred);
+}
+for(const value of ['ffffff','#FFFFFF','  123abc  '])assert.ok(theme.validPalette({...DEFAULT_DARK,accent:theme.normalizeThemeHex(value)}));
+const palette={...DEFAULT_DARK,secondaryTextOpacity:35,softenSecondaryText:false};
+assert.deepEqual(theme.parseThemeColorList('123456;#abcdef;000000;ffffff; aaBBcc ',palette),{...palette,accent:'#123456',accentText:'#abcdef',main:'#000000',mainText:'#ffffff',secondaryText:'#aaBBcc'});
+for(const invalid of ['', '123456;abcdef;000000;ffffff', '123456;abcdef;000000;ffffff;bad', '123456;abcdef;000000;ffffff;aaaaaa;bbbbbb'])assert.equal(theme.parseThemeColorList(invalid,palette),null);
+console.log('Legacy single metadata and optional-hash five-color parsing OK');

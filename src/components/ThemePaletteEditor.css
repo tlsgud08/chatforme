@@ -73,3 +73,20 @@
 .theme-opacity-control { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 16px; font-size: 13px; }
 .theme-opacity-control input { grid-column: 1 / -1; width: 100%; accent-color: rgb(var(--color-brand)); }
 .theme-opacity-control input:disabled { opacity: .5; }
+
+.theme-palette-bulk { margin-top: 16px; font-size: 12px; }
+.theme-palette-bulk summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.theme-palette-bulk label { display: block; margin: 12px 0 8px; overflow-wrap: anywhere; }
+.theme-palette-bulk textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgb(var(--color-surface2));
+  border-radius: 10px;
+  background: rgb(var(--color-bg));
+  color: var(--page-text);
+  resize: vertical;
+}
+.theme-palette-bulk textarea[aria-invalid='true'] { border-color: #ef4444; }

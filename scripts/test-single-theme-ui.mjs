@@ -12,7 +12,7 @@ const compile = path => ts.transpileModule(readFileSync(new URL('../'+path,impor
 const themeUri=uri(compile('src/lib/theme.ts'));
 const theme=await import(themeUri);
 const hooksUri=uri(`
-export const useEffect=()=>{};
+export const useEffect=f=>{globalThis.__capturedEffects?.push(f);};
 export const useMemo=f=>f();
 export const useCallback=f=>f;
 export const useRef=v=>({current:v});
@@ -30,7 +30,7 @@ globalThis.__themeTestDb={from(table){
     insert(patch){writes.push({table,patch});return this;},
     select(){return this;},eq(){return this;},is(){return this;},or(){return this;},order(){return this;},range(){return this;},
     single(){return this;},maybeSingle(){return this;},
-    then(resolve,reject){return Promise.resolve({data:table==='sessions'?globalThis.__sessionResponse:table==='profiles'?globalThis.__profileResponse:[],error:null}).then(resolve,reject);},
+    then(resolve,reject){return Promise.resolve({data:table==='sessions'?globalThis.__sessionResponse:table==='profiles'?globalThis.__profileResponse:table==='themes'?globalThis.__themeResponse??[]:[],error:null}).then(resolve,reject);},
   };
   return builder;
 }};
@@ -115,7 +115,7 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
   if(!isDual){
     elements(sidebar).find(el=>el.type==='button'&&el.props.children==='유동적').props.onClick();
     await flush();
-    assert.equal(writes.findLast(write=>write.table==='sessions').patch.theme_variant,'light','single-to-fluid preserves the requested preference, not the palette storage slot');
+    assert.equal(writes.findLast(write=>write.table==='sessions').patch.theme_variant,'dark','single-to-fluid uses the shared preference, not a legacy room variant');
   }
 }
 
@@ -202,3 +202,87 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
   }
 }
 console.log('Global custom preference controls: both single slots, dual themes and bidirectional sidebar preference payloads OK');
+
+// Manual single → dual, builtin and remembered dual choices use the shared
+// preference even when legacy room state has the opposite storage variant.
+for(const preferred of ['light','dark']){
+  const legacy=preferred==='light'?'dark':'light';
+  root.dataset.themeMode='single';root.dataset.themeVariant=legacy;root.dataset.themePreferredVariant=preferred;
+  const oldSession={...fluid,theme_override:'custom',theme_variant:legacy};
+  globalThis.__sessionResponse=oldSession;
+  const picker=tree(SessionThemeSettings,{session:oldSession,userId:'owner',onUpdate:()=>{}},[single,true,'global',false,null,'custom',preferred,false]);
+  elements(picker).find(el=>typeof el.props.onSelect==='function').props.onSelect(dual);
+  await flush();
+  assert.equal(writes.findLast(write=>write.table==='sessions').patch.theme_variant,preferred);
+  for(const mode of ['기본 테마','유동적','커스텀']){
+    const last={id:dual.id,variant:legacy,theme:dual};
+    const view=tree(SessionThemeSettings,{session:oldSession,userId:'owner',onUpdate:()=>{}},[single,false,'global',false,last,'custom',preferred,false]);
+    elements(view).find(el=>el.type==='button'&&el.props.children===mode).props.onClick();
+    await flush();
+    assert.equal(writes.findLast(write=>write.table==='sessions').patch.theme_variant,preferred);
+  }
+}
+console.log('Manual single transitions: shared preference overrides obsolete room metadata OK');
+
+// Invoke real palette field handlers in every supported editor variant.
+const ThemePaletteEditor=(await import(editorUri)).default;
+const list='112233;#ffffff;223344;#aabbcc; 556677';
+for(const variant of ['single','light','dark']){
+  const palette={...theme.DEFAULT_DARK,secondaryText:'#cccccc',softenSecondaryText:false,secondaryTextOpacity:35};
+  let changes=[];
+  const editor=tree(ThemePaletteEditor,{variant,palette,onChange:p=>changes.push(p)},[]);
+  const fields=elements(editor).find(el=>typeof el.type==='function');
+  const rendered=tree(fields.type,fields.props,[]);
+  const mainInput=elements(rendered).find(el=>el.props['aria-label']==='메인색 HEX');
+  mainInput.props.onChange({target:{value:'abcdef'}});
+  assert.equal(changes.at(-1).main,'#abcdef');
+  assert.equal(changes.at(-1).accent,palette.accent);
+  mainInput.props.onChange({target:{value:''}});
+  assert.equal(changes.at(-1).main,'','partial edits remain editable');
+  const bulk=elements(rendered).find(el=>el.type==='textarea'&&el.props['aria-label']==='색상 5개 일괄 입력');
+  bulk.props.onChange({target:{value:list}});
+  assert.deepEqual(changes.at(-1),{...palette,accent:'#112233',accentText:'#ffffff',main:'#223344',mainText:'#aabbcc',secondaryText:'#556677'});
+  const count=changes.length;
+  for(const invalid of ['#123456;#ffffff','#123456;#ffffff;#223344;#aabbcc;bad','112233;ffffff;223344;aabbcc;556677;abcdef']){
+    bulk.props.onChange({target:{value:invalid}});
+    assert.equal(changes.length,count,'invalid bulk input cannot partially overwrite palette');
+  }
+}
+console.log('Palette field handlers: automatic hashes, atomic five-color paste, both variants and opacity preservation OK');
+
+// Execute ThemeManager's real asynchronous effect, including a legacy single
+// palette whose storage slot disagrees with the preference. Then initialize the
+// real catalog from the applied metadata rather than a supplied variant state.
+const ThemeManager=(await import(componentUri('ThemeManager',{
+  'react-router-dom':uri('export const useLocation=()=>globalThis.__themeLocation;'),
+  '@/hooks/useAuth':uri('export const useAuth=()=>({user:{id:"owner"}});'),
+  '@/lib/inFlight':uri('export const shareInFlight=(_,read)=>read(); export const invalidateInFlight=()=>{};'),
+}))).default;
+const properties=new Map();
+root.style={getPropertyValue:key=>properties.get(key)??'',setProperty:(key,v)=>properties.set(key,v),removeProperty:key=>properties.delete(key)};
+globalThis.window={localStorage:{getItem:()=> 'dark',setItem:()=>{}},dispatchEvent:()=>{},addEventListener:()=>{},removeEventListener:()=>{}};
+globalThis.document.addEventListener=()=>{};
+globalThis.document.removeEventListener=()=>{};
+for(const [selected,preference,fixedVariant] of [[single,'light',null],[{...single,dark_colors:null,light_colors:theme.DEFAULT_LIGHT},'dark',null],[dual,'light','dark']]){
+  globalThis.__capturedEffects=[];
+  globalThis.__profileResponse={prefer_work_theme:false,preferred_theme_mode:'custom',preferred_theme_id:selected.id,preferred_theme_variant:preference};
+  globalThis.__themeResponse=selected;
+  globalThis.__themeLocation={pathname:fixedVariant?'/chat/30000000-0000-0000-0000-000000000001':'/settings'};
+  globalThis.__sessionResponse={work_id:'work',theme_override:'custom',theme_id:selected.id,theme_variant:fixedVariant};
+  tree(ThemeManager,{},[]);
+  const cleanup=globalThis.__capturedEffects[0]();
+  await flush();
+  assert.equal(root.dataset.themePreferredVariant,preference);
+  assert.equal(root.dataset.themeVariant,fixedVariant??preference,'single slots never replace the preferred variant; fixed dual choices remain fixed');
+  assert.equal(properties.get('--page-bg'),(selected.dark_colors??selected.light_colors).main);
+  const values=[];
+  values[1]=[dual]; values[2]=new Set();values[3]={};values[4]='mine';values[5]='';values[6]=null;
+  const cards=tree(ThemeMenu,{userId:'owner'},values);
+  const card=elements(cards).find(el=>el.type==='article');
+  assert.equal(card.props['data-preview-variant'],preference);
+  assert.equal(card.props.style.backgroundColor,dual[preference+'_colors'].main);
+  cleanup();
+}
+delete globalThis.__capturedEffects;
+delete globalThis.__themeResponse;
+console.log('Actual ThemeManager → catalog: legacy single slots normalized to preference; fixed dual mode preserved OK');

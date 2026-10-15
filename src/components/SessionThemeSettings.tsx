@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Session } from '@/types/db';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
-import { appliedThemeIsSingle, appliedThemeLabel, appliedThemeVariant, bothVariants, loadTheme, preferredThemeVariant, requestThemeRefresh, subscribeAppliedTheme, themeVariantPreferencePatch, type SavedTheme, type ThemeVariant } from '@/lib/theme';
+import { appliedThemeIsSingle, appliedThemeLabel, appliedThemeVariant, bothVariants, loadTheme, preferredThemeVariant, previewThemeVariant, requestThemeRefresh, subscribeAppliedTheme, themeVariantPreferencePatch, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 import ThemeMenu from './ThemeMenu';
 
 type Props={session:Session;userId:string;onUpdate:(patch:Partial<Session>)=>void;busy?:boolean};
@@ -101,6 +101,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
   const selectedMode=mode==='custom'&&theme?.work_id?'work':mode;
   const shownMode=open?(pickerScope==='work'?'work':'custom'):selectedMode;
   const variant=session.theme_variant??'light';
+  const singlePreference=siteMode===null?previewThemeVariant():siteVariant;
   async function chooseSiteTheme(next:ThemeVariant){
     if(busy||writePending.current)return;
     writePending.current=true;
@@ -133,7 +134,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     if(next==='custom'){
       setPickerScope('global');
       if(lastCustom?.id&&!lastCustom.theme?.work_id){
-        const ok=await save('custom',lastCustom.id,lastCustom.variant,lastCustom.theme??undefined);
+        const ok=await save('custom',lastCustom.id,appliedSingle?singlePreference:lastCustom.variant,lastCustom.theme??undefined);
         if(ok){setOpen(false);return;}
       }
       setOpen(true);
@@ -142,11 +143,11 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     setOpen(false);
     if(next==='inherit'){
       // Do not reset the visible palette merely because the tab becomes fluid.
-      const visibleVariant=appliedThemeIsSingle()?variant:appliedThemeVariant();
+      const visibleVariant=appliedThemeIsSingle()?singlePreference:appliedThemeVariant();
       await save(null,session.theme_override==='custom'?session.theme_id??null:null,visibleVariant);
       return;
     }
-    await save('builtin',null,variant);
+    await save('builtin',null,appliedSingle?singlePreference:variant);
   }
   return <section className="mt-4 border-t border-surface2 pt-4">
     <h3 className="mb-2 text-sm font-semibold text-white">채팅방 테마</h3>
@@ -185,7 +186,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     {open&&<div className="mt-3 rounded-lg border border-surface2">
       <ThemeMenu userId={userId} workId={session.work_id} scope={pickerScope} selectedId={session.theme_id}
         onClose={()=>setOpen(false)} onSelect={selected=>{
-          const next=session.theme_variant??'light';
+          const next=appliedSingle?singlePreference:session.theme_variant??siteVariant;
           void save('custom',selected.id,next,selected).then(ok=>{if(ok)setOpen(false);});
         }}/>
     </div>}
