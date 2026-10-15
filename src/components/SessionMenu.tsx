@@ -13,6 +13,7 @@ import OutputSettingsEditor, { type OutputSettingsValue } from './OutputSettings
 import PromptCacheSettings from './PromptCacheSettings';
 import SessionPluginSettings from './SessionPluginSettings';
 import SessionThemeSettings from './SessionThemeSettings';
+import Toggle from './Toggle';
 
 interface OpenRouterCredit {
   usage: number;
@@ -465,16 +466,11 @@ export default function SessionMenu({
               <p className="text-sm font-semibold text-slate-300">응답별 크레딧 사용량 보기</p>
               <p className="text-xs text-slate-500">AI 응답 아래에 실제 비용과 전체 출력 토큰 표시</p>
             </div>
-            <button
-              onClick={() => onShowCostToggle(!showCost)}
-              className={`relative h-6 w-11 rounded-full transition-colors ${showCost ? 'bg-emerald-500' : 'bg-surface2'}`}
-            >
-              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showCost ? 'translate-x-5' : 'translate-x-0.5'}`} />
-            </button>
+            <Toggle aria-label="응답별 크레딧 사용량 보기" checked={showCost} onChange={onShowCostToggle} />
           </div>
           <div className="mt-3 flex items-center justify-between border-t border-surface2 pt-3">
             <div><p className="text-sm text-slate-300">소비 비용 원화로 표시</p><p className="text-[11px] text-slate-500">모든 채팅방에 적용 · 환율 {exchange.rate.toLocaleString('ko-KR')}</p></div>
-            <button type="button" aria-pressed={showCostKrw} onClick={() => onShowCostKrwToggle(!showCostKrw)} className={`relative h-6 w-11 rounded-full transition-colors ${showCostKrw ? 'bg-emerald-500' : 'bg-surface2'}`}><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showCostKrw ? 'translate-x-5' : 'translate-x-0.5'}`} /></button>
+            <Toggle aria-label="소비 비용 원화로 표시" checked={showCostKrw} onChange={onShowCostKrwToggle} />
           </div>
         </section>
 
@@ -485,9 +481,7 @@ export default function SessionMenu({
               <p className="text-sm font-semibold text-slate-300">캐시 토큰 보기</p>
               <p className="text-xs text-slate-500">AI 응답 아래에 프롬프트 캐시 읽기·쓰기 표시</p>
             </div>
-            <button type="button" aria-pressed={showCacheTokens} onClick={() => onShowCacheTokensToggle(!showCacheTokens)} className={`relative h-6 w-11 rounded-full transition-colors ${showCacheTokens ? 'bg-emerald-500' : 'bg-surface2'}`}>
-              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showCacheTokens ? 'translate-x-5' : 'translate-x-0.5'}`} />
-            </button>
+            <Toggle aria-label="캐시 토큰 보기" checked={showCacheTokens} onChange={onShowCacheTokensToggle} />
           </div>
           <p className="mt-2 text-[11px] text-slate-500">OpenRouter가 보고한 프롬프트 캐시 사용량만 표시합니다. 응답 캐시는 사용하지 않습니다.</p>
         </section>
@@ -499,15 +493,7 @@ export default function SessionMenu({
               <p className="text-sm font-semibold text-slate-300">이미지 보기</p>
               <p className="text-xs text-slate-500">끄면 마크다운 이미지를 흐린 링크로 표시</p>
             </div>
-            <button
-              type="button"
-              aria-label="마크다운 이미지 보기"
-              aria-pressed={showImages}
-              onClick={() => onShowImagesToggle(!showImages)}
-              className={`relative h-6 w-11 rounded-full transition-colors ${showImages ? 'bg-emerald-500' : 'bg-surface2'}`}
-            >
-              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${showImages ? 'translate-x-5' : 'translate-x-0.5'}`} />
-            </button>
+            <Toggle aria-label="마크다운 이미지 보기" checked={showImages} onChange={onShowImagesToggle} />
           </div>
         </section>
 
@@ -518,12 +504,7 @@ export default function SessionMenu({
               <p className="text-sm font-semibold text-slate-300">디버그 모드</p>
               <p className="text-xs text-slate-500">숨겨진 메시지를 채팅창에 표시</p>
             </div>
-            <button
-              onClick={() => onDebugToggle(!debugMode)}
-              className={`relative h-6 w-11 rounded-full transition-colors ${debugMode ? 'bg-amber-500' : 'bg-surface2'}`}
-            >
-              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${debugMode ? 'translate-x-5' : 'translate-x-0.5'}`} />
-            </button>
+            <Toggle aria-label="디버그 모드" checked={debugMode} onChange={onDebugToggle} />
           </div>
         </section>
 

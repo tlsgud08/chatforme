@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import { appliedThemeIsSingle, appliedThemeLabel, appliedThemeVariant, bothVariants, loadTheme, preferredThemeVariant, previewThemeVariant, requestThemeRefresh, subscribeAppliedTheme, themeVariantPreferencePatch, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 import ThemeMenu from './ThemeMenu';
+import Toggle from './Toggle';
 
 type Props={session:Session;userId:string;onUpdate:(patch:Partial<Session>)=>void;busy?:boolean};
 type SavedChoice={id:string;variant:ThemeVariant;theme:SavedTheme|null};
@@ -182,9 +183,9 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
       {siteMode!==null&&siteVariant==='light'&&<>
       <label className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-surface p-2 text-xs text-slate-200">
         <span>다크 버전을 밤 테마로 사용</span>
-        <input type="checkbox" aria-label="다크 버전을 밤 테마로 사용" checked={session.theme_day_night_enabled??false}
+        <Toggle aria-label="다크 버전을 밤 테마로 사용" checked={session.theme_day_night_enabled??false}
           disabled={busy||saving||siteSaving}
-          onChange={e=>void chooseDayNight(e.target.checked)}/>
+          onChange={checked=>void chooseDayNight(checked)}/>
       </label>
       <p className="mt-1 text-xs text-slate-500">라이트 선호의 유동적 모드에서만 작동합니다. 모든 복수 테마는 낮에 라이트, 밤에 다크 버전을 사용하며 단일 테마는 같은 색상을 유지합니다. 끄면 시간 전환 전용 테마는 자동 선택 목록에서 제외되고, 기존 낮·밤 태그는 전송 시 일반 이름으로 정리됩니다.</p>
       </>}

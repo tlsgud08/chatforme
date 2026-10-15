@@ -55,6 +55,9 @@ function componentUri(name,extra={}){
     .replace(/from\s+(['"])([^'"]+)\1/g,(_,quote,specifier)=>`from ${JSON.stringify(imports[specifier]??import.meta.resolve(specifier))}`);
   return uri(code);
 }
+const toggleUri=componentUri('Toggle');
+baseImports['./Toggle']=toggleUri;
+const Toggle=(await import(toggleUri)).default;
 const editorUri=componentUri('ThemePaletteEditor');
 const ThemeMenu=(await import(componentUri('ThemeMenu',{'./ThemePaletteEditor':editorUri}))).default;
 const ThemePreferences=(await import(componentUri('ThemePreferences'))).default;
@@ -305,18 +308,18 @@ let changedRoom;
 const dayView=tree(SessionThemeSettings,{session:dayRoom,userId:'owner',onUpdate:p=>changedRoom=p},[dayTheme,false,'global',false,null,'custom','light',false]);
 const dayToggle=elements(dayView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용');
 assert.equal(dayToggle.props.checked,false);assert.equal(dayToggle.props.disabled,false);
-dayToggle.props.onChange({target:{checked:true}});await flush();
+dayToggle.props.onChange(true);await flush();
 assert.equal(changedRoom.theme_day_night_enabled,true);assert.equal(changedRoom.theme_period,null);
 const nightRoom={...changedRoom,theme_period:'night'};
 globalThis.__sessionResponse=nightRoom;
 const nightView=tree(SessionThemeSettings,{session:nightRoom,userId:'owner',onUpdate:p=>changedRoom=p},[dayTheme,false,'global',false,null,'custom','light',false]);
 assert.equal(elements(nightView).find(el=>el.type==='button'&&el.props.children==='☀️ 라이트').props['aria-pressed'],true,'night display never changes light preference indication');
-elements(nightView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.onChange({target:{checked:false}});await flush();
+elements(nightView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.onChange(false);await flush();
 assert.equal(changedRoom.theme_day_night_enabled,false);assert.equal(changedRoom.theme_period,null);
 const staleView=tree(SessionThemeSettings,{session:dayRoom,userId:'owner',onUpdate:()=>{}},[dayTheme,false,'global',false,null,'custom','light',false]);
 globalThis.__profileResponse.preferred_theme_variant='dark';
 const writesBefore=writes.length;
-elements(staleView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.onChange({target:{checked:true}});await flush();
+elements(staleView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.onChange(true);await flush();
 assert.equal(writes.length,writesBefore,'a concurrent dark preference blocks enabling the option');
 const darkView=tree(SessionThemeSettings,{session:dayRoom,userId:'owner',onUpdate:()=>{}},[dayTheme,false,'global',false,null,'custom','dark',false]);
 assert.equal(elements(darkView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용'),undefined);
@@ -414,3 +417,48 @@ for(const inherited of [false,true]){
 }
 delete globalThis.__capturedEffects;delete globalThis.__themeById;delete globalThis.__workResponse;
 console.log('Time-only scene OFF: current/inherited scenes fall back to the account custom palette without changing stored colors OK');
+
+// The common switch keeps controlled boolean values and blocks disabled writes.
+for(const checked of [false,true]){
+ let next;
+ const toggle=Toggle({'aria-label':'설정 토글',checked,onChange:value=>next=value});
+ assert.equal(toggle.props.role,'switch');assert.equal(toggle.props['aria-checked'],checked);
+ toggle.props.onClick();assert.equal(next,!checked);
+ const disabled=Toggle({'aria-label':'설정 토글',checked,disabled:true,onChange:()=>assert.fail('disabled switch wrote a setting')});
+ disabled.props.onClick();
+}
+
+baseImports['./OutputTokenSelector']=componentUri('OutputTokenSelector');
+const OutputSettingsEditor=(await import(componentUri('OutputSettingsEditor'))).default;
+const output={outputTokens:5000,reasoning:{send:true,effort:'medium'},temperature:1,temperatureSend:true,frequencyPenalty:.2,frequencyPenaltySend:false};
+let updatedOutput;
+const outputView=tree(OutputSettingsEditor,{value:output,onChange:value=>updatedOutput=value,tokenLabel:'출력 토큰'},[]);
+for(const row of elements(outputView).filter(el=>typeof el.props.onChecked==='function')){
+ const parameter=row.type(row.props);
+ const toggle=elements(parameter).find(el=>el.type===Toggle);
+ assert.equal(toggle.props['aria-label'],`${row.props.title} 전송`);
+ Toggle(toggle.props).props.onClick();
+ const expected=row.props.title==='추론'?{...output,reasoning:{...output.reasoning,send:false}}
+  :row.props.title==='Temperature'?{...output,temperatureSend:false}:{...output,frequencyPenaltySend:true};
+ assert.deepEqual(updatedOutput,expected,'send toggle preserves parameter values and every other output setting');
+}
+
+baseImports['@/lib/llm/promptCache']=uri(compile('src/lib/llm/promptCache.ts'));
+const PromptCacheSettings=(await import(componentUri('PromptCacheSettings'))).default;
+for(const [enabled,autoLatest,label,expectedEnabled,expectedLatest] of [
+ [false,false,'이 채팅방에서 명시적 캐시 사용',true,false],
+ [true,false,'명시적 캐시를 매 턴 최신으로 갱신',true,true],
+ [true,true,'이 채팅방에서 명시적 캐시 사용',false,true],
+]){
+ let updated;
+ const room={...dayRoom,prompt_cache_enabled:enabled,prompt_cache_auto_latest:autoLatest,prompt_cache_message_id:'boundary'};
+ const view=tree(PromptCacheSettings,{session:room,turnCount:2,busy:false,onUpdate:patch=>updated=patch},[[{id:'boundary',turn:1}],false,'',0,'1',false,'']);
+ const toggle=elements(view).find(el=>el.props['aria-label']===label);
+ Toggle(toggle.props).props.onClick();await flush();
+ assert.deepEqual(updated,{prompt_cache_enabled:expectedEnabled,prompt_cache_message_id:'boundary',prompt_cache_auto_latest:expectedLatest});
+}
+const blockedCache=tree(PromptCacheSettings,{session:dayRoom,turnCount:2,busy:true,onUpdate:()=>assert.fail('busy cache changed')},[[],false,'',0,'0',false,'']);
+for(const toggle of elements(blockedCache).filter(el=>el.type===Toggle)){
+ assert.equal(toggle.props.disabled,true);Toggle(toggle.props).props.onClick();
+}
+console.log('Common switches: accessible ON/OFF, disabled state, output parameter preservation and both cache save payloads OK');

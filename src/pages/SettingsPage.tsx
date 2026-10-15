@@ -12,6 +12,7 @@ import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/OutputSettingsEditor';
 import { useUsdKrwRate } from '@/lib/exchangeRate';
 import { loadTurnPriceWarning, saveTurnPriceWarning, type TurnPriceWarningCurrency } from '@/lib/turnPriceWarning';
+import Toggle from '@/components/Toggle';
 
 export default function SettingsPage() {
   const { user, signOut } = useAuth();
@@ -227,15 +228,8 @@ export default function SettingsPage() {
             <h2 className="font-semibold text-white">턴 가격 경고</h2>
             <p className="mt-1 text-xs text-slate-500">설정한 금액 이상의 응답 가격을 노란색으로 표시합니다.</p>
           </div>
-          <button
-            type="button"
-            aria-label="턴 가격 경고"
-            aria-pressed={turnPriceWarning.enabled}
-            onClick={() => updateTurnPriceWarning({ ...turnPriceWarning, enabled: !turnPriceWarning.enabled })}
-            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${turnPriceWarning.enabled ? 'bg-emerald-500' : 'bg-surface2'}`}
-          >
-            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${turnPriceWarning.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-          </button>
+          <Toggle aria-label="턴 가격 경고" checked={turnPriceWarning.enabled}
+            onChange={(enabled) => updateTurnPriceWarning({ ...turnPriceWarning, enabled })} />
         </div>
         <div className={`mt-3 rounded-xl bg-surface p-3 ${turnPriceWarning.enabled ? '' : 'opacity-50'}`}>
           <div className="grid grid-cols-2 gap-1 rounded-lg bg-bg p-1" role="group" aria-label="턴 가격 경고 기준 통화">

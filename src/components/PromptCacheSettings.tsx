@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { cacheTurnChoices, type CacheMessage } from '@/lib/llm/promptCache';
 import type { Session } from '@/types/db';
+import Toggle from './Toggle';
 
 interface Props {
   session: Session;
@@ -107,14 +108,14 @@ export default function PromptCacheSettings({ session, turnCount, busy, onUpdate
       <h3 id="prompt-cache-title" className="text-sm font-semibold text-slate-300">명시적 캐시 설정</h3>
       <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-200">
         <span>이 채팅방에서 사용</span>
-        <input type="checkbox" checked={enabled}
+        <Toggle aria-label="이 채팅방에서 명시적 캐시 사용" checked={enabled}
           disabled={saving || busy || (!enabled && (loading || !!loadError || (!autoLatest && unavailable)))}
-          onChange={(event) => void save(event.target.checked, savedTarget)} />
+          onChange={(checked) => void save(checked, savedTarget)} />
       </label>
       <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-200">
         <span>매 턴 최신으로 갱신</span>
-        <input type="checkbox" checked={autoLatest} disabled={saving || busy || loading || !!loadError}
-          onChange={(event) => void save(enabled, savedTarget, event.target.checked)} />
+        <Toggle aria-label="명시적 캐시를 매 턴 최신으로 갱신" checked={autoLatest} disabled={saving || busy || loading || !!loadError}
+          onChange={(checked) => void save(enabled, savedTarget, checked)} />
       </label>
       <p className="mt-1 text-[11px] text-slate-500">켜면 매 요청의 대화 기록에서 마지막 완료 AI 답변까지 지정합니다. 완료 답변이 없으면 시스템 프롬프트만 지정합니다.</p>
       <label htmlFor="prompt-cache-target" className="mt-3 block text-xs text-slate-400">캐시 기준 턴</label>
