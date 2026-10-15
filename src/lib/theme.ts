@@ -8,6 +8,19 @@ const HEX = /^#[0-9a-f]{6}$/i;
 export const DEFAULT_DARK: ThemePalette = { accent:'#6366f1', accentText:'#ffffff', main:'#0f172a', mainText:'#e2e8f0' };
 export const DEFAULT_LIGHT: ThemePalette = { accent:'#6366f1', accentText:'#ffffff', main:'#f8fafc', mainText:'#0f172a' };
 
+/** Preserve incomplete input while accepting HEX codes without a hash. */
+export function normalizeThemeHex(value:string):string {
+  const trimmed=value.trim();
+  return trimmed&&!trimmed.startsWith('#')?'#'+trimmed:trimmed;
+}
+/** Apply exactly five colors atomically, retaining opacity and other settings. */
+export function parseThemeColorList(value:string,palette:ThemePalette):ThemePalette|null {
+  const colors=value.trim().split(';').map(normalizeThemeHex);
+  if(colors.length!==5||colors.some(color=>!HEX.test(color)))return null;
+  const [accent,accentText,main,mainText,secondaryText]=colors;
+  return {...palette,accent,accentText,main,mainText,secondaryText};
+}
+
 export function validPalette(value: unknown): value is ThemePalette {
   if (!value || typeof value !== 'object') return false;
   const palette = value as Record<string, unknown>;
@@ -119,6 +132,12 @@ export function appliedThemeVariant(): ThemeVariant {
   const root = document.documentElement.dataset;
   return (root.theme === 'custom' ? root.themeVariant : root.theme) === 'dark' ? 'dark' : 'light';
 }
+/** Catalog previews follow the preference, never a legacy single palette's slot. */
+export function previewThemeVariant():ThemeVariant {
+  if(typeof document==='undefined')return 'light';
+  const preferred=document.documentElement.dataset.themePreferredVariant;
+  return preferred==='light'||preferred==='dark'?preferred:appliedThemeVariant();
+}
 export function appliedThemeIsSingle(): boolean {
   return typeof document !== 'undefined' && document.documentElement.dataset.theme === 'custom'
     && document.documentElement.dataset.themeMode === 'single';
@@ -152,11 +171,12 @@ function beginThemeTransition() {
   if(transitionTimer)clearTimeout(transitionTimer);
   transitionTimer=setTimeout(()=>root.classList.remove('theme-transition'),450);
 }
-export function applyTheme(theme: ThemeVariant) {
+export function applyTheme(theme: ThemeVariant, preferredVariant:ThemeVariant=theme) {
   const root=document.documentElement;
   if(root.dataset.theme!==theme)beginThemeTransition();
   vars.forEach(name => root.style.removeProperty(name));
   root.dataset.theme=theme;
+  root.dataset.themePreferredVariant=preferredVariant;
   delete root.dataset.themeVariant;
   delete root.dataset.themeMode;
   delete root.dataset.themeName;
@@ -178,16 +198,18 @@ export function secondaryTextStyles(palette: ThemePalette) {
     extraOpacity:1,
   };
 }
-export function applyCustomTheme(palette: ThemePalette, variant: ThemeVariant, mode: ThemePaletteMode = 'dual', name?: string) {
+export function applyCustomTheme(palette: ThemePalette, variant: ThemeVariant, mode: ThemePaletteMode = 'dual', name?: string, preferredVariant:ThemeVariant=variant) {
   const root=document.documentElement;
   const secondary=secondaryTextStyles(palette);
   if(root.dataset.theme!=='custom'||root.style.getPropertyValue('--page-bg')!==palette.main||root.style.getPropertyValue('--color-brand')!==rgbValue(palette.accent)||root.style.getPropertyValue('--page-text')!==palette.mainText||root.style.getPropertyValue('--custom-accent-text')!==palette.accentText||root.style.getPropertyValue('--secondary-text')!==secondary.color||root.style.getPropertyValue('--chat-secondary-opacity')!==String(secondary.chatOpacity))beginThemeTransition();
   root.dataset.theme='custom';
-  root.dataset.themeVariant=variant;
+  // A single palette's old storage slot carries no light/dark preference.
+  root.dataset.themeVariant=mode==='single'?preferredVariant:variant;
+  root.dataset.themePreferredVariant=preferredVariant;
   root.dataset.themeMode=mode;
   if(name)root.dataset.themeName=name;
   else delete root.dataset.themeName;
-  root.style.colorScheme=variant;
+  root.style.colorScheme=mode==='single'?preferredVariant:variant;
   root.style.setProperty('--color-brand',rgbValue(palette.accent));
   root.style.setProperty('--color-bg',rgbValue(palette.main));
   root.style.setProperty('--color-surface',mix(palette.main,palette.mainText,0.075));

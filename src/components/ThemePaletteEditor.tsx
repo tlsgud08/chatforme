@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { DEFAULT_DARK, DEFAULT_LIGHT, secondaryTextStyles, type ThemePalette, type ThemeVariant } from '@/lib/theme';
+import { DEFAULT_DARK, DEFAULT_LIGHT, normalizeThemeHex, parseThemeColorList, secondaryTextStyles, type ThemePalette, type ThemeVariant } from '@/lib/theme';
 import './ThemePaletteEditor.css';
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -24,16 +24,36 @@ function PaletteFields({ palette, defaults, onChange }: {
   const [lastValid, setLastValid] = useState(() => Object.fromEntries(
     colorLabels.map(({ key }) => [key, HEX.test(colorValue(key)) ? colorValue(key) : defaultValue(key)]),
   ) as Record<ColorKey,string>);
+  const [bulkInput,setBulkInput]=useState('');
+  const [bulkStatus,setBulkStatus]=useState<'empty'|'invalid'|'applied'>('empty');
   const preview = { ...lastValid };
   for (const { key } of colorLabels) {
     if (HEX.test(colorValue(key))) preview[key] = colorValue(key);
   }
   function change(key: ColorKey, value: string) {
     setLastValid(preview);
-    onChange({ ...palette, [key]: value });
+    onChange({ ...palette, [key]: normalizeThemeHex(value) });
+  }
+  function changeBulk(value:string){
+    setBulkInput(value);
+    const parsed=parseThemeColorList(value,palette);
+    if(!parsed){setBulkStatus(value.trim()?'invalid':'empty');return;}
+    setLastValid(Object.fromEntries(colorLabels.map(({key})=>[key,parsed[key]])) as Record<ColorKey,string>);
+    setBulkStatus('applied');
+    onChange(parsed);
   }
   const secondary=secondaryTextStyles({...palette,...preview});
   return <>
+    <details className="theme-palette-bulk">
+      <summary>색상 5개 한 번에 입력</summary>
+      <label htmlFor={`${id}-bulk`}>강조색;강조색 글자;메인색;메인색 글자;보조 텍스트</label>
+      <textarea id={`${id}-bulk`} aria-label="색상 5개 일괄 입력" rows={3} spellCheck={false}
+        autoComplete="off" value={bulkInput} onChange={e=>changeBulk(e.target.value)}
+        placeholder="#ff4081;#ffffff;#202828;#e5ef58;#64d8df"
+        aria-invalid={bulkStatus==='invalid'} aria-describedby={`${id}-bulk-help`}/>
+      <p id={`${id}-bulk-help`} className="theme-secondary-help">세미콜론(;)으로 구분하며 #은 생략할 수 있습니다. 올바른 색상 5개를 입력하면 자동으로 적용됩니다.</p>
+      {bulkStatus!=='empty'&&<p role="status" className="theme-secondary-help">{bulkStatus==='applied'?'색상 5개를 적용했습니다.':'6자리 HEX 색상 5개를 순서대로 입력해 주세요. 기존 색상은 유지됩니다.'}</p>}
+    </details>
     <div className="theme-palette-fields">
       {colorLabels.map(({ key, name }) => {
         const invalid = !HEX.test(colorValue(key));
@@ -64,7 +84,7 @@ function PaletteFields({ palette, defaults, onChange }: {
     </label>
     <p className="theme-secondary-help">기본값은 65%입니다. 연하게 표시를 끄면 지정한 색을 100% 불투명도로 표시합니다.</p>
     {colorLabels.some(({ key }) => !HEX.test(colorValue(key))) &&
-      <p id={`${id}-error`} className="theme-palette-error"># 뒤에 6자리 HEX 코드를 입력해 주세요. 미리보기에는 마지막 유효한 색상이 표시됩니다.</p>}
+      <p id={`${id}-error`} className="theme-palette-error">6자리 HEX 코드를 입력해 주세요. #은 자동으로 추가되며, 미리보기에는 마지막 유효한 색상이 표시됩니다.</p>}
     <section aria-label="테마 미리보기" className="theme-palette-preview"
       style={{ backgroundColor: preview.main, color: preview.mainText }}>
       <h4>테마 미리보기</h4>

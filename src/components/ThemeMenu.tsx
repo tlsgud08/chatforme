@@ -4,7 +4,7 @@ import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 import ThemePaletteEditor from './ThemePaletteEditor';
 import './ThemeMenu.css';
-import { bothVariants, changePaletteMode, createPaletteDraft, DEFAULT_DARK, DEFAULT_LIGHT, paletteDraftColors, paletteFor, secondaryTextStyles, validPalette, type SavedTheme, type ThemePaletteDraft, type ThemeVariant } from '@/lib/theme';
+import { bothVariants, changePaletteMode, createPaletteDraft, DEFAULT_DARK, DEFAULT_LIGHT, paletteDraftColors, paletteFor, previewThemeVariant, secondaryTextStyles, validPalette, type SavedTheme, type ThemePaletteDraft, type ThemeVariant } from '@/lib/theme';
 
 type Tab = 'all'|'work'|'mine'|'hub'|'favorites';
 type Props = {
@@ -21,16 +21,14 @@ const labels: Record<Tab,string>={all:'전체',work:'작품',mine:'내 테마',h
 type Draft = ThemePaletteDraft & {name:string;description:string;ai_prompt:string};
 function defaultDraft():Draft {return {name:'',description:'',ai_prompt:'',...createPaletteDraft(null,currentVariant())};}
 function currentVariant(): ThemeVariant {
-  if (typeof document === 'undefined') return 'light';
-  const { theme, themeVariant } = document.documentElement.dataset;
-  return (theme === 'custom' ? themeVariant : theme) === 'dark' ? 'dark' : 'light';
+  return previewThemeVariant();
 }
 function useCurrentVariant() {
   const [variant, setVariant] = useState(currentVariant);
   useEffect(() => {
     const update = () => setVariant(currentVariant());
     const observer = new MutationObserver(update);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-variant'] });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-variant', 'data-theme-preferred-variant'] });
     update();
     return () => observer.disconnect();
   }, []);
