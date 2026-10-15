@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import OutputTokenSelector from './OutputTokenSelector';
+import Toggle from './Toggle';
 import type { ReasoningSelection, SamplingSettings } from '@/lib/llm/types';
 
 export interface OutputSettingsValue extends SamplingSettings {
@@ -132,7 +133,7 @@ function ParameterRow({ title, description, checked, onChecked, children }: { ti
     <div>
       <div className="mb-1 flex items-center justify-between gap-3">
         <label className={`text-xs font-semibold text-slate-300 transition-opacity ${checked ? '' : 'opacity-40'}`}>{title}</label>
-        <label className="flex items-center gap-1.5 text-xs text-slate-400"><input type="checkbox" checked={checked} onChange={(e) => onChecked(e.target.checked)} /> 전송</label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-400"><Toggle aria-label={`${title} 전송`} checked={checked} onChange={onChecked} /> 전송</label>
       </div>
       <div className={`transition-opacity ${checked ? '' : 'opacity-35'}`}>
         <p className="mb-2 text-[11px] text-slate-500">{description}</p>
