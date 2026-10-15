@@ -1,7 +1,7 @@
 export type Theme = 'dark' | 'light' | 'custom';
 export type ThemeVariant = 'dark' | 'light';
 export type ThemePalette = { accent: string; accentText: string; main: string; mainText: string; secondaryText?: string; softenSecondaryText?: boolean; secondaryTextOpacity?: number };
-export type SavedTheme = { id: string; owner_id: string; work_id: string | null; name: string; description: string; ai_prompt?: string; work_shared?: boolean; dark_colors: ThemePalette | null; light_colors: ThemePalette | null; is_published: boolean; copied_from_id: string | null; created_at: string; updated_at: string };
+export type SavedTheme = { id: string; owner_id: string; work_id: string | null; name: string; description: string; ai_prompt?: string; work_shared?: boolean; day_night_enabled?: boolean; dark_colors: ThemePalette | null; light_colors: ThemePalette | null; is_published: boolean; copied_from_id: string | null; created_at: string; updated_at: string };
 
 const KEY = 'inuchat.theme';
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -79,6 +79,8 @@ export type ThemeWorkDefault = {
   default_theme_variant?: ThemeVariant | null;
 };
 export type ThemeSessionOverride = {
+  theme_day_night_enabled?:boolean;
+  theme_period?:'day'|'night'|null;
   theme_override?: 'builtin' | 'custom' | null;
   theme_id?: string | null;
   theme_variant?: ThemeVariant | null;

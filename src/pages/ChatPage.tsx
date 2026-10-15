@@ -18,7 +18,7 @@ import { isTurnPriceWarning, loadTurnPriceWarning } from '@/lib/turnPriceWarning
 import { showToast } from '@/lib/toast';
 import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
-import { availableWorkThemes, finalThemeDirective, observeThemeDirective, resolveDirectiveTheme, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
+import { availableWorkThemes, dayNightModeEnabled, dayNightThemeEligible, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt, themeDirectiveName } from '@/lib/themeDirectives';
 import { paletteFor, preferredThemeVariant, requestThemeRefresh, resolveThemeSelection, type SavedTheme } from '@/lib/theme';
 import './ChatPage.css';
 
@@ -472,39 +472,53 @@ export default function ChatPage() {
     return ()=>{live=false;window.removeEventListener('inuchat:theme-changed',refresh);};
   },[session?.work_id,user?.id]);
 
+  async function readLiveThemeContext(){
+    if(!session||!profile)throw new Error('테마 설정을 불러오지 못했습니다.');
+    const [account,room]=await Promise.all([
+      supabase.from('profiles').select('preferred_theme_mode,preferred_theme_variant,prefer_work_theme,preferred_theme_id').eq('id',session.user_id).single(),
+      supabase.from('sessions').select('theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period').eq('id',session.id).eq('user_id',session.user_id).single(),
+    ]);
+    if(account.error)throw account.error;
+    if(room.error)throw room.error;
+    const liveSession={...session,...room.data} as Session;
+    const preference=account.data;
+    const variant=preferredThemeVariant(preference,'light');
+    const dayNight=dayNightModeEnabled(liveSession,variant);
+    return {session:liveSession,preference,variant,dayNight,names:dayNight?workThemes.filter(dayNightThemeEligible).map(t=>t.name):[]};
+  }
+
   useEffect(()=>{
     if(!session)return;
     const latest=[...messages].reverse().find(m=>m.role==='assistant'&&!m.is_hidden&&m.is_active_variant!==false&&m.generation_status!=='streaming');
     const {observation,changed}=observeThemeDirective(themeMessageRef.current,session.id,latest??null);
     themeMessageRef.current=observation;
     const fingerprint=observation.fingerprint;
-    // Initial load and switching modes never replay old tags over a manual choice.
+    // Mode/option changes and initial load never replay old tags.
     if(!changed||!latest||latest.generation_status==='interrupted'||session.theme_override!=null)return;
-    const selected=resolveDirectiveTheme(finalThemeDirective(latest.content),workThemes);
-    if(!selected)return;
-    const root=document.documentElement.dataset;
-    const currentVariant=(root.theme==='custom'?root.themeVariant:root.theme)==='dark'?'dark':'light';
     const targetSessionId=session.id;
-    // AI themes are a fluid scene, not a manually selected fixed custom tab.
-    // Read the current account preference: it can change while this chat stays open.
     void (async()=>{
-      const {data:livePreference,error:preferenceError}=await supabase.from('profiles')
-        .select('preferred_theme_mode,preferred_theme_variant').eq('id',session.user_id).maybeSingle();
-      if(preferenceError){addError('전역 테마 설정 조회 실패: '+preferenceError.message);return;}
-      if(themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
-      const variant=preferredThemeVariant(livePreference??profile,currentVariant);
-      if(!paletteFor(selected,variant)||(session.theme_id===selected.id&&session.theme_variant===variant))return;
-      const patch={theme_id:selected.id,theme_variant:variant};
-      const {data,error}=await supabase.from('sessions').update(patch).eq('id',targetSessionId)
-        .eq('user_id',session.user_id).is('theme_override',null)
-        .select('id').maybeSingle();
-      if(themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
-      if(error){addError('자동 테마 변경 실패: '+error.message);return;}
-      if(!data)return;
-      setSession(current=>current?.id===targetSessionId&&current.theme_override==null?{...current,...patch}:current);
-      requestThemeRefresh();
+      try{
+        const live=await readLiveThemeContext();
+        if(live.session.theme_override!=null||themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
+        const choice=resolveThemeDirectiveChoice(finalThemeDirective(latest.content),workThemes,live.dayNight);
+        if(!choice)return;
+        const {theme:selected,period}=choice;
+        if(!paletteFor(selected,period==='night'?'dark':live.variant))return;
+        const patch={theme_id:selected.id,theme_variant:live.variant,theme_period:period};
+        if(live.session.theme_id===selected.id&&live.session.theme_variant===live.variant&&(live.session.theme_period??null)===period)return;
+        let update=supabase.from('sessions').update(patch).eq('id',targetSessionId)
+          .eq('user_id',session.user_id).is('theme_override',null)
+          .eq('theme_day_night_enabled',live.session.theme_day_night_enabled??false);
+        // Reject an in-flight write after a concurrent preference change.
+        update=live.session.theme_variant==null?update.is('theme_variant',null):update.eq('theme_variant',live.session.theme_variant);
+        const {data,error}=await update.select('id').maybeSingle();
+        if(error)throw error;
+        if(!data||themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
+        setSession(current=>current?.id===targetSessionId&&current.theme_override==null&&(current.theme_day_night_enabled??false)===(live.session.theme_day_night_enabled??false)?{...current,...patch}:current);
+        requestThemeRefresh();
+      }catch(error){addError('자동 테마 변경 실패: '+describeUnknownError(error));}
     })();
-  },[messages,session?.id,session?.theme_override,workThemes]);
+  },[messages,session?.id,session?.theme_override,session?.theme_day_night_enabled,workThemes]);
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
@@ -558,6 +572,7 @@ export default function ChatPage() {
     activeSummaryGenerations.set(summarySessionId, { listeners: new Set() });
     setSummaryGenerating(true);
     try {
+      const liveTheme=await readLiveThemeContext();
       // Include the hidden initial context in the first archive so important
       // scenario setup is not lost after its short keep_turns window expires.
       const sourceMode = session.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
@@ -592,9 +607,9 @@ export default function ChatPage() {
         ? activeSourceMessages
         : messagesAfterSummary(activeSourceMessages, previousTurn);
       if (candidates.length === 0 && archivesToMerge.length === 0) throw new Error('새로 요약할 대화가 없습니다.');
-      const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${session.theme_override==null?message.content:stripThemeDirectives(message.content)}`).join('\n\n');
+      const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${liveTheme.session.theme_override==null?normalizeThemePeriods(message.content,liveTheme.names):stripThemeDirectives(message.content)}`).join('\n\n');
       const summaryInput = `${previous ? `=== Previous Summary Notes${archivesToMerge.length > 1 ? ' (merge the selected notes into one)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== Dialogue to Summarize ===\n${dialogue}` : '=== Request ===\nMerge the selected summary notes into one up-to-date summary without omissions or discontinuities.'}`;
-      const input=session.theme_override==null?summaryInput:stripThemeDirectives(summaryInput);
+      const input=liveTheme.session.theme_override==null?normalizeThemePeriods(summaryInput,liveTheme.names):stripThemeDirectives(summaryInput);
       const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
       const allowOmission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
       const parametersEnabled = !profile.summary_prompt?.trim() || (session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true);
@@ -799,6 +814,9 @@ export default function ChatPage() {
     };
 
     if (!session || !profile) { releaseSend(); return; }
+    let liveTheme;
+    try{liveTheme=await readLiveThemeContext();}
+    catch(error){addError('테마 설정 조회 실패: '+describeUnknownError(error));releaseSend();return;}
 
     // A reroll re-sends the original user turn as the latest message, so remove
     // that same row from history to avoid sending it twice.
@@ -841,10 +859,11 @@ export default function ChatPage() {
 
     const rootTheme=document.documentElement.dataset;
     const baseVariant=(rootTheme.theme==='custom'?rootTheme.themeVariant:rootTheme.theme)==='dark'?'dark':'light';
-    const currentSelection=resolveThemeSelection(profile,work,session,baseVariant);
-    const currentThemeName=workThemes.find(t=>t.id===currentSelection.themeId)?.name??(currentSelection.themeId?'작품 외 커스텀 테마':currentSelection.variant==='dark'?'기본 다크':'기본 라이트');
+    const currentSelection=resolveThemeSelection(liveTheme.preference,work,liveTheme.session,baseVariant);
+    const currentWorkTheme=workThemes.find(t=>t.id===currentSelection.themeId);
+    const currentThemeName=currentWorkTheme?themeDirectiveName(currentWorkTheme,liveTheme.session.theme_period,liveTheme.dayNight):(currentSelection.themeId?'작품 외 커스텀 테마':currentSelection.variant==='dark'?'기본 다크':'기본 라이트');
     const assembled = assemblePrompt({
-      autoThemeEnabled:session.theme_override==null,themePrompt,themeCatalog:themeCatalogPrompt(workThemes),
+      autoThemeEnabled:liveTheme.session.theme_override==null,dayNightThemeNames:liveTheme.names,themePrompt,themeCatalog:themeCatalogPrompt(workThemes,liveTheme.dayNight),
       currentTheme:currentThemeName,
       systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
@@ -1108,6 +1127,7 @@ export default function ChatPage() {
     const { data: newSession, error } = await supabase.from('sessions').insert({
       user_id: user.id, work_id: session.work_id, title: `${session.title} (분기)`, persona_id: session.persona_id,
       start_config_id: session.start_config_id, user_note: session.user_note, active_plugins: session.active_plugins ?? [],
+      theme_day_night_enabled:session.theme_day_night_enabled??false,theme_period:session.theme_override==null?session.theme_period??null:null,
       auto_theme_enabled:session.theme_override==null,
       theme_override: session.theme_override ?? null, theme_id: session.theme_id ?? null, theme_variant: session.theme_variant ?? null,
       output_settings_override_enabled: session.output_settings_override_enabled,

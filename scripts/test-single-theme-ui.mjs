@@ -11,6 +11,8 @@ const compile = path => ts.transpileModule(readFileSync(new URL('../'+path,impor
 }).outputText;
 const themeUri=uri(compile('src/lib/theme.ts'));
 const theme=await import(themeUri);
+const directivesUri=uri(compile('src/lib/themeDirectives.ts').replace("'./theme'",JSON.stringify(themeUri)));
+const directives=await import(directivesUri);
 const hooksUri=uri(`
 export const useEffect=f=>{globalThis.__capturedEffects?.push(f);};
 export const useMemo=f=>f();
@@ -26,17 +28,18 @@ export function useState(initial){
 const writes=[];
 globalThis.__themeTestDb={from(table){
   const builder={
-    update(patch){writes.push({table,patch});if(table==='profiles'&&globalThis.__profileResponse)Object.assign(globalThis.__profileResponse,patch);return this;},
+    update(patch){this.patch=patch;writes.push({table,patch});if(table==='profiles'&&globalThis.__profileResponse)Object.assign(globalThis.__profileResponse,patch);return this;},
     insert(patch){writes.push({table,patch});return this;},
     select(){return this;},eq(){return this;},is(){return this;},or(){return this;},order(){return this;},range(){return this;},
     single(){return this;},maybeSingle(){return this;},
-    then(resolve,reject){return Promise.resolve({data:table==='sessions'?globalThis.__sessionResponse:table==='profiles'?globalThis.__profileResponse:table==='themes'?globalThis.__themeResponse??[]:[],error:null}).then(resolve,reject);},
+    then(resolve,reject){return Promise.resolve({data:table==='sessions'?{...globalThis.__sessionResponse,...this.patch}:table==='profiles'?globalThis.__profileResponse:table==='themes'?globalThis.__themeResponse??[]:[],error:null}).then(resolve,reject);},
   };
   return builder;
 }};
 const baseImports={
   react:hooksUri,
   '@/lib/theme':themeUri,
+  '@/lib/themeDirectives':directivesUri,
   '@/lib/supabase':uri('export const supabase=globalThis.__themeTestDb;'),
   '@/lib/toast':uri('export const showToast=()=>{};'),
   '@/lib/dialog':uri('export const showConfirmDialog=async()=>true;'),
@@ -136,7 +139,7 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
   const pref={preferred_theme_mode:'custom',preferred_theme_id:selected.id,preferred_theme_variant:'light'};
   globalThis.__profileResponse={...pref};
   const view=tree(SessionThemeSettings,{session:fluid,userId:'owner',onUpdate:()=>{}},[selected,false,'global',false,null,'custom','light',false]);
-  assert.equal(elements(view).some(el=>el.type==='input'&&el.props.type==='checkbox'),false,'automation has no toggle even for legacy OFF rooms');
+  assert.equal(elements(view).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.checked,false,'day/night defaults OFF even for legacy auto-OFF rooms');
   elements(view).find(el=>el.type==='button'&&el.props.children==='🌙 다크').props.onClick();
   await flush();
   assert.deepEqual(writes.findLast(write=>write.table==='profiles').patch,{preferred_theme_variant:'dark'});
@@ -286,3 +289,61 @@ for(const [selected,preference,fixedVariant] of [[single,'light',null],[{...sing
 delete globalThis.__capturedEffects;
 delete globalThis.__themeResponse;
 console.log('Actual ThemeManager → catalog: legacy single slots normalized to preference; fixed dual mode preserved OK');
+
+// Night-mode settings use the shared LIGHT preference even while the actual
+// scene is dark. Enabling, disabling and a concurrent preference edit execute
+// real sidebar handlers, including the fresh profile guard.
+root.dataset.theme='custom';root.dataset.themeMode='dual';root.dataset.themeVariant='dark';root.dataset.themePreferredVariant='light';
+const dayTheme={...dual,work_id:'work',day_night_enabled:true};
+const dayRoom={...fluid,theme_id:dayTheme.id,theme_variant:'light',theme_day_night_enabled:false,theme_period:null};
+globalThis.__sessionResponse=dayRoom;
+globalThis.__profileResponse={preferred_theme_mode:'custom',preferred_theme_variant:'light'};
+let changedRoom;
+const dayView=tree(SessionThemeSettings,{session:dayRoom,userId:'owner',onUpdate:p=>changedRoom=p},[dayTheme,false,'global',false,null,'custom','light',false]);
+const dayToggle=elements(dayView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용');
+assert.equal(dayToggle.props.checked,false);assert.equal(dayToggle.props.disabled,false);
+dayToggle.props.onChange({target:{checked:true}});await flush();
+assert.equal(changedRoom.theme_day_night_enabled,true);assert.equal(changedRoom.theme_period,null);
+const nightRoom={...changedRoom,theme_period:'night'};
+globalThis.__sessionResponse=nightRoom;
+const nightView=tree(SessionThemeSettings,{session:nightRoom,userId:'owner',onUpdate:p=>changedRoom=p},[dayTheme,false,'global',false,null,'custom','light',false]);
+assert.equal(elements(nightView).find(el=>el.type==='button'&&el.props.children==='☀️ 라이트').props['aria-pressed'],true,'night display never changes light preference indication');
+elements(nightView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.onChange({target:{checked:false}});await flush();
+assert.equal(changedRoom.theme_day_night_enabled,false);assert.equal(changedRoom.theme_period,null);
+const staleView=tree(SessionThemeSettings,{session:dayRoom,userId:'owner',onUpdate:()=>{}},[dayTheme,false,'global',false,null,'custom','light',false]);
+globalThis.__profileResponse.preferred_theme_variant='dark';
+const writesBefore=writes.length;
+elements(staleView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.onChange({target:{checked:true}});await flush();
+assert.equal(writes.length,writesBefore,'a concurrent dark preference blocks enabling the option');
+const darkView=tree(SessionThemeSettings,{session:dayRoom,userId:'owner',onUpdate:()=>{}},[dayTheme,false,'global',false,null,'custom','dark',false]);
+assert.equal(elements(darkView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.disabled,true);
+
+for(const mode of ['single','dual']){
+ const draft={name:'정원',description:'',ai_prompt:'정원 조건',day_night_enabled:mode==='single',...theme.createPaletteDraft(dayTheme,'light'),mode};
+ const values=['light',[],new Set(),{},'work','',dayTheme,draft,false,null];
+ const editView=tree(ThemeMenu,{userId:'owner',workId:'work',allowWorkCreate:true},values);
+ const toggle=elements(editView).find(el=>el.props['aria-label']==='다크·라이트 시간 전환에 사용');
+ assert.equal(toggle.props.disabled,mode==='single');assert.equal(toggle.props.checked,false);
+ if(mode==='dual')toggle.props.onChange({target:{checked:true}});
+ const edited=tree(ThemeMenu,{userId:'owner',workId:'work',allowWorkCreate:true},values);
+ elements(edited).find(el=>el.type==='button'&&el.props.children==='테마 저장').props.onClick();await flush();
+ assert.equal(writes.findLast(w=>w.table==='themes').patch.day_night_enabled,mode==='dual');
+}
+console.log('Day/night UI: default OFF, light-only live guard, night preference display, OFF reset and work dual save payloads OK');
+
+for(const [preference,override,enabled,flagged,period,expected] of [
+ ['light',null,true,true,'night','dark'],['light',null,true,true,'day','light'],
+ ['light',null,false,true,'night','light'],['dark',null,true,true,'night','dark'],
+ ['light','custom',true,true,'night','light'],['light',null,true,false,'night','light']]){
+ globalThis.__capturedEffects=[];
+ globalThis.__profileResponse={prefer_work_theme:false,preferred_theme_mode:'custom',preferred_theme_id:dayTheme.id,preferred_theme_variant:preference};
+ globalThis.__themeResponse={...dayTheme,day_night_enabled:flagged};
+ globalThis.__themeLocation={pathname:'/chat/30000000-0000-0000-0000-000000000001'};
+ globalThis.__sessionResponse={...dayRoom,theme_override:override,theme_day_night_enabled:enabled,theme_period:period,theme_variant:preference};
+ tree(ThemeManager,{},[]);const cleanup=globalThis.__capturedEffects[0]();await flush();
+ assert.equal(root.dataset.themeVariant,expected);assert.equal(root.dataset.themePreferredVariant,preference);
+ assert.equal(properties.get('--page-bg'),dayTheme[expected+'_colors'].main);
+ cleanup();
+}
+delete globalThis.__capturedEffects;delete globalThis.__themeResponse;
+console.log('Actual night scene application: ON/OFF, dark preference, fixed mode and per-theme eligibility preserve global preference OK');

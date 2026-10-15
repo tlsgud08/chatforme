@@ -18,8 +18,8 @@ type Props = {
   onClose?: () => void;
 };
 const labels: Record<Tab,string>={all:'전체',work:'작품',mine:'내 테마',hub:'테마 허브',favorites:'즐겨찾기'};
-type Draft = ThemePaletteDraft & {name:string;description:string;ai_prompt:string};
-function defaultDraft():Draft {return {name:'',description:'',ai_prompt:'',...createPaletteDraft(null,currentVariant())};}
+type Draft = ThemePaletteDraft & {name:string;description:string;ai_prompt:string;day_night_enabled:boolean};
+function defaultDraft():Draft {return {name:'',description:'',ai_prompt:'',day_night_enabled:false,...createPaletteDraft(null,currentVariant())};}
 function currentVariant(): ThemeVariant {
   return previewThemeVariant();
 }
@@ -94,7 +94,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
       :favorites.has(t.id);
     return active&&(!search.trim()||[t.name,t.description].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
   }),[themes,tab,workId,userId,favorites,search,catalogScope]);
-  function edit(theme?:SavedTheme,preferred=variant){setEditing(theme??'new');setDraft(theme?{name:theme.name,description:theme.description,ai_prompt:theme.ai_prompt??'',...createPaletteDraft(theme,preferred)}:defaultDraft());}
+  function edit(theme?:SavedTheme,preferred=variant){setEditing(theme??'new');setDraft(theme?{name:theme.name,description:theme.description,ai_prompt:theme.ai_prompt??'',day_night_enabled:theme.day_night_enabled??false,...createPaletteDraft(theme,preferred)}:defaultDraft());}
   async function save(){
     if(busy)return;
     const colors=paletteDraftColors(draft);
@@ -103,9 +103,10 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     const name=draft.name.trim();
     if((scope==='work'||allowWorkCreate||(editing!=='new'&&editing?.work_id))&&(name==='keep'||/[{}\n\r]/.test(name))){showToast('작품 테마 이름에는 keep, 중괄호, 줄바꿈을 사용할 수 없습니다.');return;}
     const targetWork=editing==='new'?(scope==='work'||allowWorkCreate?workId:null):editing?.work_id;
+    if(targetWork&&/:(낮|밤)$/.test(name)){showToast('작품 테마 이름의 :낮·:밤은 시간 전환 태그에 사용됩니다. 다른 이름을 지정해 주세요.');return;}
     if(targetWork&&themes.some(t=>t.work_id===targetWork&&t.name.trim()===name&&t.id!==(editing==='new'?null:editing?.id))){showToast('사용 가능한 작품 테마에 같은 이름이 있습니다. 다른 이름을 사용해 주세요.');return;}
     setBusy(true);
-    const payload={name:draft.name.trim(),description:draft.description.trim(),ai_prompt:draft.ai_prompt.trim(),...colors};
+    const payload={name:draft.name.trim(),description:draft.description.trim(),ai_prompt:draft.ai_prompt.trim(),day_night_enabled:!!targetWork&&draft.mode==='dual'&&!!draft.day_night_enabled,...colors};
     const result=editing==='new'
       ?await supabase.from('themes').insert({...payload,owner_id:userId,work_id:workId&&(scope==='work'||allowWorkCreate)?workId:null,work_shared:allowWorkCreate,is_published:false}).select('*').single()
       :await supabase.from('themes').update(payload).eq('id',(editing as SavedTheme).id).select('*').single();
@@ -143,6 +144,11 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     <label className="text-xs text-slate-400">테마 이름<input maxLength={80} value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
     <label className="text-xs text-slate-400">설명<textarea maxLength={500} rows={2} value={draft.description} onChange={e=>setDraft(d=>({...d,description:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
     {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="text-xs text-slate-400">AI 적용 조건<textarea maxLength={4000} rows={4} value={draft.ai_prompt} onChange={e=>setDraft(d=>({...d,ai_prompt:e.target.value}))} placeholder="이 테마를 언제 사용해야 하는지 설명하세요." className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>}
+    {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="flex items-start gap-2 text-xs text-slate-400">
+      <input type="checkbox" aria-label="다크·라이트 시간 전환에 사용" disabled={busy||draft.mode!=='dual'}
+        checked={draft.mode==='dual'&&!!draft.day_night_enabled} onChange={e=>setDraft(d=>({...d,day_night_enabled:e.target.checked}))}/>
+      <span>다크·라이트 시간 전환에 사용<br/>라이트·다크 버전이 있는 테마에서 사용할 수 있습니다. 채팅방의 낮·밤 옵션을 켜면 낮에는 라이트, 밤에는 다크 버전을 적용합니다.</span>
+    </label>}
     {scope==='work'&&!allowWorkCreate&&<p className="text-xs text-slate-400">본인만 이 작품에서 사용할 수 있으며, 자동 테마 변경의 선택지에 포함됩니다.</p>}
     <fieldset disabled={busy} className="flex flex-col gap-3">
       <legend className="mb-2 text-xs text-slate-400">테마 방식</legend>

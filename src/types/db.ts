@@ -123,6 +123,8 @@ export interface ActivePlugin {
 export type Plugin = Command;
 
 export interface Session {
+  theme_day_night_enabled?: boolean;
+  theme_period?: 'day' | 'night' | null;
   auto_theme_enabled?: boolean; // Legacy compatibility only; automation follows theme_override == null.
   theme_override?: 'builtin' | 'custom' | null;
   theme_id?: string | null;
