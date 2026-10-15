@@ -7,7 +7,11 @@ export function dayNightModeEnabled(session:ThemeSessionOverride|null,preference
   return session?.theme_override==null&&session?.theme_day_night_enabled===true&&preference==='light';
 }
 export function dayNightThemeEligible(theme:SavedTheme):boolean {
-  return !!theme.work_id&&theme.day_night_enabled===true&&bothVariants(theme);
+  return !!theme.work_id&&bothVariants(theme);
+}
+/** The legacy column stores an availability condition, not support for two palettes. */
+export function automaticThemeAvailable(theme:SavedTheme,dayNight:boolean):boolean {
+  return theme.day_night_enabled!==true||dayNight;
 }
 export function dayNightDisplayVariant(theme:SavedTheme,session:ThemeSessionOverride|null,preference:ThemeVariant,fallback:ThemeVariant):ThemeVariant {
   if(dayNightModeEnabled(session,preference)&&dayNightThemeEligible(theme)){
@@ -46,7 +50,7 @@ export function availableWorkThemes(themes: SavedTheme[], workId: string, userId
   return themes.filter(t => t.work_id === workId && (t.work_shared !== false || t.owner_id === userId));
 }
 function themeChoices(themes:SavedTheme[],enabled:boolean){
-  const choices=[...themes].sort((a,b)=>a.id.localeCompare(b.id)).flatMap(theme=>
+  const choices=themes.filter(theme=>automaticThemeAvailable(theme,enabled)).sort((a,b)=>a.id.localeCompare(b.id)).flatMap(theme=>
     enabled&&dayNightThemeEligible(theme)
       ?(['day','night']as const).map(period=>({theme,period,name:themeDirectiveName(theme,period,true)}))
       :[{theme,period:null as ThemePeriod|null,name:theme.name}]);

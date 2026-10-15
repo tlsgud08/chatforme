@@ -33,9 +33,9 @@ globalThis.__themeTestDb={from(table){
   const builder={
     update(patch){this.patch=patch;writes.push({table,patch});if(table==='profiles'&&globalThis.__profileResponse)Object.assign(globalThis.__profileResponse,patch);return this;},
     insert(patch){writes.push({table,patch});return this;},
-    select(){return this;},eq(){return this;},is(){return this;},or(){return this;},order(){return this;},range(){return this;},
+    select(){return this;},eq(key,value){(this.filters??={})[key]=value;return this;},is(){return this;},or(){return this;},order(){return this;},range(){return this;},
     single(){return this;},maybeSingle(){return this;},
-    then(resolve,reject){return Promise.resolve({data:table==='sessions'?{...globalThis.__sessionResponse,...this.patch}:table==='profiles'?globalThis.__profileResponse:table==='themes'?globalThis.__themeResponse??[]:[],error:null}).then(resolve,reject);},
+    then(resolve,reject){return Promise.resolve({data:table==='sessions'?{...globalThis.__sessionResponse,...this.patch}:table==='profiles'?globalThis.__profileResponse:table==='themes'?globalThis.__themeById?.[this.filters?.id]??globalThis.__themeResponse??[]:table==='works'?globalThis.__workResponse??[]:[],error:null}).then(resolve,reject);},
   };
   return builder;
 }};
@@ -322,27 +322,28 @@ const darkView=tree(SessionThemeSettings,{session:dayRoom,userId:'owner',onUpdat
 assert.equal(elements(darkView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.disabled,true);
 
 for(const mode of ['single','dual']){
- const draft={name:'정원',description:'',ai_prompt:'정원 조건',day_night_enabled:mode==='single',...theme.createPaletteDraft(dayTheme,'light'),mode};
+ const draft={name:'정원',description:'',ai_prompt:'정원 조건',day_night_enabled:false,...theme.createPaletteDraft(dayTheme,'light'),mode};
  const values=['light',[],new Set(),{},'work','',dayTheme,draft,false,null];
  const editView=tree(ThemeMenu,{userId:'owner',workId:'work',allowWorkCreate:true},values);
- const toggle=elements(editView).find(el=>el.props['aria-label']==='다크·라이트 시간 전환에 사용');
+ const toggle=elements(editView).find(el=>el.props['aria-label']==='시간 전환을 켰을 때만 사용');
  assert.equal(toggle.props.disabled,false);assert.equal(toggle.props.checked,false);
- if(mode==='dual')toggle.props.onChange({target:{checked:true},currentTarget:{checked:true}});
+ toggle.props.onChange({target:{checked:true},currentTarget:{checked:true}});
  const edited=tree(ThemeMenu,{userId:'owner',workId:'work',allowWorkCreate:true},values);
  elements(edited).find(el=>el.type==='button'&&el.props.children==='테마 저장').props.onClick();await flush();
- assert.equal(writes.findLast(w=>w.table==='themes').patch.day_night_enabled,mode==='dual');
+ assert.equal(writes.findLast(w=>w.table==='themes').patch.day_night_enabled,true);
+ assert.equal(values[7].mode,mode);
 }
 console.log('Day/night UI: default OFF, light-only live guard, night preference display, OFF reset and work dual save payloads OK');
 
 // A new or legacy single work theme must be able to opt into time switching
-// directly. Keep its existing palette and initialize only the missing version.
+// directly. The condition must never change its palette mode or add colors.
 for(const selected of [null,{...single,work_id:'work'},{...single,work_id:'work',dark_colors:null,light_colors:theme.DEFAULT_LIGHT},dayTheme]){
  for(const shared of [false,true]){
   const props={userId:'owner',workId:'work',scope:'work',allowWorkCreate:shared};
   const draft={name:'정원',description:'',ai_prompt:'정원 조건',day_night_enabled:false,...theme.createPaletteDraft(selected,'light')};
   const values=['light',[],new Set(),{},'work','',selected??'new',draft,false,null];
   let view=tree(ThemeMenu,props,values);
-  let toggle=elements(view).find(el=>el.props['aria-label']==='다크·라이트 시간 전환에 사용');
+  let toggle=elements(view).find(el=>el.props['aria-label']==='시간 전환을 켰을 때만 사용');
   assert.equal(toggle.props.disabled,false,'single work themes can enable time switching without a separate mode change');
   // React may run a functional updater after the controlled DOM input has
   // been restored. The handler must capture checked before queuing the update.
@@ -352,22 +353,21 @@ for(const selected of [null,{...single,work_id:'work'},{...single,work_id:'work'
   target.checked=false;event.currentTarget=null;
   globalThis.__themeHooks.pending.forEach(update=>update());
   assert.equal(values[7].day_night_enabled,true);
-  assert.equal(values[7].mode,'dual');
-  assert.ok(theme.bothVariants(values[7]));
+  assert.equal(values[7].mode,draft.mode);
   for(const variant of ['dark','light']){
-   if(draft[variant+'_colors'])assert.deepEqual(values[7][variant+'_colors'],draft[variant+'_colors'],'existing work theme colors are preserved');
+   assert.deepEqual(values[7][variant+'_colors'],draft[variant+'_colors'],'all existing colors and missing slots are preserved');
   }
   view=tree(ThemeMenu,props,values);
-  toggle=elements(view).find(el=>el.props['aria-label']==='다크·라이트 시간 전환에 사용');
+  toggle=elements(view).find(el=>el.props['aria-label']==='시간 전환을 켰을 때만 사용');
   assert.equal(toggle.props.checked,true);
-  assert.equal(elements(view).filter(el=>el.type?.name==='ThemePaletteEditor').length,2,'both versions are immediately editable');
+  assert.equal(elements(view).filter(el=>el.type?.name==='ThemePaletteEditor').length,draft.mode==='dual'?2:1);
   elements(view).find(el=>el.type==='button'&&el.props.children==='테마 저장').props.onClick();await flush();
   const saved=writes.findLast(w=>w.table==='themes').patch;
   assert.equal(saved.day_night_enabled,true);
-  assert.ok(theme.bothVariants(saved));
+  assert.deepEqual({dark_colors:saved.dark_colors,light_colors:saved.light_colors},theme.paletteDraftColors(draft));
   toggle.props.onChange({target:{checked:false},currentTarget:{checked:false}});
   assert.equal(values[7].day_night_enabled,false);
-  assert.equal(values[7].mode,'dual','turning the option off preserves both edited palettes');
+  assert.equal(values[7].mode,draft.mode,'turning the condition off also preserves the palette mode');
  }
 }
 console.log('Work time-switch checkbox: new/single/dual, private/shared, delayed events, palette preservation, save and OFF OK');
@@ -375,16 +375,35 @@ console.log('Work time-switch checkbox: new/single/dual, private/shared, delayed
 for(const [preference,override,enabled,flagged,period,expected] of [
  ['light',null,true,true,'night','dark'],['light',null,true,true,'day','light'],
  ['light',null,false,true,'night','light'],['dark',null,true,true,'night','dark'],
- ['light','custom',true,true,'night','light'],['light',null,true,false,'night','light']]){
+ ['light','custom',true,true,'night','light'],['light',null,true,false,'night','dark']]){
  globalThis.__capturedEffects=[];
- globalThis.__profileResponse={prefer_work_theme:false,preferred_theme_mode:'custom',preferred_theme_id:dayTheme.id,preferred_theme_variant:preference};
+ globalThis.__profileResponse={prefer_work_theme:false,preferred_theme_mode:'custom',preferred_theme_id:single.id,preferred_theme_variant:preference};
+ globalThis.__themeById={[single.id]:single,[dayTheme.id]:{...dayTheme,day_night_enabled:flagged}};
  globalThis.__themeResponse={...dayTheme,day_night_enabled:flagged};
  globalThis.__themeLocation={pathname:'/chat/30000000-0000-0000-0000-000000000001'};
  globalThis.__sessionResponse={...dayRoom,theme_override:override,theme_day_night_enabled:enabled,theme_period:period,theme_variant:preference};
  tree(ThemeManager,{},[]);const cleanup=globalThis.__capturedEffects[0]();await flush();
  assert.equal(root.dataset.themeVariant,expected);assert.equal(root.dataset.themePreferredVariant,preference);
- assert.equal(properties.get('--page-bg'),dayTheme[expected+'_colors'].main);
+ const blocked=override==null&&flagged&&!(enabled&&preference==='light');
+ assert.equal(properties.get('--page-bg'),blocked?single.dark_colors.main:dayTheme[expected+'_colors'].main);
  cleanup();
 }
-delete globalThis.__capturedEffects;delete globalThis.__themeResponse;
+delete globalThis.__capturedEffects;delete globalThis.__themeResponse;delete globalThis.__themeById;
 console.log('Actual night scene application: ON/OFF, dark preference, fixed mode and per-theme eligibility preserve global preference OK');
+
+// An unavailable time-only scene falls back to the exact account custom theme,
+// including when inherited as the work default. Fixed manual choices still win.
+for(const inherited of [false,true]){
+ globalThis.__capturedEffects=[];
+ globalThis.__profileResponse={prefer_work_theme:true,preferred_theme_mode:'custom',preferred_theme_id:single.id,preferred_theme_variant:'light'};
+ globalThis.__themeById={[single.id]:single,[dayTheme.id]:dayTheme};
+ globalThis.__workResponse={default_theme_id:dayTheme.id,default_theme_variant:'light'};
+ globalThis.__sessionResponse={...dayRoom,theme_id:inherited?null:dayTheme.id,theme_variant:inherited?null:'light',theme_day_night_enabled:false};
+ tree(ThemeManager,{},[]);const cleanup=globalThis.__capturedEffects[0]();await flush();
+ assert.equal(properties.get('--page-bg'),single.dark_colors.main);
+ assert.equal(root.dataset.themeMode,'single');
+ assert.equal(root.dataset.themePreferredVariant,'light');
+ cleanup();
+}
+delete globalThis.__capturedEffects;delete globalThis.__themeById;delete globalThis.__workResponse;
+console.log('Time-only scene OFF: current/inherited scenes fall back to the account custom palette without changing stored colors OK');

@@ -18,7 +18,7 @@ import { isTurnPriceWarning, loadTurnPriceWarning } from '@/lib/turnPriceWarning
 import { showToast } from '@/lib/toast';
 import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
-import { availableWorkThemes, dayNightModeEnabled, dayNightThemeEligible, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt, themeDirectiveName } from '@/lib/themeDirectives';
+import { automaticThemeAvailable, availableWorkThemes, dayNightModeEnabled, dayNightThemeEligible, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt, themeDirectiveName } from '@/lib/themeDirectives';
 import { paletteFor, preferredThemeVariant, requestThemeRefresh, resolveThemeSelection, type SavedTheme } from '@/lib/theme';
 import './ChatPage.css';
 
@@ -859,8 +859,12 @@ export default function ChatPage() {
 
     const rootTheme=document.documentElement.dataset;
     const baseVariant=(rootTheme.theme==='custom'?rootTheme.themeVariant:rootTheme.theme)==='dark'?'dark':'light';
-    const currentSelection=resolveThemeSelection(liveTheme.preference,work,liveTheme.session,baseVariant);
-    const currentWorkTheme=workThemes.find(t=>t.id===currentSelection.themeId);
+    let currentSelection=resolveThemeSelection(liveTheme.preference,work,liveTheme.session,baseVariant);
+    let currentWorkTheme=workThemes.find(t=>t.id===currentSelection.themeId);
+    if(currentWorkTheme&&!automaticThemeAvailable(currentWorkTheme,liveTheme.dayNight)){
+      currentSelection=resolveThemeSelection(liveTheme.preference,null,null,baseVariant);
+      currentWorkTheme=undefined;
+    }
     const currentThemeName=currentWorkTheme?themeDirectiveName(currentWorkTheme,liveTheme.session.theme_period,liveTheme.dayNight):(currentSelection.themeId?'작품 외 커스텀 테마':currentSelection.variant==='dark'?'기본 다크':'기본 라이트');
     const assembled = assemblePrompt({
       autoThemeEnabled:liveTheme.session.theme_override==null,dayNightThemeNames:liveTheme.names,themePrompt,themeCatalog:themeCatalogPrompt(workThemes,liveTheme.dayNight),

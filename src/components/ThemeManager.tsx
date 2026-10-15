@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { invalidateInFlight, shareInFlight } from '@/lib/inFlight';
-import { dayNightDisplayVariant } from '@/lib/themeDirectives';
+import { automaticThemeAvailable, dayNightDisplayVariant, dayNightModeEnabled } from '@/lib/themeDirectives';
 import { applyCustomTheme, applyTheme, bothVariants, loadTheme, paletteFor, preferredThemeVariant, resolveThemeSelection, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 
 type Preference = { prefer_work_theme: boolean; preferred_theme_mode: 'dark' | 'light' | 'custom' | null; preferred_theme_id: string | null; preferred_theme_variant: ThemeVariant | null };
@@ -44,10 +44,20 @@ export default function ThemeManager() {
           workDefault = work as WorkDefault | null;
         }
       }
-      const {themeId,variant} = resolveThemeSelection(pref,workDefault,session,legacyMode);
+      let {themeId,variant} = resolveThemeSelection(pref,workDefault,session,legacyMode);
+      const readPalette=(id:string)=>shareInFlight(`theme:palette:${user.id}:${id}`, () => supabase.from('themes').select('*').eq('id',id).maybeSingle());
       if (themeId) {
-        const { data: theme, error: themeError } = await shareInFlight(`theme:palette:${user.id}:${themeId}`, () => supabase.from('themes').select('*').eq('id',themeId).maybeSingle());
+        let { data: theme, error: themeError } = await readPalette(themeId);
         if (!current || run!==generation || themeError) return;
+        // Time-only scenes must not remain visible in fluid mode after the
+        // feature is disabled. Fall back to the account's exact custom palette.
+        if(theme&&session&&session.theme_override==null&&!automaticThemeAvailable(theme as SavedTheme,dayNightModeEnabled(session,preferredVariant))){
+          ({themeId,variant}=resolveThemeSelection(pref,null,null,legacyMode));
+          if(themeId){
+            ({data:theme,error:themeError}=await readPalette(themeId));
+            if(!current||run!==generation||themeError)return;
+          }else theme=null;
+        }
         const selected=theme ? paletteFor(theme as SavedTheme,dayNightDisplayVariant(theme as SavedTheme,session,preferredVariant,variant)):null;
         if (selected) { applyCustomTheme(selected.palette,selected.variant,bothVariants(theme as SavedTheme)?'dual':'single',(theme as SavedTheme).name,preferredVariant); return; }
       }
