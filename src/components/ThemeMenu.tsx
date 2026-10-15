@@ -96,7 +96,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
   }),[themes,tab,workId,userId,favorites,search,catalogScope]);
   function edit(theme?:SavedTheme,preferred=variant){setEditing(theme??'new');setDraft(theme?{name:theme.name,description:theme.description,ai_prompt:theme.ai_prompt??'',day_night_enabled:theme.day_night_enabled??false,...createPaletteDraft(theme,preferred)}:defaultDraft());}
   function changeDayNight(enabled:boolean){
-    setDraft(d=>({...d,...changePaletteMode(d,enabled?'dual':d.mode),day_night_enabled:enabled}));
+    setDraft(d=>({...d,day_night_enabled:enabled}));
   }
   async function save(){
     if(busy)return;
@@ -109,7 +109,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     if(targetWork&&/:(낮|밤)$/.test(name)){showToast('작품 테마 이름의 :낮·:밤은 시간 전환 태그에 사용됩니다. 다른 이름을 지정해 주세요.');return;}
     if(targetWork&&themes.some(t=>t.work_id===targetWork&&t.name.trim()===name&&t.id!==(editing==='new'?null:editing?.id))){showToast('사용 가능한 작품 테마에 같은 이름이 있습니다. 다른 이름을 사용해 주세요.');return;}
     setBusy(true);
-    const payload={name:draft.name.trim(),description:draft.description.trim(),ai_prompt:draft.ai_prompt.trim(),day_night_enabled:!!targetWork&&draft.mode==='dual'&&!!draft.day_night_enabled,...colors};
+    const payload={name:draft.name.trim(),description:draft.description.trim(),ai_prompt:draft.ai_prompt.trim(),day_night_enabled:!!targetWork&&!!draft.day_night_enabled,...colors};
     const result=editing==='new'
       ?await supabase.from('themes').insert({...payload,owner_id:userId,work_id:workId&&(scope==='work'||allowWorkCreate)?workId:null,work_shared:allowWorkCreate,is_published:false}).select('*').single()
       :await supabase.from('themes').update(payload).eq('id',(editing as SavedTheme).id).select('*').single();
@@ -148,9 +148,9 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     <label className="text-xs text-slate-400">설명<textarea maxLength={500} rows={2} value={draft.description} onChange={e=>setDraft(d=>({...d,description:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
     {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="text-xs text-slate-400">AI 적용 조건<textarea maxLength={4000} rows={4} value={draft.ai_prompt} onChange={e=>setDraft(d=>({...d,ai_prompt:e.target.value}))} placeholder="이 테마를 언제 사용해야 하는지 설명하세요." className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>}
     {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="flex items-start gap-2 text-xs text-slate-400">
-      <input type="checkbox" aria-label="다크·라이트 시간 전환에 사용" disabled={busy}
-        checked={draft.mode==='dual'&&!!draft.day_night_enabled} onChange={e=>changeDayNight(e.currentTarget.checked)}/>
-      <span>다크·라이트 시간 전환에 사용<br/>켜면 라이트·다크 방식으로 전환됩니다. 기존 색상은 유지되며 추가된 버전의 색상을 편집할 수 있습니다. 채팅방의 낮·밤 옵션을 켜면 낮에는 라이트, 밤에는 다크 버전을 적용합니다. 변경 후 테마를 저장해 주세요.</span>
+      <input type="checkbox" aria-label="시간 전환을 켰을 때만 사용" disabled={busy}
+        checked={!!draft.day_night_enabled} onChange={e=>changeDayNight(e.currentTarget.checked)}/>
+      <span>시간 전환을 켰을 때만 사용<br/>체크하면 채팅방의 낮·밤 전환이 작동할 때만 자동 선택 목록에 포함됩니다. 단일 테마도 설정할 수 있으며 색상과 테마 방식은 바뀌지 않습니다. 복수 테마는 이 체크와 관계없이 낮·밤 전환을 지원합니다.</span>
     </label>}
     {scope==='work'&&!allowWorkCreate&&<p className="text-xs text-slate-400">본인만 이 작품에서 사용할 수 있으며, 자동 테마 변경의 선택지에 포함됩니다.</p>}
     <fieldset disabled={busy} className="flex flex-col gap-3">

@@ -185,7 +185,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
           disabled={busy||saving||siteSaving||siteMode===null||siteVariant!=='light'&&!session.theme_day_night_enabled}
           onChange={e=>void chooseDayNight(e.target.checked)}/>
       </label>
-      <p className="mt-1 text-xs text-slate-500">라이트 선호의 유동적 모드에서만 작동합니다. 작품 테마에서 시간 전환에 사용할 복수 테마를 지정하세요. 옵션을 끄면 기존 낮·밤 태그는 전송 시 일반 테마 이름으로 정리됩니다.</p>
+      <p className="mt-1 text-xs text-slate-500">라이트 선호의 유동적 모드에서만 작동합니다. 모든 복수 테마는 낮에 라이트, 밤에 다크 버전을 사용하며 단일 테마는 같은 색상을 유지합니다. 끄면 시간 전환 전용 테마는 자동 선택 목록에서 제외되고, 기존 낮·밤 태그는 전송 시 일반 이름으로 정리됩니다.</p>
       <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="사이트 기본 테마">
         {(['light','dark']as const).map(v=><button key={v} type="button" disabled={busy||saving||siteSaving}
           aria-pressed={shownVariant===v} onClick={()=>void chooseSiteTheme(v)}

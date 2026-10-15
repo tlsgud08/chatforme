@@ -143,11 +143,20 @@ assert.equal((await db.query("update sessions set theme_id=$1,theme_variant='dar
 assert.equal((await db.query("update sessions set theme_id=$1,theme_variant='dark' where id=$2 and user_id=$3 and theme_override is null returning id",[shared,fixedId,a])).rows.length,0);
 console.log('Custom global variant sync: unchanged IDs/colors, legacy OFF fluid writes and fixed-mode race guard OK');
 console.log('Postgres migration and RLS checks: private read/write isolation, scope immutability, reference guards, deletion reset and admin-only config OK');
+// Upgrade a populated schema and preserve every existing palette and checkbox.
+await db.query('insert into themes(owner_id,work_id,name,dark_colors,light_colors,day_night_enabled) values($1,$2,$3,$4,$4,true)',[a,w,'기존 체크 복수',JSON.stringify(basic)]);
+await db.exec('reset role');
+const upgradeSnapshot=(await db.query('select id,dark_colors,light_colors,day_night_enabled from themes order by id')).rows;
+await db.exec(readFileSync(root+'supabase/migrations/20261015043406_time_theme_conditions.sql','utf8'));
+assert.deepEqual((await db.query('select id,dark_colors,light_colors,day_night_enabled from themes order by id')).rows,upgradeSnapshot);
+await login(a);
 // Defaults preserve all old rooms/themes. Night is a separate scene column.
 assert.equal((await db.query('select theme_day_night_enabled from sessions where id=$1',[fluidId])).rows[0].theme_day_night_enabled,false);
-await deny('update themes set day_night_enabled=true where id=$1',[shared]);
+const singleColors=(await db.query('select dark_colors,light_colors from themes where id=$1',[shared])).rows[0];
+await db.query('update themes set day_night_enabled=true where id=$1',[shared]);
+assert.deepEqual((await db.query('select dark_colors,light_colors from themes where id=$1',[shared])).rows[0],singleColors,'time-only condition accepts a single palette without adding or changing colors');
 await deny('update themes set day_night_enabled=true where id=$1',[globalTheme]);
-await db.query('update themes set dark_colors=$1,day_night_enabled=true where id=$2',[JSON.stringify(basic),shared]);
+await db.query('update themes set dark_colors=$1,day_night_enabled=false where id=$2',[JSON.stringify(basic),shared]);
 await db.query("update sessions set theme_day_night_enabled=true,theme_period='night' where id=$1",[fluidId]);
 assert.deepEqual((await db.query('select theme_variant,theme_period from sessions where id=$1',[fluidId])).rows[0],{theme_variant:'dark',theme_period:'night'});
 await deny("update sessions set theme_period='sunset' where id=$1",[fluidId]);
@@ -163,15 +172,15 @@ await db.query("update sessions set theme_period='night' where id=$1",[fluidId])
 await login(c);
 assert.equal((await db.query('update themes set day_night_enabled=false where id=$1 returning id',[shared])).rows.length,0,'theme option follows existing work edit permissions');
 await login(a);
-// Reproduce a branch made from cached night state after eligibility is removed.
+// Every dual theme supports night state, regardless of its time-only condition.
 await db.query('update themes set day_night_enabled=false where id=$1',[shared]);
 const staleBranch=(await db.query("insert into sessions(id,user_id,work_id,theme_id,theme_variant,theme_day_night_enabled,theme_period) values(gen_random_uuid(),$1,$2,$3,'light',true,'night') returning theme_id,theme_period",[a,w,shared])).rows[0];
-assert.deepEqual(staleBranch,{theme_id:shared,theme_period:null},'unchecking a theme cannot block a cached night branch');
-await db.query('update themes set dark_colors=NULL where id=$1',[shared]);
+assert.deepEqual(staleBranch,{theme_id:shared,theme_period:'night'},'unchecked dual themes retain their night state when branching');
+await db.query('update themes set dark_colors=NULL,day_night_enabled=true where id=$1',[shared]);
 const singleBranch=(await db.query("insert into sessions(id,user_id,work_id,theme_id,theme_variant,theme_day_night_enabled,theme_period) values(gen_random_uuid(),$1,$2,$3,'light',true,'night') returning theme_id,theme_period",[a,w,shared])).rows[0];
 assert.deepEqual(singleBranch,{theme_id:shared,theme_period:null},'converting a theme to single cannot block a cached night branch');
-console.log('Branch recovery SQL: unchecked/single theme copies retain palette and discard stale period OK');
+console.log('Branch recovery SQL: unchecked dual retains time; checked single retains palette and discards stale period OK');
 await db.query('delete from themes where id=$1',[shared]);
 assert.equal((await db.query('select theme_period from sessions where id=$1',[fluidId])).rows[0].theme_period,null,'theme deletion clears scene period without blocking FK recovery');
-console.log('Day/night SQL: default OFF, work/dual integrity, independent preference sync, fixed/deleted cleanup and RLS OK');
+console.log('Day/night SQL: default OFF, work-only condition accepts single/dual, all dual period guards, preference sync, fixed/deleted cleanup and RLS OK');
 await db.close();
