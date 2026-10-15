@@ -32,6 +32,7 @@ await db.exec(readFileSync(root+'supabase/migrations/20261014034744_theme_second
 await db.exec(readFileSync(root+'supabase/migrations/20261014044407_theme_secondary_opacity.sql','utf8'));
 await db.exec(readFileSync(root+'supabase/migrations/20261014173500_fluid_chat_theme.sql','utf8'));
 await db.exec(readFileSync(root+'supabase/migrations/20261015020249_day_night_work_themes.sql','utf8'));
+await db.exec(readFileSync(root+'supabase/migrations/20261015022514_stale_day_night_branch_recovery.sql','utf8'));
 await db.exec('grant select,insert,update,delete on all tables in schema public to authenticated,anon;');
 const a='00000000-0000-0000-0000-000000000001',b='00000000-0000-0000-0000-000000000002',c='00000000-0000-0000-0000-000000000003';
 const w='10000000-0000-0000-0000-000000000001',other='10000000-0000-0000-0000-000000000002';
@@ -162,6 +163,14 @@ await db.query("update sessions set theme_period='night' where id=$1",[fluidId])
 await login(c);
 assert.equal((await db.query('update themes set day_night_enabled=false where id=$1 returning id',[shared])).rows.length,0,'theme option follows existing work edit permissions');
 await login(a);
+// Reproduce a branch made from cached night state after eligibility is removed.
+await db.query('update themes set day_night_enabled=false where id=$1',[shared]);
+const staleBranch=(await db.query("insert into sessions(id,user_id,work_id,theme_id,theme_variant,theme_day_night_enabled,theme_period) values(gen_random_uuid(),$1,$2,$3,'light',true,'night') returning theme_id,theme_period",[a,w,shared])).rows[0];
+assert.deepEqual(staleBranch,{theme_id:shared,theme_period:null},'unchecking a theme cannot block a cached night branch');
+await db.query('update themes set dark_colors=NULL where id=$1',[shared]);
+const singleBranch=(await db.query("insert into sessions(id,user_id,work_id,theme_id,theme_variant,theme_day_night_enabled,theme_period) values(gen_random_uuid(),$1,$2,$3,'light',true,'night') returning theme_id,theme_period",[a,w,shared])).rows[0];
+assert.deepEqual(singleBranch,{theme_id:shared,theme_period:null},'converting a theme to single cannot block a cached night branch');
+console.log('Branch recovery SQL: unchecked/single theme copies retain palette and discard stale period OK');
 await db.query('delete from themes where id=$1',[shared]);
 assert.equal((await db.query('select theme_period from sessions where id=$1',[fluidId])).rows[0].theme_period,null,'theme deletion clears scene period without blocking FK recovery');
 console.log('Day/night SQL: default OFF, work/dual integrity, independent preference sync, fixed/deleted cleanup and RLS OK');
