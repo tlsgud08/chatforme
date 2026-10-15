@@ -319,7 +319,14 @@ const writesBefore=writes.length;
 elements(staleView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.onChange({target:{checked:true}});await flush();
 assert.equal(writes.length,writesBefore,'a concurrent dark preference blocks enabling the option');
 const darkView=tree(SessionThemeSettings,{session:dayRoom,userId:'owner',onUpdate:()=>{}},[dayTheme,false,'global',false,null,'custom','dark',false]);
-assert.equal(elements(darkView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.disabled,true);
+assert.equal(elements(darkView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용'),undefined);
+for(const mode of ['dark','custom',null]){
+ for(const enabled of [false,true]){
+  const hidden=tree(SessionThemeSettings,{session:{...nightRoom,theme_day_night_enabled:enabled},userId:'owner',onUpdate:()=>{}},[dayTheme,false,'global',false,null,mode,'dark',false]);
+  assert.equal(elements(hidden).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용'),undefined,'dark or unknown preferences never show the time toggle, even with a stale ON value');
+  assert.ok(!renderToStaticMarkup(hidden).includes('라이트 선호의 유동적 모드에서만 작동합니다.'));
+ }
+}
 
 for(const mode of ['single','dual']){
  const draft={name:'정원',description:'',ai_prompt:'정원 조건',day_night_enabled:false,...theme.createPaletteDraft(dayTheme,'light'),mode};

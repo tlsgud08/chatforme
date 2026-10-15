@@ -144,12 +144,20 @@ assert.equal((await db.query("update sessions set theme_id=$1,theme_variant='dar
 console.log('Custom global variant sync: unchanged IDs/colors, legacy OFF fluid writes and fixed-mode race guard OK');
 console.log('Postgres migration and RLS checks: private read/write isolation, scope immutability, reference guards, deletion reset and admin-only config OK');
 // Upgrade a populated schema and preserve every existing palette and checkbox.
-await db.query('insert into themes(owner_id,work_id,name,dark_colors,light_colors,day_night_enabled) values($1,$2,$3,$4,$4,true)',[a,w,'기존 체크 복수',JSON.stringify(basic)]);
+const upgradeDual=(await db.query('insert into themes(owner_id,work_id,name,dark_colors,light_colors,day_night_enabled) values($1,$2,$3,$4,$4,true) returning id',[a,w,'기존 체크 복수',JSON.stringify(basic)])).rows[0].id;
 await db.exec('reset role');
 const upgradeSnapshot=(await db.query('select id,dark_colors,light_colors,day_night_enabled from themes order by id')).rows;
 await db.exec(readFileSync(root+'supabase/migrations/20261015043406_time_theme_conditions.sql','utf8'));
 assert.deepEqual((await db.query('select id,dark_colors,light_colors,day_night_enabled from themes order by id')).rows,upgradeSnapshot);
 await login(a);
+// Simulate the old dark-preference client leaving the flag ON before upgrading.
+await db.query('update sessions set theme_day_night_enabled=true where id in ($1,$2)',[fluidId,fixedId]);
+const roomSnapshot=(await db.query('select id,theme_id,theme_variant,theme_override from sessions order by id')).rows;
+await db.exec('reset role');
+await db.exec(readFileSync(root+'supabase/migrations/20261015045732_disable_night_mode_for_dark_preference.sql','utf8'));
+assert.deepEqual((await db.query('select id,theme_id,theme_variant,theme_override from sessions order by id')).rows,roomSnapshot,'upgrade clears time state without changing any selected palette or fixed mode');
+await login(a);
+assert.equal((await db.query('select count(*)::int as n from sessions where user_id=$1 and theme_day_night_enabled',[a])).rows[0].n,0);
 // Defaults preserve all old rooms/themes. Night is a separate scene column.
 assert.equal((await db.query('select theme_day_night_enabled from sessions where id=$1',[fluidId])).rows[0].theme_day_night_enabled,false);
 const singleColors=(await db.query('select dark_colors,light_colors from themes where id=$1',[shared])).rows[0];
@@ -157,8 +165,9 @@ await db.query('update themes set day_night_enabled=true where id=$1',[shared]);
 assert.deepEqual((await db.query('select dark_colors,light_colors from themes where id=$1',[shared])).rows[0],singleColors,'time-only condition accepts a single palette without adding or changing colors');
 await deny('update themes set day_night_enabled=true where id=$1',[globalTheme]);
 await db.query('update themes set dark_colors=$1,day_night_enabled=false where id=$2',[JSON.stringify(basic),shared]);
+await db.query("update profiles set preferred_theme_variant='light' where id=$1",[a]);
 await db.query("update sessions set theme_day_night_enabled=true,theme_period='night' where id=$1",[fluidId]);
-assert.deepEqual((await db.query('select theme_variant,theme_period from sessions where id=$1',[fluidId])).rows[0],{theme_variant:'dark',theme_period:'night'});
+assert.deepEqual((await db.query('select theme_variant,theme_period from sessions where id=$1',[fluidId])).rows[0],{theme_variant:'light',theme_period:'night'});
 await deny("update sessions set theme_period='sunset' where id=$1",[fluidId]);
 await db.query("update profiles set preferred_theme_variant='light' where id=$1",[a]);
 assert.deepEqual((await db.query('select theme_variant,theme_period from sessions where id=$1',[fluidId])).rows[0],{theme_variant:'light',theme_period:'night'},'preference sync never destroys night scene state');
@@ -180,6 +189,36 @@ await db.query('update themes set dark_colors=NULL,day_night_enabled=true where 
 const singleBranch=(await db.query("insert into sessions(id,user_id,work_id,theme_id,theme_variant,theme_day_night_enabled,theme_period) values(gen_random_uuid(),$1,$2,$3,'light',true,'night') returning theme_id,theme_period",[a,w,shared])).rows[0];
 assert.deepEqual(singleBranch,{theme_id:shared,theme_period:null},'converting a theme to single cannot block a cached night branch');
 console.log('Branch recovery SQL: unchecked dual retains time; checked single retains palette and discards stale period OK');
+
+// The global preference change disables every room for this account, including
+// fixed rooms and fluid rooms with no palette metadata, but never another user.
+const emptyRoom=(await db.query('insert into sessions(id,user_id,work_id,theme_day_night_enabled) values(gen_random_uuid(),$1,$2,true) returning id',[a,w])).rows[0].id;
+await db.query("update sessions set theme_day_night_enabled=true,theme_period='night',theme_id=$1 where id=$2",[upgradeDual,fluidId]);
+await db.query('update sessions set theme_day_night_enabled=true where id=$1',[fixedId]);
+const fixedBefore=(await db.query('select theme_id,theme_variant,theme_override from sessions where id=$1',[fixedId])).rows[0];
+await login(b);
+const otherRoom=(await db.query("insert into sessions(id,user_id,work_id,theme_id,theme_day_night_enabled,theme_period) values(gen_random_uuid(),$1,$2,$3,true,'night') returning id",[b,w,upgradeDual])).rows[0].id;
+await login(a);
+await db.query("update profiles set preferred_theme_variant='dark' where id=$1",[a]);
+assert.equal((await db.query('select count(*)::int as n from sessions where user_id=$1 and (theme_day_night_enabled or theme_period is not null)',[a])).rows[0].n,0);
+assert.deepEqual((await db.query('select theme_id,theme_variant,theme_override from sessions where id=$1',[fixedId])).rows[0],fixedBefore);
+assert.equal((await db.query('select theme_variant from sessions where id=$1',[emptyRoom])).rows[0].theme_variant,null);
+assert.equal((await db.query('select preferred_theme_id from profiles where id=$1',[a])).rows[0].preferred_theme_id,globalTheme);
+await db.query("update sessions set theme_day_night_enabled=true,theme_period='night' where id=$1",[fluidId]);
+assert.deepEqual((await db.query('select theme_day_night_enabled,theme_period from sessions where id=$1',[fluidId])).rows[0],{theme_day_night_enabled:false,theme_period:null},'cached dark-preference writes are forced OFF');
+const darkBranch=(await db.query("insert into sessions(id,user_id,work_id,theme_id,theme_day_night_enabled,theme_period) values(gen_random_uuid(),$1,$2,$3,true,'night') returning theme_day_night_enabled,theme_period",[a,w,upgradeDual])).rows[0];
+assert.deepEqual(darkBranch,{theme_day_night_enabled:false,theme_period:null});
+await db.query("update profiles set preferred_theme_variant='light' where id=$1",[a]);
+assert.equal((await db.query('select count(*)::int as n from sessions where user_id=$1 and theme_day_night_enabled',[a])).rows[0].n,0,'returning to light never restores ON');
+await db.query('update sessions set theme_day_night_enabled=true where id=$1',[fluidId]);
+assert.equal((await db.query('select theme_day_night_enabled from sessions where id=$1',[fluidId])).rows[0].theme_day_night_enabled,true,'light preference can explicitly enable again');
+await db.query("update profiles set preferred_theme_mode='dark' where id=$1",[a]);
+assert.equal((await db.query('select theme_day_night_enabled from sessions where id=$1',[fluidId])).rows[0].theme_day_night_enabled,false,'builtin dark overrides the stored light variant');
+await login(b);
+assert.deepEqual((await db.query('select theme_day_night_enabled,theme_period from sessions where id=$1',[otherRoom])).rows[0],{theme_day_night_enabled:true,theme_period:'night'});
+await login(a);
+console.log('Dark preference: migration cleanup, account-wide OFF, fixed palettes, empty rooms, stale writes/branches, light return and cross-user isolation OK');
+
 await db.query('delete from themes where id=$1',[shared]);
 assert.equal((await db.query('select theme_period from sessions where id=$1',[fluidId])).rows[0].theme_period,null,'theme deletion clears scene period without blocking FK recovery');
 console.log('Day/night SQL: default OFF, work-only condition accepts single/dual, all dual period guards, preference sync, fixed/deleted cleanup and RLS OK');
