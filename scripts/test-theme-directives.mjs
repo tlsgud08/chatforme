@@ -122,3 +122,25 @@ assert.equal(h.themeDirectiveName(dual,null,true),'정원:낮','current theme us
 assert.equal(h.themeDirectiveName(normal,'night',true),'실내:밤');
 assert.equal(h.themeDirectiveName(single,'night',true),'단일');
 assert.equal(h.themeDirectiveName(normal,'night',false),'실내');
+
+// A dual theme can retain both palettes while using one unsuffixed AI choice.
+const preferred={...normal,id:'preferred',name:'선호 테마',use_day_night_variants:false};
+assert.equal(h.dayNightThemeEligible(preferred),false);
+assert.equal(h.themeDirectiveName(preferred,'night',true),'선호 테마');
+const mixed=h.themeCatalogPrompt([dual,preferred],true);
+assert.ok(mixed.includes('- 이름: 선호 테마\n'));
+assert.ok(!mixed.includes('선호 테마:'));
+assert.ok(mixed.includes('정원:밤'));
+assert.equal(h.resolveThemeDirectiveChoice('선호 테마',[preferred],true).period,null);
+assert.equal(h.resolveThemeDirectiveChoice('선호 테마:밤',[preferred],true),null,'stale time responses cannot control an opted-out palette');
+for(const preference of ['light','dark']){
+  const room={theme_override:null,theme_day_night_enabled:true,theme_period:'night'};
+  assert.equal(h.dayNightDisplayVariant(preferred,room,preference,preference==='light'?'dark':'light'),preference);
+}
+assert.equal(h.dayNightDisplayVariant(preferred,{theme_override:'custom',theme_day_night_enabled:true,theme_period:'night'},'light','dark'),'dark','explicit fixed themes retain their chosen palette');
+assert.equal(h.automaticThemeAvailable({...preferred,day_night_enabled:true},false),false,'availability remains independent from palette switching');
+const preferredHistory={...timed,themeCatalog:mixed,dayNightThemeNames:['정원'],history:[{role:'assistant',content:'{{theme::선호 테마:밤}}',cacheBreakpoint:true}]};
+assert.equal(assemblePrompt(preferredHistory).messages[0].content,'{{theme::선호 테마}}');
+assert.equal(assemblePrompt(preferredHistory).messages[0].cacheBreakpoint,true);
+assert.equal(preferredHistory.history[0].content,'{{theme::선호 테마:밤}}');
+console.log('Optional day/night variants: mixed catalog, unsuffixed choices, global preference, fixed palettes, stale tags and independent availability OK');

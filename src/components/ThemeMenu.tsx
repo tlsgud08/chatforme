@@ -18,8 +18,8 @@ type Props = {
   onClose?: () => void;
 };
 const labels: Record<Tab,string>={all:'전체',work:'작품',mine:'내 테마',hub:'테마 허브',favorites:'즐겨찾기'};
-type Draft = ThemePaletteDraft & {name:string;description:string;ai_prompt:string;day_night_enabled:boolean};
-function defaultDraft():Draft {return {name:'',description:'',ai_prompt:'',day_night_enabled:false,...createPaletteDraft(null,currentVariant())};}
+type Draft = ThemePaletteDraft & {name:string;description:string;ai_prompt:string;day_night_enabled:boolean;use_day_night_variants:boolean};
+function defaultDraft():Draft {return {name:'',description:'',ai_prompt:'',day_night_enabled:false,use_day_night_variants:true,...createPaletteDraft(null,currentVariant())};}
 function currentVariant(): ThemeVariant {
   return previewThemeVariant();
 }
@@ -94,7 +94,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
       :favorites.has(t.id);
     return active&&(!search.trim()||[t.name,t.description].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
   }),[themes,tab,workId,userId,favorites,search,catalogScope]);
-  function edit(theme?:SavedTheme,preferred=variant){setEditing(theme??'new');setDraft(theme?{name:theme.name,description:theme.description,ai_prompt:theme.ai_prompt??'',day_night_enabled:theme.day_night_enabled??false,...createPaletteDraft(theme,preferred)}:defaultDraft());}
+  function edit(theme?:SavedTheme,preferred=variant){setEditing(theme??'new');setDraft(theme?{name:theme.name,description:theme.description,ai_prompt:theme.ai_prompt??'',day_night_enabled:theme.day_night_enabled??false,use_day_night_variants:theme.use_day_night_variants!==false,...createPaletteDraft(theme,preferred)}:defaultDraft());}
   function changeDayNight(enabled:boolean){
     setDraft(d=>({...d,day_night_enabled:enabled}));
   }
@@ -109,7 +109,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     if(targetWork&&/:(낮|밤)$/.test(name)){showToast('작품 테마 이름의 :낮·:밤은 시간 전환 태그에 사용됩니다. 다른 이름을 지정해 주세요.');return;}
     if(targetWork&&themes.some(t=>t.work_id===targetWork&&t.name.trim()===name&&t.id!==(editing==='new'?null:editing?.id))){showToast('사용 가능한 작품 테마에 같은 이름이 있습니다. 다른 이름을 사용해 주세요.');return;}
     setBusy(true);
-    const payload={name:draft.name.trim(),description:draft.description.trim(),ai_prompt:draft.ai_prompt.trim(),day_night_enabled:!!targetWork&&!!draft.day_night_enabled,...colors};
+    const payload={name:draft.name.trim(),description:draft.description.trim(),ai_prompt:draft.ai_prompt.trim(),day_night_enabled:!!targetWork&&!!draft.day_night_enabled,use_day_night_variants:draft.use_day_night_variants!==false,...colors};
     const result=editing==='new'
       ?await supabase.from('themes').insert({...payload,owner_id:userId,work_id:workId&&(scope==='work'||allowWorkCreate)?workId:null,work_shared:allowWorkCreate,is_published:false}).select('*').single()
       :await supabase.from('themes').update(payload).eq('id',(editing as SavedTheme).id).select('*').single();
@@ -150,7 +150,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="flex items-start gap-2 text-xs text-slate-400">
       <input type="checkbox" aria-label="시간 전환을 켰을 때만 사용" disabled={busy}
         checked={!!draft.day_night_enabled} onChange={e=>changeDayNight(e.currentTarget.checked)}/>
-      <span>시간 전환을 켰을 때만 사용<br/>체크하면 채팅방의 낮·밤 전환이 작동할 때만 자동 선택 목록에 포함됩니다. 단일 테마도 설정할 수 있으며 색상과 테마 방식은 바뀌지 않습니다. 복수 테마는 이 체크와 관계없이 낮·밤 전환을 지원합니다.</span>
+      <span>시간 전환을 켰을 때만 사용<br/>체크하면 채팅방의 낮·밤 전환이 작동할 때만 자동 선택 목록에 포함됩니다. 단일 테마도 설정할 수 있으며 색상과 테마 방식은 바뀌지 않습니다.</span>
     </label>}
     {scope==='work'&&!allowWorkCreate&&<p className="text-xs text-slate-400">본인만 이 작품에서 사용할 수 있으며, 자동 테마 변경의 선택지에 포함됩니다.</p>}
     <fieldset disabled={busy} className="flex flex-col gap-3">
@@ -161,6 +161,14 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
             onClick={()=>setDraft(d=>({...d,...changePaletteMode(d,o.value)}))}
             className={`rounded-lg px-3 py-2 text-xs ${draft.mode===o.value?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>{o.label}</button>)}
       </div>
+      {draft.mode==='dual'&&(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="flex items-start gap-2 text-xs text-slate-400">
+        <input type="checkbox" aria-label="낮·밤에 따라 라이트·다크 전환" disabled={busy}
+          checked={draft.use_day_night_variants!==false} onChange={e=>{
+            const enabled=e.currentTarget.checked;
+            setDraft(d=>({...d,use_day_night_variants:enabled}));
+          }}/>
+        <span>낮·밤에 따라 라이트·다크 전환<br/>켜면 채팅방의 시간 전환이 작동할 때 AI에 이름:낮·이름:밤으로 전달합니다. 끄면 이름 하나만 전달하고 유동적 모드의 색상은 전역 라이트·다크 선호를 따릅니다.</span>
+      </label>}
       {draft.mode==='single'
         ?<ThemePaletteEditor key="single" variant="single" palette={draft[draft.singleVariant==='dark'?'dark_colors':'light_colors']}
           onChange={p=>setDraft(d=>({...d,[d.singleVariant+'_colors']:p}))}/>

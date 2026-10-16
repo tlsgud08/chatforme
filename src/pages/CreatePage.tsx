@@ -108,9 +108,11 @@ export default function CreatePage() {
     // Map old IDs to the newly inserted IDs explicitly. INSERT RETURNING row
     // ordering is not guaranteed, so index-based mapping can attach the wrong theme.
     let copiedDefaultId = work.default_theme_id ?? null;
-    for (const original of themes??[]) {
+    for (const original of (themes??[]).filter(theme=>theme.work_shared!==false)) {
       const {data:copiedTheme,error:themesError}=await supabase.from('themes').insert({
         owner_id:user!.id,work_id:created.id,name:original.name,description:original.description,
+        ai_prompt:original.ai_prompt??'',day_night_enabled:original.day_night_enabled??false,
+        use_day_night_variants:original.use_day_night_variants!==false,work_shared:true,
         dark_colors:original.dark_colors,light_colors:original.light_colors,is_published:false,
       }).select('id').single();
       if(themesError){showToast('작품 전용 테마 복제 실패: '+themesError.message);continue;}

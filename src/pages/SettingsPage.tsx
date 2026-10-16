@@ -105,7 +105,7 @@ export default function SettingsPage() {
   async function saveProfile() {
     if (!profile) return;
     const output = defaultOutputSettings;
-    await supabase
+    const { error } = await supabase
       .from('profiles')
       .update({
         display_name: profile.display_name,
@@ -128,6 +128,7 @@ export default function SettingsPage() {
         summary_source_mode: profile.summary_source_mode,
       })
       .eq('id', profile.id);
+    if (error) { flash('프로필 저장 실패: ' + error.message); return; }
     saveDefaultReasoning(output?.reasoning ?? defaultReasoning);
     flash('프로필을 저장했습니다.');
   }
