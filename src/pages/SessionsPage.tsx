@@ -108,7 +108,8 @@ export default function SessionsPage() {
     if (selected.size === 0) return;
     const ids = [...selected];
     const newVal = viewTab === 'active';
-    await supabase.from('sessions').update({ is_archived: newVal }).in('id', ids);
+    const { error } = await supabase.from('sessions').update({ is_archived: newVal }).in('id', ids);
+    if (error) { showToast('보관 상태 변경 실패: ' + error.message); return; }
     queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
     cancelSelect();
   }

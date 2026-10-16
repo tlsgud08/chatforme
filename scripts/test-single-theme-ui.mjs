@@ -462,3 +462,37 @@ for(const toggle of elements(blockedCache).filter(el=>el.type===Toggle)){
  assert.equal(toggle.props.disabled,true);Toggle(toggle.props).props.onClick();
 }
 console.log('Common switches: accessible ON/OFF, disabled state, output parameter preservation and both cache save payloads OK');
+
+for(const shared of [false,true]){
+ const props={userId:'owner',workId:'work',scope:'work',allowWorkCreate:shared};
+ const draft={name:'정원',description:'',ai_prompt:'정원 조건',day_night_enabled:true,use_day_night_variants:true,...theme.createPaletteDraft(dayTheme,'light')};
+ const values=['light',[],new Set(),{},'work','',dayTheme,draft,false,null];
+ const toggle=elements(tree(ThemeMenu,props,values)).find(el=>el.props['aria-label']==='낮·밤에 따라 라이트·다크 전환');
+ assert.equal(toggle.props.checked,true);
+ const target={checked:false},event={currentTarget:target};
+ globalThis.__themeHooks.pending=[];
+ toggle.props.onChange(event);target.checked=true;event.currentTarget=null;
+ globalThis.__themeHooks.pending.forEach(update=>update());
+ assert.equal(values[7].use_day_night_variants,false);
+ assert.equal(values[7].day_night_enabled,true);
+ const updated=tree(ThemeMenu,props,values);
+ elements(updated).find(el=>el.type==='button'&&el.props.children==='테마 저장').props.onClick();await flush();
+ const saved=writes.findLast(w=>w.table==='themes').patch;
+ assert.equal(saved.use_day_night_variants,false);assert.equal(saved.day_night_enabled,true);
+ assert.deepEqual({dark_colors:saved.dark_colors,light_colors:saved.light_colors},theme.paletteDraftColors(draft));
+ values[7]={...values[7],mode:'single'};
+ assert.equal(elements(tree(ThemeMenu,props,values)).find(el=>el.props['aria-label']==='낮·밤에 따라 라이트·다크 전환'),undefined);
+}
+for(const [override,preference,stored,expected] of [[null,'light','dark','light'],[null,'dark','light','dark'],['custom','light','dark','dark']]){
+ globalThis.__capturedEffects=[];
+ globalThis.__profileResponse={prefer_work_theme:false,preferred_theme_mode:'custom',preferred_theme_variant:preference};
+ const selected={...dayTheme,day_night_enabled:false,use_day_night_variants:false};
+ globalThis.__themeResponse=selected;
+ globalThis.__sessionResponse={...dayRoom,theme_override:override,theme_variant:stored,theme_day_night_enabled:true,theme_period:'night'};
+ tree(ThemeManager,{},[]);const cleanup=globalThis.__capturedEffects[0]();await flush();
+ assert.equal(root.dataset.themeVariant,expected);
+ assert.equal(properties.get('--page-bg'),selected[expected+'_colors'].main);
+ cleanup();
+}
+delete globalThis.__capturedEffects;delete globalThis.__themeResponse;
+console.log('Optional day/night UI → save → rendering: independent checkbox, exact palettes, global preference and fixed-mode preservation OK');

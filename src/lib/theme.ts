@@ -2,7 +2,7 @@ export type Theme = 'dark' | 'light' | 'custom';
 export type ThemeVariant = 'dark' | 'light';
 export type ThemePalette = { accent: string; accentText: string; main: string; mainText: string; secondaryText?: string; softenSecondaryText?: boolean; secondaryTextOpacity?: number };
 // day_night_enabled is the persisted "available only while time switching is ON" condition.
-export type SavedTheme = { id: string; owner_id: string; work_id: string | null; name: string; description: string; ai_prompt?: string; work_shared?: boolean; day_night_enabled?: boolean; dark_colors: ThemePalette | null; light_colors: ThemePalette | null; is_published: boolean; copied_from_id: string | null; created_at: string; updated_at: string };
+export type SavedTheme = { id: string; owner_id: string; work_id: string | null; name: string; description: string; ai_prompt?: string; work_shared?: boolean; day_night_enabled?: boolean; use_day_night_variants?: boolean; dark_colors: ThemePalette | null; light_colors: ThemePalette | null; is_published: boolean; copied_from_id: string | null; created_at: string; updated_at: string };
 
 const KEY = 'inuchat.theme';
 const HEX = /^#[0-9a-f]{6}$/i;

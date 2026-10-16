@@ -219,7 +219,32 @@ assert.deepEqual((await db.query('select theme_day_night_enabled,theme_period fr
 await login(a);
 console.log('Dark preference: migration cleanup, account-wide OFF, fixed palettes, empty rooms, stale writes/branches, light return and cross-user isolation OK');
 
-await db.query('delete from themes where id=$1',[shared]);
+await db.exec('reset role');
+const beforeOptional=(await db.query('select id,dark_colors,light_colors,day_night_enabled from themes order by id')).rows;
+const optionalMigration=readdirSync(root+'supabase/migrations').find(name=>name.endsWith('_optional_day_night_variants.sql'));
+await db.exec(readFileSync(root+'supabase/migrations/'+optionalMigration,'utf8'));
+assert.deepEqual((await db.query('select id,dark_colors,light_colors,day_night_enabled from themes order by id')).rows,beforeOptional);
+assert.equal((await db.query('select count(*)::int as n from themes where use_day_night_variants is not true')).rows[0].n,0,'upgraded themes retain existing time support');
+await login(a);
+await db.query("update profiles set preferred_theme_mode='light',preferred_theme_variant='light' where id=$1",[a]);
+await db.query('update themes set use_day_night_variants=false where id=$1',[upgradeDual]);
+const optionalBranch=(await db.query("insert into sessions(id,user_id,work_id,theme_id,theme_variant,theme_day_night_enabled,theme_period) values(gen_random_uuid(),$1,$2,$3,'light',true,'night') returning theme_id,theme_period,theme_variant",[a,w,upgradeDual])).rows[0];
+assert.deepEqual(optionalBranch,{theme_id:upgradeDual,theme_period:null,theme_variant:'light'});
+await db.query('update themes set use_day_night_variants=true where id=$1',[upgradeDual]);
+await db.query("update sessions set theme_id=$1,theme_day_night_enabled=true,theme_period='night' where id=$2",[upgradeDual,fluidId]);
+assert.equal((await db.query('select theme_period from sessions where id=$1',[fluidId])).rows[0].theme_period,'night');
+await login(c);
+assert.equal((await db.query('update themes set use_day_night_variants=false where id=$1 returning id',[upgradeDual])).rows.length,0,'new flag uses the existing theme edit permissions');
+await login(a);
+await db.query("update profiles set preferred_theme_mode='dark' where id=$1",[a]);
+await db.query("update sessions set theme_day_night_enabled=true,theme_period='night' where id=$1",[fluidId]);
+assert.deepEqual((await db.query('select theme_day_night_enabled,theme_period from sessions where id=$1',[fluidId])).rows[0],{theme_day_night_enabled:false,theme_period:null},'new period guard preserves the dark-preference rule');
+console.log('Optional day/night SQL: non-destructive upgrade, true default, stale branch cleanup, re-enable, RLS and dark guard OK');
+
+await db.query("update profiles set preferred_theme_mode='light' where id=$1",[a]);
+await db.query("update sessions set theme_day_night_enabled=true,theme_period='night' where id=$1",[fluidId]);
+assert.equal((await db.query('select theme_period from sessions where id=$1',[fluidId])).rows[0].theme_period,'night');
+await db.query('delete from themes where id=$1',[upgradeDual]);
 assert.equal((await db.query('select theme_period from sessions where id=$1',[fluidId])).rows[0].theme_period,null,'theme deletion clears scene period without blocking FK recovery');
 console.log('Day/night SQL: default OFF, work-only condition accepts single/dual, all dual period guards, preference sync, fixed/deleted cleanup and RLS OK');
 await db.close();

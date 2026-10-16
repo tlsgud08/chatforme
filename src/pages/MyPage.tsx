@@ -70,7 +70,8 @@ export default function MyPage() {
 
   async function saveProfile() {
     if (!profile) return;
-    await supabase.from('profiles').update({ display_name: profile.display_name }).eq('id', profile.id);
+    const { error } = await supabase.from('profiles').update({ display_name: profile.display_name }).eq('id', profile.id);
+    if (error) { flash('저장 실패: ' + error.message); return; }
     flash('저장했습니다.');
   }
 
@@ -142,16 +143,18 @@ export default function MyPage() {
       return;
     }
     const publicUrl = supabase.storage.from('avatars').getPublicUrl(data.path).data.publicUrl;
-    await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id);
-    setProfile({ ...profile, avatar_url: publicUrl });
+    const { error: profileError } = await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id);
     setAvatarUploading(false);
+    if (profileError) { flash('프로필 사진 저장 실패: ' + profileError.message); return; }
+    setProfile({ ...profile, avatar_url: publicUrl });
     flash('프로필 사진을 업데이트했습니다.');
   }
 
   async function saveBio() {
     if (!profile) return;
     const trimmed = bio.slice(0, 500);
-    await supabase.from('profiles').update({ bio: trimmed }).eq('id', profile.id);
+    const { error } = await supabase.from('profiles').update({ bio: trimmed }).eq('id', profile.id);
+    if (error) { flash('소개 저장 실패: ' + error.message); return; }
     setProfile({ ...profile, bio: trimmed });
   }
 

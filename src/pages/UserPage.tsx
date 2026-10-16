@@ -19,14 +19,18 @@ export default function UserPage() {
 
   useEffect(() => {
     if (!userId) return;
+    let active = true;
+    setLoading(true);
     Promise.all([
       supabase.from('profiles').select('id,display_name,avatar_url,bio').eq('id', userId).single(),
       supabase.from('works').select(WORK_LIST_COLUMNS).eq('creator_id', userId).eq('visibility', 'public').order('created_at', { ascending: false }),
     ]).then(([profileRes, worksRes]) => {
+      if (!active) return;
       setProfile((profileRes.data) ?? null);
       setWorks((worksRes.data as WorkListItem[]) ?? []);
       setLoading(false);
     });
+    return () => { active = false; };
   }, [userId]);
 
   if (loading) return <p className="p-6 text-slate-400">불러오는 중…</p>;

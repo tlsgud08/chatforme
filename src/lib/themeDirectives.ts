@@ -7,13 +7,16 @@ export function dayNightModeEnabled(session:ThemeSessionOverride|null,preference
   return session?.theme_override==null&&session?.theme_day_night_enabled===true&&preference==='light';
 }
 export function dayNightThemeEligible(theme:SavedTheme):boolean {
-  return !!theme.work_id&&bothVariants(theme);
+  return !!theme.work_id&&bothVariants(theme)&&theme.use_day_night_variants!==false;
 }
 /** The legacy column stores an availability condition, not support for two palettes. */
 export function automaticThemeAvailable(theme:SavedTheme,dayNight:boolean):boolean {
   return theme.day_night_enabled!==true||dayNight;
 }
 export function dayNightDisplayVariant(theme:SavedTheme,session:ThemeSessionOverride|null,preference:ThemeVariant,fallback:ThemeVariant):ThemeVariant {
+  // Opted-out work scenes always follow the account preference in fluid mode,
+  // including legacy rooms retaining an obsolete night/manual variant.
+  if(session?.theme_override==null&&theme.work_id&&bothVariants(theme)&&theme.use_day_night_variants===false)return preference;
   if(dayNightModeEnabled(session,preference)&&dayNightThemeEligible(theme)){
     return session?.theme_period==='night'?'dark':'light';
   }
