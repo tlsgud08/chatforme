@@ -16,6 +16,7 @@ import SessionMenu from '@/components/SessionMenu';
 import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
 import { isTurnPriceWarning, loadTurnPriceWarning } from '@/lib/turnPriceWarning';
 import { showToast } from '@/lib/toast';
+import { conversationFilename, downloadConversationText, formatConversationText } from '@/lib/chatExport';
 import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
 import { automaticThemeAvailable, availableWorkThemes, dayNightModeEnabled, dayNightThemeEligible, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt, themeDirectiveName } from '@/lib/themeDirectives';
@@ -229,6 +230,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [exportingConversation, setExportingConversation] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [cacheDiagnostics, setCacheDiagnostics] = useState<Record<string, CacheDiagnostic>>({});
@@ -267,6 +269,7 @@ export default function ChatPage() {
   const editInFlightRef = useRef(false);
   const deleteInFlightRef = useRef(false);
   const branchInFlightRef = useRef(false);
+  const exportInFlightRef = useRef(false);
   const settingsSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1200,6 +1203,30 @@ export default function ChatPage() {
       .sort((a, b) => (a.reroll_index ?? 1) - (b.reroll_index ?? 1));
   }
 
+  async function exportConversation() {
+    if (!session || sending || exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    setExportingConversation(true);
+    try {
+      const allMessages = await fetchAllSessionMessages(session.id);
+      if (allMessages.some((message) => !message.is_hidden && message.is_active_variant !== false && message.generation_status === 'streaming')) {
+        showToast('응답 생성이 끝난 뒤 추출해 주세요.');
+        return;
+      }
+      const content = formatConversationText(orderMessagesByTurn(allMessages));
+      if (!content) {
+        showToast('추출할 대화가 없습니다.');
+        return;
+      }
+      downloadConversationText(content, conversationFilename(session.title || work?.title || '대화'));
+    } catch (error) {
+      addError(`대화 추출 실패: ${describeUnknownError(error)}`);
+    } finally {
+      exportInFlightRef.current = false;
+      setExportingConversation(false);
+    }
+  }
+
   const currentSession = session;
 
   const hasLocalGeneration = !!sessionId && activeGenerations.has(sessionId);
@@ -1392,6 +1419,8 @@ export default function ChatPage() {
           }}
           errorLog={errorLog}
           onClearErrors={() => setErrorLog([])}
+          onExportConversation={exportConversation}
+          exportingConversation={exportingConversation}
           onGenerateSummary={(throughTurn) => generateSummary(messages, [], throughTurn)}
           onMergeSummaries={(contents) => generateSummary(messages, contents)}
           summaryGenerating={summaryGenerating}
