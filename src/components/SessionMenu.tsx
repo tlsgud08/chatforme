@@ -44,6 +44,8 @@ interface Props {
   onReasoningChange: (reasoning: ReasoningSelection) => void;
   errorLog: ErrorEntry[];
   onClearErrors: () => void;
+  onExportConversation: () => Promise<void>;
+  exportingConversation: boolean;
   onGenerateSummary: (throughTurn?: number) => Promise<void>;
   onMergeSummaries: (contents: string[]) => Promise<void>;
   summaryGenerating: boolean;
@@ -59,7 +61,7 @@ export default function SessionMenu({
   showCacheTokens, onShowCacheTokensToggle, exchange,
   showImages, onShowImagesToggle,
   sessionModel, onModelChange, sessionReasoning, onReasoningChange,
-  errorLog, onClearErrors,
+  errorLog, onClearErrors, onExportConversation, exportingConversation,
   onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange, sessionTurnCount, sending,
 }: Props) {
   const { user } = useAuth();
@@ -506,6 +508,19 @@ export default function SessionMenu({
             </div>
             <Toggle aria-label="디버그 모드" checked={debugMode} onChange={onDebugToggle} />
           </div>
+        </section>
+
+        <section>
+          <button
+            type="button"
+            onClick={() => void onExportConversation()}
+            disabled={sending || exportingConversation}
+            aria-busy={exportingConversation}
+            className="w-full rounded-lg bg-surface2 px-3 py-2.5 text-sm font-semibold text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exportingConversation ? '대화 추출 중…' : '대화 전체 추출'}
+          </button>
+          <p className="mt-1.5 text-xs text-slate-500">전체 대화를 TXT 파일로 다운로드합니다.</p>
         </section>
 
         {/* 에러 로그 */}
