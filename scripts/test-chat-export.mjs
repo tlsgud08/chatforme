@@ -84,7 +84,7 @@ const history = [
 ];
 const original = JSON.stringify(history);
 assert.equal(formatConversationText(orderMessagesByTurn(history)),
-  '첫 장면\n\n1턴: 안녕\n두 번째 줄\n\n첫 답변\n\n2턴: /계속\n  들여쓰기 유지\n\n**두 번째 답변**\n\n![이미지](https://example.com/a.png)');
+  '첫 장면\n\n\n1턴: 안녕\n두 번째 줄\n\n\n첫 답변\n\n\n2턴: /계속\n  들여쓰기 유지\n\n\n**두 번째 답변**\n\n![이미지](https://example.com/a.png)');
 assert.equal(JSON.stringify(history), original, 'export must not mutate stored content or order');
 assert.equal(formatConversationText([]), '');
 assert.equal(formatConversationText([message({ content: '{{theme::keep}}' })]), '');

@@ -19,7 +19,7 @@ export function formatConversationText(messages: readonly Message[]): string {
       blocks.push(content);
     }
   }
-  return blocks.join('\n\n');
+  return blocks.join('\n\n\n');
 }
 
 export function conversationFilename(title: string, now = new Date()): string {
