@@ -9,7 +9,6 @@ export interface AssembleInput {
   dayNightThemeNames?: string[];
   themePrompt?: string;
   themeCatalog?: string;
-  currentTheme?: string;
   keywordBookContents?: string[];
   summary?: string;
   storyNotes?: string[];
@@ -70,12 +69,9 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
     : '';
 
   // Dynamic: keywords — 메시지마다 변경, 캐싱 안 함
-  let keywords = '';
-  if (input.keywordBookContents && input.keywordBookContents.length > 0) {
-    keywords = section('Active Keywords', input.keywordBookContents.join('\n\n'));
-  }
-
-  if(input.autoThemeEnabled&&input.currentTheme)keywords=[keywords,section('Current Theme',input.currentTheme)].filter(Boolean).join('\n\n');
+  const keywords = input.keywordBookContents?.length
+    ? section('Active Keywords', input.keywordBookContents.join('\n\n'))
+    : '';
 
   const messages: ChatMessage[] = [
     ...input.history.map((m) => ({ role: m.role, content: outgoing(m.content), ...(m.cacheBreakpoint && { cacheBreakpoint: true }) })),
