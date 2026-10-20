@@ -1,3 +1,4 @@
+import InterfaceIcon from './InterfaceIcon';
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Command } from '@/types/db';
@@ -162,7 +163,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
   if (editing) return (
     <div className={embedded ? "flex w-full justify-center" : "fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"} onMouseDown={(event) => event.target === event.currentTarget && setEditing(null)}>
       <section className={embedded ? "flex w-full flex-col bg-bg p-4" : "flex max-h-[92dvh] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl bg-bg p-5 shadow-2xl sm:rounded-3xl"}>
-        <header className="mb-5 flex items-center justify-between"><button onClick={() => setEditing(null)} className="text-xl text-slate-400">←</button><h2 className="font-bold text-white">명령어 편집</h2><span className="w-5" /></header>
+        <header className="mb-5 flex items-center justify-between"><button onClick={() => setEditing(null)} aria-label="목록으로 돌아가기" className="text-xl text-slate-400"><InterfaceIcon name="back" legacy="←" /></button><h2 className="font-bold text-white">명령어 편집</h2><span className="w-5" /></header>
         <label className="mb-4 text-sm font-semibold text-slate-200">명령어 이름 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.name.length}/20</span>
           <div className="mt-2 flex rounded-xl bg-surface px-3"><span className="py-3 text-slate-500">/</span><input maxLength={20} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value.replace(/^\/+/, '') })} className="min-w-0 flex-1 bg-transparent py-3 outline-none" placeholder="명령어" /></div>
         </label>
@@ -180,7 +181,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
   return (
     <div className={embedded ? "w-full" : "fixed inset-0 z-40 flex items-end justify-center bg-black/60"} onMouseDown={(event) => !embedded && event.target === event.currentTarget && onClose?.()}>
       <section className={embedded ? "flex w-full flex-col bg-bg" : "flex h-[72dvh] w-full max-w-app flex-col rounded-t-3xl bg-bg shadow-2xl"}>
-        <header className="flex items-center justify-between px-4 pb-2 pt-4"><div>{!embedded && <h2 className="text-lg font-bold text-white">명령어</h2>}<p className="text-xs text-slate-500">{embedded ? '명령어를 만들고 편집하거나 허브에 공개하세요.' : '메뉴에서 선택해야 명령어가 활성화됩니다.'}</p></div>{!embedded && <button onClick={onClose} className="p-2 text-xl text-slate-400">×</button>}</header>
+        <header className="flex items-center justify-between px-4 pb-2 pt-4"><div>{!embedded && <h2 className="text-lg font-bold text-white">명령어</h2>}<p className="text-xs text-slate-500">{embedded ? '명령어를 만들고 편집하거나 허브에 공개하세요.' : '메뉴에서 선택해야 명령어가 활성화됩니다.'}</p></div>{!embedded && <button onClick={onClose} aria-label="닫기" className="p-2 text-xl text-slate-400"><InterfaceIcon name="close" legacy="×" /></button>}</header>
         <div className="flex shrink-0 overflow-x-auto border-b border-surface2 px-3">
           {(['all', 'work', 'mine', 'hub', 'favorites'] as Tab[]).map((value) => <button key={value} onClick={() => { setTab(value); setOpenMenu(null); }} aria-pressed={tab === value} className={`whitespace-nowrap border-b-2 px-2.5 py-3 text-sm ${tab === value ? 'border-brand font-semibold text-white' : 'border-transparent text-slate-500'}`}>{tabLabels[value]}</button>)}
         </div>
@@ -191,7 +192,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
               placeholder={`${tabLabels[tab]}에서 이름, 설명, 작성자 검색`}
               className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none" />
             {query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}
-              className="shrink-0 p-2 text-sm text-slate-400">×</button>}
+              className="shrink-0 p-2 text-sm text-slate-400"><InterfaceIcon name="close" legacy="×" /></button>}
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -208,8 +209,8 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
                 <p className="mb-2 text-xs font-semibold text-slate-400">프롬프트 본문</p>
                 <pre className="whitespace-pre-wrap break-words text-sm text-slate-200">{command.prompt}</pre>
               </div>}
-              <button disabled={!!command.work_id} aria-label={`/${command.name} ${favoriteIds.has(command.id) ? '즐겨찾기 해제' : '즐겨찾기 추가'}`} aria-pressed={favoriteIds.has(command.id)} onClick={() => void toggleFavorite(command)} className={`self-start px-1 text-2xl leading-none ${favoriteIds.has(command.id) ? 'text-amber-400' : 'text-slate-500'}`}>{favoriteIds.has(command.id) ? '★' : '☆'}</button>
-              <button aria-label="명령어 메뉴" onClick={() => setOpenMenu(openMenu === command.id ? null : command.id)} className="self-start px-1 text-xl text-slate-500">⋯</button>
+              <button disabled={!!command.work_id} aria-label={`/${command.name} ${favoriteIds.has(command.id) ? '즐겨찾기 해제' : '즐겨찾기 추가'}`} aria-pressed={favoriteIds.has(command.id)} onClick={() => void toggleFavorite(command)} className={`self-start px-1 text-2xl leading-none ${favoriteIds.has(command.id) ? 'text-amber-400' : 'text-slate-500'}`}><InterfaceIcon name="star" filled={favoriteIds.has(command.id)} legacy={favoriteIds.has(command.id) ? '★' : '☆'} /></button>
+              <button aria-label="명령어 메뉴" onClick={() => setOpenMenu(openMenu === command.id ? null : command.id)} className="self-start px-1 text-xl text-slate-500"><InterfaceIcon name="more" legacy="⋯" /></button>
               {openMenu === command.id && <div className="absolute right-4 top-10 z-10 min-w-40 overflow-hidden rounded-xl border border-surface2 bg-surface shadow-xl">
                 {mine ? <><button onClick={() => beginEdit(command)} className="block w-full px-4 py-2.5 text-left text-sm">명령어 수정</button>{!command.work_id && <button onClick={() => void publish(command, !command.is_published)} className="block w-full px-4 py-2.5 text-left text-sm">{command.is_published ? '허브에서 비공개' : '전체 공개'}</button>}<button onClick={() => void remove(command)} className="block w-full px-4 py-2.5 text-left text-sm text-red-400">삭제</button></> : !command.work_id && <button onClick={() => void copy(command)} className="block w-full px-4 py-2.5 text-left text-sm">내 명령어로 복사</button>}
               </div>}

@@ -1,3 +1,4 @@
+import InterfaceIcon from '@/components/InterfaceIcon';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -53,17 +54,17 @@ export default function FavoritesPage() {
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="favorites-page flex flex-col">
       <div className="flex items-center gap-2 px-4 py-3">
-        <button onClick={() => navigate('/my')} className="text-sm text-slate-400">← 뒤로</button>
-        <h1 className="ml-2 font-semibold text-white">❤️ 하트 목록</h1>
+        <button onClick={() => navigate('/my')} className="text-sm text-slate-400"><InterfaceIcon name="back" legacy="←" /> 뒤로</button>
+        <h1 className="ml-2 font-semibold text-white"><InterfaceIcon name="heart" legacy="❤️" /> 하트 목록</h1>
       </div>
 
       {loading ? (
         <p className="p-6 text-slate-400">불러오는 중…</p>
       ) : error ? <p role="alert" className="p-6 text-amber-400">{error}</p> : favs.length === 0 ? (
         <div className="flex flex-col items-center gap-3 p-10 text-center">
-          <p className="text-4xl">🤍</p>
+          <p className="text-4xl"><InterfaceIcon name="heart" legacy="🤍" /></p>
           <p className="text-sm text-slate-400">하트한 작품이 없습니다.</p>
           <p className="text-xs text-slate-500">작품 상세 화면이나 목록에서 하트를 눌러 추가하세요.</p>
         </div>
@@ -87,7 +88,7 @@ export default function FavoritesPage() {
                 disabled={!!removing} aria-label="하트 목록에서 삭제"
                 className="shrink-0 px-4 py-4 text-lg leading-none disabled:opacity-50"
               >
-                ❤️
+                <InterfaceIcon name="heart" filled legacy="❤️" />
               </button>
             </li>
           ))}

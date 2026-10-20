@@ -1,3 +1,4 @@
+import InterfaceIcon from './InterfaceIcon';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
@@ -182,7 +183,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
   return <section className="flex flex-col">
     <header className="flex items-center justify-between px-3 pt-3">
       <strong className="text-white">테마 {workId?'선택 및 관리':''}</strong>
-      {onClose&&<button className="text-slate-400" onClick={onClose} aria-label="닫기">✕</button>}
+      {onClose&&<button className="text-slate-400" onClick={onClose} aria-label="닫기"><InterfaceIcon name="close" legacy="✕" /></button>}
     </header>
     <nav aria-label="테마 목록" className="flex gap-2 overflow-x-auto px-3 py-3">
       {(['all','work','mine','hub','favorites']as const).filter(t=>catalogScope==='work'?t==='work':catalogScope==='global'?t!=='work':true).map(t=><button key={t} aria-pressed={tab===t} onClick={()=>setTab(t)} className={`shrink-0 rounded-full px-3 py-2 text-xs ${tab===t?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>{labels[t]}</button>)}
@@ -204,15 +205,15 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
               <span className="block break-words text-sm font-semibold">{selectedId===t.id?'✓ ':''}{t.name}</span>
             </button>
             <div className="flex shrink-0 gap-1">
-              <button onClick={()=>void toggleFavorite(t)} disabled={!!t.work_id} aria-label="즐겨찾기" className="p-1 disabled:opacity-30" style={{color:'inherit'}}>{favorites.has(t.id)?'★':'☆'}</button>
-              <button onClick={()=>setOpened(opened===t.id?null:t.id)} aria-label="테마 메뉴" className="p-1" style={{color:'inherit'}}>⋯</button>
+              <button onClick={()=>void toggleFavorite(t)} disabled={!!t.work_id} aria-label="즐겨찾기" className="p-1 disabled:opacity-30" style={{color:'inherit'}}><InterfaceIcon name="star" filled={favorites.has(t.id)} legacy={favorites.has(t.id)?'★':'☆'} /></button>
+              <button onClick={()=>setOpened(opened===t.id?null:t.id)} aria-label="테마 메뉴" className="p-1" style={{color:'inherit'}}><InterfaceIcon name="more" legacy="⋯" /></button>
             </div>
           </div>
           <div className="theme-card-body">
             <button type="button" onClick={()=>selectable&&onSelect?onSelect(t):setOpened(opened===t.id?null:t.id)}
               disabled={!!onSelect&&!selectable} className="block w-full text-left disabled:opacity-40" style={{color:'inherit'}}>
             <span className="block truncate text-xs" style={palette.secondaryText?{color:secondary.muted}:undefined}>{t.description||'설명 없음'}</span>
-            <span className="text-[11px]" style={palette.secondaryText?{color:secondary.soft}:undefined}>{t.work_id?(t.work_shared===false?'내 작품 전용 · ':'작품 공용 · ')+(workNames[t.work_id]??'전용')+' · ':t.is_published?'허브 공개 · ':'개인 · '}{dual?'☀️ 라이트 · 🌙 다크':'🎨 단일'}</span>
+            <span className="text-[11px]" style={palette.secondaryText?{color:secondary.soft}:undefined}>{t.work_id?(t.work_shared===false?'내 작품 전용 · ':'작품 공용 · ')+(workNames[t.work_id]??'전용')+' · ':t.is_published?'허브 공개 · ':'개인 · '}<InterfaceIcon name={dual?'theme':'palette'} legacy={dual?'☀️':'🎨'} /> {dual?'라이트 · 다크':'단일'}</span>
             </button>
             <span className="block text-[11px]" style={{color:palette.secondaryText,opacity:secondary.chatOpacity}}>미리보기 · {dual?((preview?.variant??variant)==='dark'?'다크':'라이트'):'단일'}</span>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -222,7 +223,7 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
                 title={editable?'눌러서 테마 수정':'수정 권한이 없는 테마입니다'}
                 className="flex min-h-11 items-center gap-1 rounded-lg px-2 py-1 disabled:cursor-default"
                 style={{backgroundColor:p!.main,color:p!.mainText}}>
-                <span aria-hidden="true" className="text-[10px]">{dual?(name==='dark'?'🌙':'☀️'):'🎨'}</span>
+                <span aria-hidden="true" className="text-[10px]"><InterfaceIcon name={dual?(name==='dark'?'moon':'sun'):'palette'} legacy={dual?(name==='dark'?'🌙':'☀️'):'🎨'} /></span>
                 {[p!.accent,p!.accentText,p!.main,p!.mainText,p!.secondaryText??p!.mainText].map((color,i)=><span key={i} aria-hidden="true" className="h-4 w-4 rounded-sm" style={{backgroundColor:color,border:'1px solid currentColor'}}/>)}
               </button>)}
           </div>

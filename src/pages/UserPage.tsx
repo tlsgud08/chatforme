@@ -1,3 +1,4 @@
+import InterfaceIcon from '@/components/InterfaceIcon';
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -39,7 +40,7 @@ export default function UserPage() {
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-2 px-4 py-3">
-        <button onClick={() => navigate(-1)} className="text-sm text-slate-400">← 뒤로</button>
+        <button onClick={() => navigate(-1)} className="text-sm text-slate-400"><InterfaceIcon name="back" legacy="←" /> 뒤로</button>
       </div>
 
       {/* 프로필 헤더 */}

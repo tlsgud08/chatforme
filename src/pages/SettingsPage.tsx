@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import InterfaceIcon from '@/components/InterfaceIcon';
+import ModernPageHeading from '@/components/ModernPageHeading';
+import type { InterfaceIconName } from '@/components/InterfaceIcon';
 import { supabase, ADMIN_EMAIL } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { loadApiKeys, saveApiKeys, type ApiKeys } from '@/lib/apiKeys';
@@ -20,6 +23,7 @@ export default function SettingsPage() {
   const [keys, setKeys] = useState<ApiKeys>(loadApiKeys());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
+  const [activeSection, setActiveSection] = useState('appearance');
   const initialProvider: Provider = 'openrouter';
   const initialModel = modelsFor(initialProvider)[0];
   const [defaultReasoning, setDefaultReasoning] = useState<ReasoningSelection>(() => loadDefaultReasoning(initialProvider, initialModel));
@@ -219,13 +223,19 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="settings-page flex flex-col gap-6 p-4">
-      <InterfacePreferences />
-      {/* 계정 동기화 테마 */}
-      <ThemePreferences userId={user!.id}/>
+    <div className="settings-page flex flex-col gap-6 p-4" data-active-settings={activeSection}>
+      <ModernPageHeading title="설정" description="화면, 모델과 대화 기본값을 관리합니다." />
+      <nav className="settings-navigation modern-only" aria-label="설정 분류">
+        {([['appearance', '화면 · 테마', 'palette'], ['api', 'API · 모델', 'key'], ['output', '출력 설정', 'output'], ['summary', '요약 설정', 'summary'], ['cost', '가격 경고', 'cost'], ['account', '계정', 'my'], ...(isAdmin ? [['admin', '운영자', 'admin']] : [])] as [string, string, InterfaceIconName][]).map(([id, label, icon]) => <button type="button" key={id} aria-current={activeSection === id ? 'page' : undefined} onClick={() => setActiveSection(id)}><InterfaceIcon name={icon} />{label}</button>)}
+      </nav>
+      <div data-settings-section="appearance">
+        <InterfacePreferences />
+        {/* 계정 동기화 테마 */}
+        <ThemePreferences userId={user!.id}/>
+      </div>
 
       {/* 턴 가격 경고 */}
-      <section>
+      <section data-settings-section="cost">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-semibold text-white">턴 가격 경고</h2>
@@ -268,7 +278,7 @@ export default function SettingsPage() {
       </section>
 
       {/* API 키 */}
-      <section>
+      <section data-settings-section="api">
         <h2 className="mb-1 font-semibold text-white">OpenRouter API 키</h2>
         <p className="mb-3 text-xs text-slate-500">
           키는 이 기기 브라우저에만 저장되며 서버로 전송되지 않습니다.
@@ -310,7 +320,7 @@ export default function SettingsPage() {
 
       {/* 기본 출력 설정 */}
       {profile && (
-        <section>
+        <section data-settings-section="output">
           <h2 className="mb-3 font-semibold text-white">기본 출력 설정</h2>
           <div className="flex flex-col gap-3">
             <div className="rounded-lg bg-surface px-4 py-3 text-sm">
@@ -334,7 +344,7 @@ export default function SettingsPage() {
       )}
 
       {profile && (
-        <section>
+        <section data-settings-section="summary">
           <h2 className="mb-1 font-semibold text-white">요약 메모리 프롬프트</h2>
           <p className="mb-3 text-xs text-slate-500">모든 채팅방의 요약 노트 생성에 사용됩니다. 비워 저장하면 기본 프롬프트를 사용합니다.</p>
           <textarea
@@ -376,7 +386,7 @@ export default function SettingsPage() {
       )}
 
       {isAdmin && (
-        <section className="rounded-lg border border-brand/30 bg-brand/5 p-4">
+        <section data-settings-section="admin" className="rounded-lg border border-brand/30 bg-brand/5 p-4">
           <h2 className="mb-1 font-semibold text-brand">관리자 — 회원가입 마스터 비밀번호</h2>
           <p className="mb-3 text-xs text-slate-400">
             새로운 회원은 회원가입할 때 이 비밀번호를 입력해야 합니다. 기존 회원의 로그인에는 영향을 주지 않습니다.
@@ -410,7 +420,7 @@ export default function SettingsPage() {
 
       {/* 관리자 전용: 전역 시스템 프롬프트 */}
       {isAdmin && systemPromptLoaded && (
-        <section className="rounded-lg border border-yellow-600/30 bg-yellow-950/20 p-4">
+        <section data-settings-section="admin" className="rounded-lg border border-yellow-600/30 bg-yellow-950/20 p-4">
           <h2 className="mb-1 font-semibold text-yellow-400">관리자 — 전역 시스템 프롬프트</h2>
           <p className="mb-3 text-xs text-yellow-600/70">
             모든 채팅에 공통 적용되는 최상단 지시문입니다. 신중하게 편집하세요.
@@ -441,7 +451,7 @@ export default function SettingsPage() {
       )}
 
       {user && (
-        <section className="border-t border-slate-700 pt-6">
+        <section data-settings-section="account" className="border-t border-slate-700 pt-6">
           <h2 className="mb-1 font-semibold text-white">비밀번호 변경</h2>
           <p className="mb-3 text-xs text-slate-500">
             현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.
@@ -492,11 +502,11 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <button onClick={() => signOut()} className="mt-2 text-sm text-red-400">
+      <button data-settings-section="account" onClick={() => signOut()} className="mt-2 text-sm text-red-400">
         로그아웃
       </button>
 
-      <p className="pb-2 text-center text-[11px] text-slate-600">v0.2.0</p>
+      <p data-settings-section="account" className="pb-2 text-center text-[11px] text-slate-600">v0.2.0</p>
     </div>
   );
 }

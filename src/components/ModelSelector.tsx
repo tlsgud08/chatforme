@@ -1,3 +1,4 @@
+import InterfaceIcon from './InterfaceIcon';
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -168,7 +169,7 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
                       onClick={() => void toggleFavorite(item)}
                       className={`self-stretch px-3 text-xl ${favorites.includes(item) ? 'text-amber-400' : 'text-slate-600'}`}
                     >
-                      {favorites.includes(item) ? '★' : '☆'}
+                      <InterfaceIcon name="star" filled={favorites.includes(item)} legacy={favorites.includes(item) ? '★' : '☆'} />
                     </button>
                   )}
                 </div>

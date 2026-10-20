@@ -1,3 +1,5 @@
+import InterfaceIcon from '@/components/InterfaceIcon';
+import ModernPageHeading from '@/components/ModernPageHeading';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
@@ -131,11 +133,12 @@ export default function CreatePage() {
 
   return (
     <div className="create-page p-4">
+      <ModernPageHeading title="제작" description="내 작품과 공동 편집 작품을 관리합니다." />
       <button
         onClick={createWork}
-        className="mb-4 w-full rounded-lg bg-brand py-3 font-semibold text-white"
+        className="create-work-button mb-4 w-full rounded-lg bg-brand py-3 font-semibold text-white"
       >
-        + 새 작품 만들기
+        <InterfaceIcon name="plus" legacy="+" /> 새 작품 만들기
       </button>
 
       {isLoading ? (
@@ -143,11 +146,11 @@ export default function CreatePage() {
       ) : !data || data.length === 0 ? (
         <p className="text-slate-400">수정할 수 있는 작품이 없습니다.</p>
       ) : (
-        <ul className="divide-y divide-surface2">
+        <ul className="create-work-list divide-y divide-surface2">
           {data.map((w) => (
             <li key={w.id} data-popup-menu className="relative flex items-center">
               <Link to={`/create/${w.id}`} className="flex flex-1 gap-3 py-3 active:bg-surface">
-                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2">
+                <div className="create-work-thumb h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2">
                   {w.thumbnail_url && (
                     <img src={w.thumbnail_url} alt="" className="h-full w-full object-cover" />
                   )}
@@ -160,8 +163,8 @@ export default function CreatePage() {
                   </p>
                 </div>
               </Link>
-              <Link to={`/works/${w.id}`} className="px-3 py-3 text-slate-500 active:text-white">
-                ↗
+              <Link to={`/works/${w.id}`} aria-label={`${w.title || '작품'} 미리보기`} className="px-3 py-3 text-slate-500 active:text-white">
+                <InterfaceIcon name="external" legacy="↗" />
               </Link>
               {(w.creator_id === user?.id || isAdmin) && <button
                 type="button"
@@ -170,7 +173,7 @@ export default function CreatePage() {
                 onClick={() => setMenuId((id) => id === w.id ? null : w.id)}
                 className="px-3 py-3 text-xl leading-none text-slate-400 active:text-white"
               >
-                ⋯
+                <InterfaceIcon name="more" legacy="⋯" />
               </button>}
               {menuId === w.id && (
                 <div className="absolute right-3 top-12 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">

@@ -1,3 +1,5 @@
+import InterfaceIcon from '@/components/InterfaceIcon';
+import ModernPageHeading from '@/components/ModernPageHeading';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -162,13 +164,16 @@ export default function MyPage() {
 
   return (
     <div className="my-page flex flex-col gap-6 p-4">
+      <ModernPageHeading title="My" description="프로필과 대화에 사용할 페르소나를 관리합니다." />
       {/* 프로필 카드 */}
-      <section className="flex flex-col items-center gap-3 rounded-xl bg-surface p-5">
+      <section className="my-profile flex flex-col items-center gap-3 rounded-xl bg-surface p-5">
+        <div className="my-profile-identity">
         {/* 아바타 */}
         <button
           type="button"
           className="relative h-20 w-20 shrink-0 rounded-full"
           onClick={() => fileInputRef.current?.click()}
+          aria-label="프로필 사진 변경"
           disabled={avatarUploading}
         >
           <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-brand/20">
@@ -179,7 +184,7 @@ export default function MyPage() {
             )}
           </div>
           <div className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full bg-surface2 text-xs shadow">
-            📷
+            <InterfaceIcon name="camera" legacy="📷" />
           </div>
           {avatarUploading && (
             <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
@@ -195,13 +200,13 @@ export default function MyPage() {
           onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAvatar(f); }}
         />
 
-        <div className="w-full text-center">
-          <button
-            type="button"
-            onClick={() => user && navigate(`/users/${user.id}`)}
-            className="block w-full"
-          >
+        <button type="button" className="profile-public-link modern-only" onClick={() => user && navigate(`/users/${user.id}`)}>공개 프로필 보기<InterfaceIcon name="external" /></button>
+        </div>
+        <div className="my-profile-fields w-full text-center">
+          <label className="modern-only profile-field-label" htmlFor="profile-display-name">표시 이름</label>
             <input
+              id="profile-display-name"
+              aria-label="표시 이름"
               value={profile?.display_name ?? ''}
               onChange={(e) => profile && setProfile({ ...profile, display_name: e.target.value })}
               onBlur={saveProfile}
@@ -209,8 +214,10 @@ export default function MyPage() {
               className="w-full rounded-lg bg-surface2 px-3 py-2 text-center text-lg font-semibold text-white outline-none"
               placeholder="표시 이름"
             />
-          </button>
+          <label className="modern-only profile-field-label" htmlFor="profile-bio">자기소개 · 500자 이내</label>
           <textarea
+            id="profile-bio"
+            aria-label="자기소개"
             value={bio}
             onChange={(e) => setBio(e.target.value)}
             onBlur={saveBio}
@@ -220,12 +227,13 @@ export default function MyPage() {
             className="mt-2 w-full resize-none rounded-lg bg-surface2 px-3 py-2 text-sm text-slate-300 outline-none"
           />
           <p className="mt-1 text-xs text-slate-500">{user?.email}</p>
+          <button type="button" className="profile-legacy-public" onClick={() => user && navigate(`/users/${user.id}`)}>공개 프로필 보기</button>
         </div>
       </section>
 
       {/* OpenRouter 크레딧 */}
       {credit && (
-        <section className="rounded-xl bg-surface p-4">
+        <section className="my-credit rounded-xl bg-surface p-4">
           <p className="mb-1 text-xs font-semibold text-slate-400">OpenRouter 크레딧</p>
           {credit.remaining !== null ? (
             <div>
@@ -251,7 +259,7 @@ export default function MyPage() {
       )}
 
       {/* 메뉴 */}
-      <section>
+      <section className="my-activity">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">활동</h2>
         <ul className="overflow-hidden rounded-xl bg-surface divide-y divide-surface2">
           <li>
@@ -259,16 +267,16 @@ export default function MyPage() {
               onClick={() => navigate('/favorites')}
               className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
             >
-              <span className="text-xl">❤️</span>
+              <span className="text-xl"><InterfaceIcon name="heart" legacy="❤️" /></span>
               <span className="flex-1 text-sm text-white">하트 목록</span>
-              <span className="text-slate-500">›</span>
+              <span className="text-slate-500"><InterfaceIcon name="next" legacy="›" /></span>
             </button>
           </li>
         </ul>
       </section>
 
       {/* 페르소나 */}
-      <section>
+      <section className="my-personas">
         <div className="mb-3 flex items-center">
           <h2 className="font-semibold text-white">페르소나</h2>
           <button
@@ -359,14 +367,14 @@ export default function MyPage() {
                 </div>
                 {!p.is_default && (
                   <button onClick={() => setDefaultPersona(p.id)} title="기본으로 설정" className="shrink-0 px-1 text-slate-600 text-base leading-none">
-                    ☆
+                    <InterfaceIcon name="star" legacy="☆" />
                   </button>
                 )}
-                <button onClick={() => { setEditingPersona(p); setShowAddForm(false); }} className="shrink-0 px-1 text-slate-400">
-                  ✏️
+                <button onClick={() => { setEditingPersona(p); setShowAddForm(false); }} aria-label={`${p.name} 편집`} className="shrink-0 px-1 text-slate-400">
+                  <InterfaceIcon name="edit" legacy="✏️" />
                 </button>
-                <button onClick={() => deletePersona(p.id)} className="shrink-0 px-1 text-red-400">
-                  ✕
+                <button onClick={() => deletePersona(p.id)} aria-label={`${p.name} 삭제`} className="shrink-0 px-1 text-red-400">
+                  <InterfaceIcon name="delete" legacy="✕" />
                 </button>
               </li>
             )
