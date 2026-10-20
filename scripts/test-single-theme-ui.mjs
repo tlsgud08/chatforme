@@ -55,6 +55,9 @@ function componentUri(name,extra={}){
     .replace(/from\s+(['"])([^'"]+)\1/g,(_,quote,specifier)=>`from ${JSON.stringify(imports[specifier]??import.meta.resolve(specifier))}`);
   return uri(code);
 }
+baseImports['./InterfaceIcon']=componentUri('InterfaceIcon');
+baseImports['./SessionMenuFrame']=componentUri('SessionMenuFrame',{react:import.meta.resolve('react')});
+const buttonLabel = element => renderToStaticMarkup(element).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 const toggleUri=componentUri('Toggle');
 baseImports['./Toggle']=toggleUri;
 const Toggle=(await import(toggleUri)).default;
@@ -84,9 +87,9 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
   const draft={name:selected.name,description:'',ai_prompt:'',...theme.createPaletteDraft(selected,'light')};
   const editing=tree(ThemeMenu,{userId:'owner'},['light',[],new Set(),{},'mine','',selected,draft,false,null]);
   const html=renderToStaticMarkup(editing);
-  assert.equal(html.includes('🌙 다크 버전'),isDual);
-  assert.equal(html.includes('☀️ 라이트 버전'),isDual);
-  assert.equal(html.includes('🎨 테마 색상'),!isDual);
+  assert.equal(html.includes('다크 버전'),isDual);
+  assert.equal(html.includes('라이트 버전'),isDual);
+  assert.equal(html.includes('테마 색상'),!isDual);
   elements(editing).find(el=>el.type==='button'&&el.props.children==='테마 저장').props.onClick();
   await flush();
   const saved=writes.findLast(write=>write.table==='themes').patch;
@@ -95,8 +98,8 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
   const cards=tree(ThemeMenu,{userId:'owner'},['light',[selected],new Set(),{},'mine','',null,undefined,false,selected.id]);
   const cardHtml=renderToStaticMarkup(cards);
   assert.equal(cardHtml.includes('data-preview-variant="single"'),!isDual);
-  assert.equal(cardHtml.includes('🌙 다크'),isDual);
-  assert.equal(cardHtml.includes('☀️ 라이트'),isDual);
+  assert.equal(cardHtml.includes(selected.name+' 다크 버전 수정'),isDual);
+  assert.equal(cardHtml.includes(selected.name+' 라이트 버전 수정'),isDual);
   elements(cards).find(el=>el.type==='button'&&el.props.children==='내 테마로 복사').props.onClick();
   await flush();
   const copied=writes.findLast(write=>write.table==='themes').patch;
@@ -105,7 +108,7 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
 
   const pref={prefer_work_theme:true,preferred_theme_mode:'custom',preferred_theme_id:selected.id,preferred_theme_variant:'light'};
   const prefs=tree(ThemePreferences,{userId:'owner'},[pref,selected,true,false]);
-  assert.equal(elements(prefs).filter(el=>el.type==='button'&&['🌙 다크','☀️ 라이트'].includes(el.props.children)).length,4,'single and dual global custom themes both expose the shared preference');
+  assert.equal(elements(prefs).filter(el=>el.type==='button'&&['다크','라이트'].includes(buttonLabel(el))).length,4,'single and dual global custom themes both expose the shared preference');
   // A dark-only theme followed by a dual theme must still choose light.
   elements(prefs).find(el=>typeof el.props.onSelect==='function').props.onSelect(selected);
   await flush();
@@ -120,7 +123,7 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
   const session={id:'room',work_id:'work',theme_override:'custom',theme_id:selected.id,theme_variant:'light',auto_theme_enabled:false};
   globalThis.__sessionResponse=session;
   const sidebar=tree(SessionThemeSettings,{session,userId:'owner',onUpdate:()=>{}},[selected,false,'global',false,null,'dark','dark',false]);
-  assert.equal(elements(sidebar).filter(el=>el.type==='button'&&['🌙 다크','☀️ 라이트'].includes(el.props.children)).length,isDual?2:0);
+  assert.equal(elements(sidebar).filter(el=>el.type==='button'&&['다크','라이트'].includes(buttonLabel(el))).length,isDual?2:0);
   if(!isDual){
     elements(sidebar).find(el=>el.type==='button'&&el.props.children==='유동적').props.onClick();
     await flush();
@@ -130,12 +133,12 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
 
 const fluid={id:'room',work_id:'work',theme_override:null,theme_id:single.id,theme_variant:'light',auto_theme_enabled:false};
 const sidebar=tree(SessionThemeSettings,{session:fluid,userId:'owner',onUpdate:()=>{}},[single,false,'global',false,null,'light','light',false]);
-const siteButtons=elements(sidebar).filter(el=>el.type==='button'&&['🌙 다크','☀️ 라이트'].includes(el.props.children));
-assert.equal(siteButtons.find(el=>el.props.children==='☀️ 라이트').props['aria-pressed'],true,'single scene displays the site preference instead of internal dark metadata');
+const siteButtons=elements(sidebar).filter(el=>el.type==='button'&&['다크','라이트'].includes(buttonLabel(el)));
+assert.equal(siteButtons.find(el=>buttonLabel(el)==='라이트').props['aria-pressed'],true,'single scene displays the site preference instead of internal dark metadata');
 assert.ok(renderToStaticMarkup(sidebar).includes('현재 화면은 단일 테마입니다'));
 root.dataset.themeMode='dual';
 const dualSidebar=tree(SessionThemeSettings,{session:fluid,userId:'owner',onUpdate:()=>{}},[dual,false,'global',false,null,'light','light',false]);
-assert.equal(elements(dualSidebar).find(el=>el.type==='button'&&el.props.children==='🌙 다크').props['aria-pressed'],true,'dual fluid scenes still show the actual applied variant');
+assert.equal(elements(dualSidebar).find(el=>el.type==='button'&&buttonLabel(el)==='다크').props['aria-pressed'],true,'dual fluid scenes still show the actual applied variant');
 console.log('Single theme UI: actual editor/card JSX, save payloads, global/work/room selectors and fluid preference preservation OK');
 
 // Execute the actual sidebar variant handler with a global single palette.
@@ -146,7 +149,7 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
   globalThis.__profileResponse={...pref};
   const view=tree(SessionThemeSettings,{session:fluid,userId:'owner',onUpdate:()=>{}},[selected,false,'global',false,null,'custom','light',false]);
   assert.equal(elements(view).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.checked,false,'day/night defaults OFF even for legacy auto-OFF rooms');
-  elements(view).find(el=>el.type==='button'&&el.props.children==='🌙 다크').props.onClick();
+  elements(view).find(el=>el.type==='button'&&buttonLabel(el)==='다크').props.onClick();
   await flush();
   assert.deepEqual(writes.findLast(write=>write.table==='profiles').patch,{preferred_theme_variant:'dark'});
   assert.equal(globalThis.__profileResponse.preferred_theme_mode,'custom');
@@ -191,19 +194,19 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
   globalThis.__profileResponse={...pref};
   const globalView=tree(ThemePreferences,{userId:'owner'},[pref,selected,false,false]);
   const group=elements(globalView).find(el=>el.props['aria-label']==='라이트·다크 선호');
-  elements(group).find(el=>el.type==='button'&&el.props.children==='🌙 다크').props.onClick();
+  elements(group).find(el=>el.type==='button'&&buttonLabel(el)==='다크').props.onClick();
   await flush();
   assert.deepEqual(writes.findLast(write=>write.table==='profiles').patch,{preferred_theme_variant:'dark'});
   assert.equal(globalThis.__profileResponse.preferred_theme_mode,'custom');
   assert.equal(globalThis.__profileResponse.preferred_theme_id,selected.id);
   const sidebarView=tree(SessionThemeSettings,{session:{...fluid,theme_variant:'dark'},userId:'owner',onUpdate:()=>{}},[selected,false,'global',false,null,'custom','dark',false]);
-  assert.equal(elements(sidebarView).find(el=>el.type==='button'&&el.props.children==='🌙 다크').props['aria-pressed'],true);
-  elements(sidebarView).find(el=>el.type==='button'&&el.props.children==='☀️ 라이트').props.onClick();
+  assert.equal(elements(sidebarView).find(el=>el.type==='button'&&buttonLabel(el)==='다크').props['aria-pressed'],true);
+  elements(sidebarView).find(el=>el.type==='button'&&buttonLabel(el)==='라이트').props.onClick();
   await flush();
   assert.equal(globalThis.__profileResponse.preferred_theme_variant,'light');
   const refreshedGlobal=tree(ThemePreferences,{userId:'owner'},[{...globalThis.__profileResponse},selected,false,false]);
   const refreshedGroup=elements(refreshedGlobal).find(el=>el.props['aria-label']==='라이트·다크 선호');
-  assert.equal(elements(refreshedGroup).find(el=>el.type==='button'&&el.props.children==='☀️ 라이트').props['aria-pressed'],true);
+  assert.equal(elements(refreshedGroup).find(el=>el.type==='button'&&buttonLabel(el)==='라이트').props['aria-pressed'],true);
   if(!theme.bothVariants(selected)){
     const choice=theme.resolveThemeSelection(globalThis.__profileResponse,null,null,'dark');
     assert.equal(choice.themeId,selected.id);
@@ -240,7 +243,7 @@ for(const variant of ['single','light','dark']){
   const palette={...theme.DEFAULT_DARK,secondaryText:'#cccccc',softenSecondaryText:false,secondaryTextOpacity:35};
   let changes=[];
   const editor=tree(ThemePaletteEditor,{variant,palette,onChange:p=>changes.push(p)},[]);
-  const fields=elements(editor).find(el=>typeof el.type==='function');
+  const fields=elements(editor).find(el=>el.type?.name==='PaletteFields');
   const rendered=tree(fields.type,fields.props,[]);
   const mainInput=elements(rendered).find(el=>el.props['aria-label']==='메인색 HEX');
   mainInput.props.onChange({target:{value:'abcdef'}});
@@ -313,7 +316,7 @@ assert.equal(changedRoom.theme_day_night_enabled,true);assert.equal(changedRoom.
 const nightRoom={...changedRoom,theme_period:'night'};
 globalThis.__sessionResponse=nightRoom;
 const nightView=tree(SessionThemeSettings,{session:nightRoom,userId:'owner',onUpdate:p=>changedRoom=p},[dayTheme,false,'global',false,null,'custom','light',false]);
-assert.equal(elements(nightView).find(el=>el.type==='button'&&el.props.children==='☀️ 라이트').props['aria-pressed'],true,'night display never changes light preference indication');
+assert.equal(elements(nightView).find(el=>el.type==='button'&&buttonLabel(el)==='라이트').props['aria-pressed'],true,'night display never changes light preference indication');
 elements(nightView).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용').props.onChange(false);await flush();
 assert.equal(changedRoom.theme_day_night_enabled,false);assert.equal(changedRoom.theme_period,null);
 const staleView=tree(SessionThemeSettings,{session:dayRoom,userId:'owner',onUpdate:()=>{}},[dayTheme,false,'global',false,null,'custom','light',false]);
@@ -496,3 +499,26 @@ for(const [override,preference,stored,expected] of [[null,'light','dark','light'
 }
 delete globalThis.__capturedEffects;delete globalThis.__themeResponse;
 console.log('Optional day/night UI → save → rendering: independent checkbox, exact palettes, global preference and fixed-mode preservation OK');
+
+// The approved compact drawer must keep the same preference and cache semantics.
+for(const selected of [single,dual]){
+ const room={...fluid,theme_id:selected.id,theme_day_night_enabled:false};
+ globalThis.__sessionResponse=room;
+ globalThis.__profileResponse={preferred_theme_mode:'custom',preferred_theme_id:'kept-global-theme',preferred_theme_variant:'light'};
+ let updated;
+ const view=tree(SessionThemeSettings,{compact:true,session:room,userId:'owner',onUpdate:patch=>updated=patch},[selected,false,'global',false,null,'custom','light',false]);
+ const night=elements(view).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용');
+ assert.equal(night.props.disabled,false);
+ await night.props.onChange(true);await flush();
+ assert.equal(updated.theme_day_night_enabled,true);
+ const before=writes.length;
+ await elements(view).find(el=>el.type==='button'&&buttonLabel(el)==='다크').props.onClick();await flush();
+ assert(writes.slice(before).some(write=>write.table==='profiles'&&write.patch.preferred_theme_variant==='dark'));
+ assert.equal(globalThis.__profileResponse.preferred_theme_mode,'custom');
+ assert.equal(globalThis.__profileResponse.preferred_theme_id,'kept-global-theme');
+ const fixed=tree(SessionThemeSettings,{compact:true,session:{...room,theme_override:'custom'},userId:'owner',onUpdate:()=>{}},[selected,false,'global',false,null,'custom','light',false]);
+ assert.equal(elements(fixed).filter(el=>el.type==='button'&&['라이트','다크'].includes(buttonLabel(el))).length,theme.bothVariants(selected)?2:0);
+ const busy=tree(SessionThemeSettings,{compact:true,busy:true,session:room,userId:'owner',onUpdate:()=>assert.fail('busy drawer wrote')},[selected,false,'global',false,null,'custom','light',false]);
+ assert.equal(elements(busy).find(el=>el.type==='button'&&buttonLabel(el)==='커스텀').props.disabled,true);
+}
+console.log('Compact session drawer: global palette identity, light/dark and single/dual choices, night gate and busy guards preserved OK');

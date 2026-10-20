@@ -21,6 +21,7 @@ import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
 import { availableWorkThemes, dayNightModeEnabled, dayNightThemeEligible, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
 import { paletteFor, preferredThemeVariant, requestThemeRefresh, type SavedTheme } from '@/lib/theme';
+import InterfaceIcon from '@/components/InterfaceIcon';
 import './ChatPage.css';
 
 const GENERATION_TIMEOUT_MS = 8 * 60_000;
@@ -1237,14 +1238,13 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full min-h-0 max-w-app flex-col bg-bg">
-      <header className="flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
-        <button onClick={() => navigate('/sessions')} className="text-slate-400">←</button>
+    <div className="chat-page mx-auto flex h-full min-h-0 max-w-app flex-col bg-bg">
+      <header className="chat-header flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
+        <button onClick={() => navigate('/sessions')} aria-label="채팅방 목록으로" className="text-slate-400"><InterfaceIcon name="back" /></button>
         <button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 flex-1 text-left">
           <p className="truncate text-sm font-semibold text-white">{currentSession.title || work.title}</p>
-
         </button>
-        <button onClick={() => setMenuOpen(true)} className="px-2 text-xl text-slate-300">☰</button>
+        <button onClick={() => setMenuOpen(true)} aria-label="세션 메뉴 열기" className="px-2 text-xl text-slate-300"><InterfaceIcon name="menu" /></button>
       </header>
 
       {toastError && (
@@ -1258,11 +1258,11 @@ export default function ChatPage() {
         const element = event.currentTarget;
         shouldAutoScrollRef.current = isNearScrollBottom(element);
         if (element.scrollTop <= 80) revealOlderMessages();
-      }} className="w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
+      }} className="chat-scroll w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
         )}
-        <div className="flex w-full flex-col gap-3">
+        <div className="chat-message-list flex w-full flex-col gap-3">
           {hasOlderDisplayMessages && (
             <div ref={olderMessagesSentinelRef} className="py-1 text-center text-xs text-slate-500" aria-live="polite">
               <button type="button" onClick={revealOlderMessages} disabled={loadingOlderMessages} className="disabled:opacity-60">
@@ -1271,12 +1271,12 @@ export default function ChatPage() {
             </div>
           )}
           {visibleMessages.map((m, index) => (
-            <div key={m.id} className="flex w-full min-w-0 flex-col gap-1">
+            <div key={m.id} data-role={m.role} className="chat-message flex w-full min-w-0 flex-col gap-1">
               {index > 0 && (
                 <hr className="chat-turn-divider" aria-label="메시지 구분" />
               )}
               {m.is_hidden && debugMode && (
-                <p className="text-[10px] text-amber-400">🔍 숨김 메시지</p>
+                <p className="text-[10px] text-amber-400"><InterfaceIcon name="search" /> 숨김 메시지</p>
               )}
               {editingId === m.id ? (
                 <div className="flex w-full flex-col gap-1.5">
@@ -1295,7 +1295,7 @@ export default function ChatPage() {
                 </div>
               ) : (
                 <>
-                  <div className={`w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere] px-4 py-2.5 text-sm leading-relaxed ${m.role === 'user' || m.is_hidden ? 'rounded-2xl' : ''} ${
+                  <div className={`chat-message-body w-full min-w-0 overflow-hidden break-words [overflow-wrap:anywhere] px-4 py-2.5 text-sm leading-relaxed ${m.role === 'user' || m.is_hidden ? 'rounded-2xl' : ''} ${
                     m.is_hidden
                       ? 'border border-amber-500/40 bg-surface text-amber-200'
                       : m.role === 'user' && m.command_name
@@ -1314,16 +1314,16 @@ export default function ChatPage() {
                   )}
                   {debugMode && m.role === 'assistant' && cacheDiagnostics[m.id] && <CacheDiagnosticPanel diagnostic={cacheDiagnostics[m.id]} />}
                   {!m.is_hidden && (
-                    <div className={`flex min-w-0 items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <button disabled={sending} onClick={() => { setEditingId(m.id); setEditingContent(m.content); setEditingCommandName(m.command_name); }} className="text-xs text-slate-500 disabled:opacity-50">편집</button>
-                      <button onClick={() => void branchFrom(m)} className="text-xs text-slate-500">분기</button>
-                      <button disabled={sending || deletingMessageId === m.id} onClick={() => void deleteMsg(m.id)} className="text-xs text-[#DA7F88] disabled:opacity-50">삭제</button>
+                    <div className={`chat-message-actions flex min-w-0 items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <button disabled={sending} onClick={() => { setEditingId(m.id); setEditingContent(m.content); setEditingCommandName(m.command_name); }} aria-label="메시지 편집" title="편집" className="chat-message-action text-slate-500 disabled:opacity-50"><InterfaceIcon name="edit" /></button>
+                      <button onClick={() => void branchFrom(m)} aria-label="여기서 분기" title="분기" className="chat-message-action text-slate-500"><InterfaceIcon name="branch" /></button>
+                      <button disabled={sending || deletingMessageId === m.id} onClick={() => void deleteMsg(m.id)} aria-label="메시지 삭제" title="삭제" className="chat-message-action text-[#DA7F88] disabled:opacity-50"><InterfaceIcon name="delete" /></button>
                       {m.role === 'assistant' && <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
                         {showCost && <span className="text-right text-[10px] text-slate-500"><span className={isTurnPriceWarning(m.cost, turnPriceWarning, exchange.rate) ? 'text-yellow-400' : undefined}>{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`}</span> {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
                         {showCacheTokens && <span className="text-right text-[10px] text-slate-500">캐시 읽기 {m.cache_read_tokens == null ? '미보고' : m.cache_read_tokens.toLocaleString()} · 쓰기 {m.cache_write_tokens == null ? '미보고' : m.cache_write_tokens.toLocaleString()}</span>}
                         {variantsFor(m).length > 1 && <select aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
                         <span className="text-[10px] font-medium text-slate-500">{assistantTurnNumbers.get(m.id) ?? 0}턴</span>
-                        {m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성">↻</button>}
+                        {m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성"><InterfaceIcon name="reroll" /></button>}
                       </div>}
                     </div>
                   )}
@@ -1334,7 +1334,7 @@ export default function ChatPage() {
           {sending && (
             <>
             {visibleMessages.length > 0 && <hr className="chat-turn-divider" aria-label="메시지 구분" />}
-            <div className="w-full min-w-0 max-w-full px-4 py-2.5 text-sm leading-relaxed text-slate-100">
+            <div className="chat-stream w-full min-w-0 max-w-full px-4 py-2.5 text-sm leading-relaxed text-slate-100">
               {streamingContent ? (
                 <p className="whitespace-pre-wrap break-words">{stripThemeDirectives(streamingContent,true)}</p>
               ) : (
@@ -1346,32 +1346,35 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {selectedCommand && <div className="flex shrink-0 items-center gap-2 border-t border-surface2 bg-brand/10 px-3 py-2 text-sm">
+      {selectedCommand && <div className="chat-command-banner flex shrink-0 items-center gap-2 border-t border-surface2 bg-brand/10 px-3 py-2 text-sm">
         <span className="font-semibold text-brand">/{selectedCommand.name}</span>
         <span className="min-w-0 flex-1 truncate text-xs text-slate-400">{selectedCommand.description}</span>
         <button onClick={() => setSelectedCommand(null)} aria-label="선택한 명령어 해제" className="text-slate-500">×</button>
       </div>}
-      <div className="flex shrink-0 items-end gap-2 border-t border-surface2 p-2">
-        <button onClick={() => setCommandMenuOpen(true)} aria-label="명령어 메뉴 열기" className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-semibold ${selectedCommand ? 'bg-brand text-white' : 'bg-surface text-slate-400'}`}>/</button>
+      <div className="chat-composer flex shrink-0 items-end gap-2 border-t border-surface2 p-2">
+        <button onClick={() => setCommandMenuOpen(true)} aria-label="명령어 메뉴 열기" className={`chat-command-button flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-semibold ${selectedCommand ? 'bg-brand text-white' : 'bg-surface text-slate-400'}`}>/</button>
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && shouldSubmitOnEnter()) { e.preventDefault(); void send(); } }}
           rows={1}
+          aria-label="메시지 입력"
           placeholder="메시지 입력…"
           className="max-h-32 flex-1 resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm outline-none"
         />
         {sending ? (
           <button
+            aria-label="응답 생성 중단"
             onClick={() => (sessionId ? activeGenerations.get(sessionId)?.controller : abortControllerRef.current)?.abort('사용자가 응답 생성을 중단했습니다.')}
-            className="rounded-full bg-red-500 px-4 py-2.5 text-sm font-semibold text-white"
+            className="chat-send-button rounded-full bg-red-500 px-4 py-2.5 text-sm font-semibold text-white"
           >
             중단
           </button>
         ) : (
           <button
           onClick={() => void send()}
-            className="rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white"
+            aria-label="메시지 전송"
+            className="chat-send-button rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white"
           >
             전송
           </button>

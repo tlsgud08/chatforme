@@ -10,12 +10,13 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node scripts/test-model-capabilities.mjs && node scripts/test-prompt-cache.mjs && node scripts/test-theme.mjs && node scripts/test-single-theme-ui.mjs && node scripts/test-theme-plugin-ui.mjs && node scripts/test-theme-directives.mjs && node scripts/test-theme-rls.mjs && node scripts/test-performance.mjs && node scripts/test-audit-regressions.mjs && node scripts/test-chat-export.mjs",
+    "test": "node scripts/test-model-capabilities.mjs && node scripts/test-prompt-cache.mjs && node scripts/test-theme.mjs && node scripts/test-single-theme-ui.mjs && node scripts/test-theme-plugin-ui.mjs && node scripts/test-theme-directives.mjs && node scripts/test-theme-rls.mjs && node scripts/test-performance.mjs && node scripts/test-audit-regressions.mjs && node scripts/test-chat-export.mjs && node scripts/test-interface-preference.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "@tanstack/react-query": "^5.59.0",
+    "lucide-react": "1.60.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",

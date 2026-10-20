@@ -1,3 +1,4 @@
+import InterfaceIcon from './InterfaceIcon';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Session } from '@/types/db';
 import { supabase } from '@/lib/supabase';
@@ -5,10 +6,11 @@ import { showToast } from '@/lib/toast';
 import { appliedThemeIsSingle, appliedThemeLabel, appliedThemeVariant, bothVariants, loadTheme, preferredThemeVariant, previewThemeVariant, requestThemeRefresh, subscribeAppliedTheme, themeVariantPreferencePatch, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 import ThemeMenu from './ThemeMenu';
 import Toggle from './Toggle';
+import { SessionMenuPage } from './SessionMenuFrame';
 
-type Props={session:Session;userId:string;onUpdate:(patch:Partial<Session>)=>void;busy?:boolean};
+type Props={session:Session;userId:string;onUpdate:(patch:Partial<Session>)=>void;busy?:boolean;compact?:boolean};
 type SavedChoice={id:string;variant:ThemeVariant;theme:SavedTheme|null};
-export default function SessionThemeSettings({session,userId,onUpdate,busy=false}:Props){
+export default function SessionThemeSettings({session,userId,onUpdate,busy=false,compact=false}:Props){
   const [theme,setTheme]=useState<SavedTheme|null>(null);
   const [open,setOpen]=useState(false);
   const [pickerScope,setPickerScope]=useState<'work'|'global'>('global');
@@ -168,6 +170,29 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     }
     await save('builtin',null,appliedSingle?singlePreference:variant);
   }
+  if(compact)return <details className="inu-section inu-accordion">
+    <summary><div><h3><InterfaceIcon name="palette" />채팅방 테마</h3><p className="inu-summary">{{inherit:'유동적',work:'작품테마',builtin:'기본 테마',custom:'커스텀'}[selectedMode]}<span className="inu-dot">·</span>{mode==='inherit'?appliedLabel:theme?.name??'기본 테마'}</p></div><InterfaceIcon name="down" /></summary>
+    <div className="inu-detail-body">
+      <div className="inu-segment inu-four" role="group" aria-label="채팅방 테마 모드">
+        {([{value:'inherit',label:'유동적'},{value:'work',label:'작품테마'},{value:'builtin',label:'기본 테마'},{value:'custom',label:'커스텀'}]as const).map(option=><button key={option.value} type="button" aria-pressed={shownMode===option.value} disabled={busy||saving||siteSaving} onClick={()=>void chooseMode(option.value)}>{option.label}</button>)}
+      </div>
+      {mode==='inherit'&&<>
+        <p className="inu-help">AI 응답에 따라 테마가 자동으로 바뀝니다.</p>
+        <label className="inu-switch-row"><span>다크 버전을 밤 테마로 사용</span><Toggle aria-label="다크 버전을 밤 테마로 사용" checked={session.theme_day_night_enabled??false} disabled={busy||saving||siteSaving||siteMode===null||siteVariant!=='light'} onChange={checked=>void chooseDayNight(checked)}/></label>
+        <p className="inu-help">라이트 선호의 유동적 모드에서만 사용할 수 있어요.</p>
+      </>}
+      {mode==='custom'&&<button type="button" className="inu-button inu-full" disabled={busy||saving} onClick={()=>{setPickerScope(theme?.work_id?'work':'global');setOpen(true);}}><InterfaceIcon name="palette" />{theme?.name??'테마를 다시 선택해 주세요'} · 변경<InterfaceIcon name="next" /></button>}
+      {(mode==='inherit'||mode==='builtin'||mode==='custom'&&theme&&bothVariants(theme))&&<>
+        <p className="inu-field-label">{mode==='inherit'?'사이트 라이트·다크 선호':'이 테마의 라이트·다크'}</p>
+        <div className="inu-segment" role="group" aria-label={mode==='inherit'?'사이트 기본 테마':'테마 라이트 다크'}>
+          {(['light','dark']as const).map(next=><button key={next} type="button" disabled={busy||saving||siteSaving} aria-pressed={(mode==='inherit'?shownVariant:variant)===next} onClick={()=>mode==='inherit'?void chooseSiteTheme(next):void save(mode==='custom'?'custom':'builtin',mode==='custom'?session.theme_id??null:null,next)}><InterfaceIcon name={next==='light'?'sun':'moon'} />{next==='light'?'라이트':'다크'}</button>)}
+        </div>
+      </>}
+      <p className="inu-help">{mode==='inherit'?(siteMode==='custom'?'전역 커스텀 테마는 유지하고 라이트·다크 선호만 함께 저장합니다.':'라이트·다크 선택은 사이트 전역 설정에도 함께 저장됩니다.'):mode==='custom'&&theme&&!bothVariants(theme)?'단일 테마는 라이트·다크에 관계없이 같은 색상을 유지합니다.':'선택한 테마와 라이트·다크를 고정합니다.'}</p>
+      <details className="inu-small-details"><summary>테마 적용 방식</summary><p>개별 선택이 가장 우선하며 모든 기기에 동기화됩니다. 유동적은 AI의 테마 변경을 따르고 다른 모드는 선택을 고정합니다. 단일 테마는 같은 색상을 유지합니다. 낮·밤 전환이 허용된 복수 테마만 밤에 다크 버전을 사용하며, 나머지는 전역 선호를 따릅니다. 시간 전환을 끄면 전환 전용 테마는 자동 선택 목록에서 제외되고 기존 낮·밤 태그는 전송 시 일반 이름으로 정리됩니다.</p></details>
+    </div>
+    {open&&<SessionMenuPage enabled title="테마 선택 및 관리" onBack={()=>setOpen(false)}><ThemeMenu drawer embedded userId={userId} workId={session.work_id} scope={pickerScope} selectedId={session.theme_id} onClose={()=>setOpen(false)} onSelect={selected=>{const next=appliedSingle?singlePreference:session.theme_variant??siteVariant;void save('custom',selected.id,next,selected).then(ok=>{if(ok)setOpen(false);});}}/></SessionMenuPage>}
+  </details>;
   return <section className="mt-4 border-t border-surface2 pt-4">
     <h3 className="mb-2 text-sm font-semibold text-white">채팅방 테마</h3>
     <p className="mb-3 text-xs text-slate-500">개별 선택이 가장 우선하며, 모든 기기에 동기화됩니다.</p>
@@ -193,7 +218,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
         {(['light','dark']as const).map(v=><button key={v} type="button" disabled={busy||saving||siteSaving}
           aria-pressed={shownVariant===v} onClick={()=>void chooseSiteTheme(v)}
           className={`rounded-lg px-3 py-2 text-xs ${shownVariant===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>
-          {v==='light'?'☀️ 라이트':'🌙 다크'}
+          <InterfaceIcon name={v==='light'?'sun':'moon'} /> {v==='light'?'라이트':'다크'}
         </button>)}
       </div>
       <p className="mt-2 text-xs text-slate-500">{appliedSingle?'현재 화면은 단일 테마입니다. 라이트·다크는 이후 두 버전이 있는 테마에 사용할 사이트 전역 설정이며, 단일 테마의 색상은 바뀌지 않습니다.':'선택 표시는 현재 화면에 적용된 라이트·다크를 따릅니다. 버튼을 누르면 사이트 전역 설정도 함께 변경됩니다.'} 유동적 선택 자체는 현재 화면을 바꾸지 않으며, AI가 테마를 바꾸어도 유동적 모드는 유지됩니다.</p>
@@ -207,7 +232,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
       {(['light','dark']as const).map(v=>
         <button key={v} disabled={busy||saving} aria-pressed={variant===v} onClick={()=>void save(mode==='custom'?'custom':'builtin',mode==='custom'?session.theme_id??null:null,v)}
           className={`rounded-lg px-3 py-2 text-xs ${variant===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>
-          {v==='dark'?'🌙 다크':'☀️ 라이트'}
+          <InterfaceIcon name={v==='dark'?'moon':'sun'} /> {v==='dark'?'다크':'라이트'}
         </button>)}
     </div>}
     {mode==='custom'&&!open&&<p className="mt-2 text-xs text-slate-500">{theme&&!bothVariants(theme)?'단일 테마 · 라이트·다크 설정에 관계없이 같은 색상으로 표시됩니다.':'이 모드에서는 선택한 테마와 라이트·다크를 고정합니다.'}</p>}

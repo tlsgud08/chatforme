@@ -1,3 +1,4 @@
+import InterfaceIcon from '@/components/InterfaceIcon';
 import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -200,13 +201,15 @@ export default function WorkDetailPage() {
   }
 
   return (
-    <div className="p-4">
-      <button onClick={() => navigate(-1)} className="mb-3 text-sm text-slate-400">← 뒤로</button>
-      <div className="mx-auto aspect-[2/3] w-full max-w-[240px] overflow-hidden rounded-xl bg-surface2">
-        {work.thumbnail_url && <img src={work.thumbnail_url} alt="" className="h-full w-full object-cover" />}
+    <div className="work-detail-page p-4">
+      <button onClick={() => navigate(-1)} className="mb-3 text-sm text-slate-400"><InterfaceIcon name="back" /> 뒤로</button>
+      <div className="work-detail-grid">
+      <div className="work-detail-cover mx-auto aspect-[2/3] w-full max-w-[240px] overflow-hidden rounded-xl bg-surface2">
+        {work.thumbnail_url ? <img src={work.thumbnail_url} alt="" className="h-full w-full object-cover" /> : <div className="poster-fallback modern-only" aria-hidden="true"><small>작품</small><strong>{work.title || '(제목 없음)'}</strong></div>}
       </div>
 
-      <div className="relative mt-4 flex items-start gap-2">
+      <div className="work-detail-main">
+      <div className="work-detail-title relative mt-4 flex items-start gap-2">
         <h1 className="flex-1 text-xl font-bold text-white">{work.title || '(제목 없음)'}</h1>
         {(isCreator || isAdmin) && (
           <div data-popup-menu className="relative shrink-0">
@@ -217,7 +220,7 @@ export default function WorkDetailPage() {
               onClick={() => setMenuOpen((open) => !open)}
               className="px-2 text-2xl leading-none text-slate-400 active:text-white"
             >
-              ⋯
+              <InterfaceIcon name="more" />
             </button>
             {menuOpen && (
               <div className="absolute right-0 top-8 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">
@@ -247,13 +250,13 @@ export default function WorkDetailPage() {
             className="shrink-0 text-2xl leading-none"
             aria-label="하트"
           >
-            {isFavorited ? '❤️' : '🤍'}
+            <InterfaceIcon name="heart" filled={isFavorited} />
           </button>
         )}
       </div>
 
       <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
-        <span>❤️ {formatCount(favoriteCount)}</span>
+        <span><InterfaceIcon name="heart" /> {formatCount(favoriteCount)}</span>
       </div>
 
       <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">{work.description}</p>
@@ -312,6 +315,8 @@ export default function WorkDetailPage() {
             </button>
           )}
         </div>
+      </div>
+      </div>
       </div>
       {confirmDelete && (
         <ConfirmDialog

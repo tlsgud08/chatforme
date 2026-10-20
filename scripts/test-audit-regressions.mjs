@@ -12,7 +12,14 @@ export const useRef=v=>({current:v});
 export function useState(initial){const s=globalThis.__audit,i=s.index++;if(!(i in s.values))s.values[i]=typeof initial==='function'?initial():initial;return [s.values[i],next=>{s.values[i]=typeof next==='function'?next(s.values[i]):next;}];}
 `);
 const calls = [], notices = [], invalidations = [];
+function presentationUri(name) {
+  const source = readFileSync(new URL(`../src/components/${name}.tsx`, import.meta.url), 'utf8');
+  const js = ts.transpileModule(source, {compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2020,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+  return uri(js.replace(/from\s+(['"])([^'"]+)\1/g, (_, _quote, specifier) => `from ${JSON.stringify(import.meta.resolve(specifier))}`));
+}
 const imports = {
+  '@/components/InterfaceIcon': presentationUri('InterfaceIcon'),
+  '@/components/ModernPageHeading': presentationUri('ModernPageHeading'),
   react: hooks,
   'react-router-dom': uri(`import {createElement} from ${JSON.stringify(import.meta.resolve('react'))};export const useNavigate=()=>()=>{};export function Link({to,children,...props}){return createElement('a',{...props,href:to},children);}`),
   '@tanstack/react-query': uri(`export const useQueryClient=()=>({invalidateQueries:async value=>globalThis.__auditInvalidations.push(value),setQueriesData:()=>{}});export const useQuery=()=>({data:[],isLoading:false,refetch:async()=>{}});`),

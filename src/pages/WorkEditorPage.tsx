@@ -1,3 +1,6 @@
+import InterfaceIcon from '@/components/InterfaceIcon';
+import ModernPageHeading from '@/components/ModernPageHeading';
+import type { InterfaceIconName } from '@/components/InterfaceIcon';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -381,21 +384,22 @@ export default function WorkEditorPage() {
   if (!work) return <p className="p-6 text-slate-400">불러오는 중…</p>;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 px-4 py-3">
-        <button onClick={() => void confirmLeave().then((leave) => leave && navigate('/create'))} className="text-sm text-slate-400">← 목록</button>
-        {isAdmin && !isCreator && <span className="rounded-full bg-brand/20 px-2 py-1 text-[11px] text-brand">운영자 편집</span>}
+    <div className="work-editor flex h-full flex-col">
+      <div className="work-editor-header flex items-center gap-2 px-4 py-3">
+        <button onClick={() => void confirmLeave().then((leave) => leave && navigate('/create'))} aria-label="제작 목록으로" className="editor-back text-sm text-slate-400"><InterfaceIcon name="back" /><span> 목록</span></button>
+        <ModernPageHeading title={work.title || '제목 없는 작품'} description="작품 편집" />
+        {isAdmin && !isCreator && <span className="editor-admin-badge rounded-full bg-brand/20 px-2 py-1 text-[11px] text-brand">운영자 편집</span>}
         <button
           onClick={save}
           disabled={saving}
           className="ml-auto rounded-lg bg-brand px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
         >
-          {saving ? '저장 중…' : dirty ? '저장' : '저장됨'}
+          <InterfaceIcon name={dirty ? 'save' : 'check'} />{saving ? '저장 중…' : dirty ? '저장' : '저장됨'}
         </button>
       </div>
 
       {/* 탭 */}
-      <div className="flex border-b border-surface2 text-sm">
+      <div className="work-editor-tabs flex border-b border-surface2 text-sm">
         {([
           ['basic', '기본정보'],
           ['prompt', '메인 프롬프트'],
@@ -406,22 +410,23 @@ export default function WorkEditorPage() {
         ] as [Tab, string][]).map(([k, label]) => (
           <button
             key={k}
+            aria-current={tab === k ? 'page' : undefined}
             onClick={() => setTab(k)}
             className={`flex-1 py-2.5 text-xs ${tab === k ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
           >
-            {label}
+            <InterfaceIcon name={({ basic: 'settings', prompt: 'summary', multichat: 'users', start: 'chat', keywords: 'works', permissions: 'admin' } as Record<Tab, InterfaceIconName>)[k]} />{label}
           </button>
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="work-editor-content flex-1 overflow-y-auto p-4">
         {/* 기본정보 탭 */}
         {tab === 'basic' && (
-          <div className="flex flex-col gap-4">
-            <div>
+          <div className="editor-basic flex flex-col gap-4">
+            <div className="editor-cover-field">
               <label className="mb-1 block text-xs text-slate-400">썸네일 (5MB 이하)</label>
-              <div className="flex items-center gap-3">
-                <div className="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-lg bg-surface2">
+              <div className="editor-cover-controls flex items-center gap-3">
+                <div className="editor-cover-image aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-lg bg-surface2">
                   {work.thumbnail_url && <img src={work.thumbnail_url} alt="" className="h-full w-full object-cover" />}
                 </div>
                 <label className="cursor-pointer rounded-lg bg-surface px-3 py-2 text-sm text-slate-200">
@@ -489,7 +494,7 @@ export default function WorkEditorPage() {
           <div>
             <div className="mb-2 flex items-center justify-between">
               <p className="text-xs text-slate-400">
-                {work.main_prompt.length > 6000 ? '⚠️ 6000자 권장 초과' : '6000자 이내 권장 (제한 없음)'}
+                {work.main_prompt.length > 6000 ? <><InterfaceIcon name="warning" /> 6000자 권장 초과</> : '6000자 이내 권장 (제한 없음)'}
               </p>
               <span className={`text-[11px] ${work.main_prompt.length > 6000 ? 'text-amber-400' : 'text-slate-500'}`}>
                 {characterCount(work.main_prompt, 6000)}
@@ -547,7 +552,7 @@ export default function WorkEditorPage() {
                         title={cfg.is_default ? '기본 설정' : '기본으로 설정'}
                         className={`text-base leading-none ${cfg.is_default ? 'text-brand' : 'text-slate-600'}`}
                       >
-                        {cfg.is_default ? '★' : '☆'}
+                        <InterfaceIcon name="star" filled={cfg.is_default} />
                       </button>
                       <button onClick={() => deleteStartConfig(cfg.id)} className="text-xs text-red-400">삭제</button>
                     </div>
@@ -670,8 +675,9 @@ export default function WorkEditorPage() {
                           <button
                             type="button"
                             onClick={() => patchKeyword(kb.id, { keywords: kb.keywords.filter((_, i) => i !== ki) })}
+                            aria-label={`${kw} 키워드 제거`}
                             className="ml-0.5 text-slate-400 hover:text-white"
-                          >✕</button>
+                          ><InterfaceIcon name="close" /></button>
                         </span>
                       ))}
                       {kwCount < 5 && (

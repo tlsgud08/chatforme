@@ -1,3 +1,5 @@
+import InterfaceIcon from '@/components/InterfaceIcon';
+import ModernPageHeading from '@/components/ModernPageHeading';
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -79,9 +81,10 @@ export default function SearchPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
-      <header className="flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
-        <button onClick={() => navigate(-1)} className="text-slate-400">←</button>
+    <div className="search-page mx-auto flex h-full max-w-app flex-col bg-bg">
+      <ModernPageHeading title="검색" />
+      <header className="search-header flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
+        <button onClick={() => navigate(-1)} aria-label="이전 화면으로" className="text-slate-400"><InterfaceIcon name="back" /></button>
         <input
           ref={inputRef}
           value={query}
@@ -90,14 +93,15 @@ export default function SearchPage() {
           className="flex-1 rounded-full bg-surface px-4 py-2 text-sm text-white outline-none"
         />
         {query && (
-          <button onClick={() => setQuery('')} className="text-sm text-slate-400">✕</button>
+          <button onClick={() => setQuery('')} aria-label="검색어 지우기" className="text-sm text-slate-400"><InterfaceIcon name="close" /></button>
         )}
       </header>
 
-      <div className="flex border-b border-surface2">
+      <div className="search-tabs category-tabs flex border-b border-surface2">
         {(['works', 'users'] as SearchTab[]).map((t) => (
           <button
             key={t}
+            aria-pressed={tab === t}
             onClick={() => setTab(t)}
             className={`flex-1 py-2.5 text-sm ${tab === t ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
           >
@@ -106,7 +110,7 @@ export default function SearchPage() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="search-results flex-1 overflow-y-auto">
         {loading && <p className="p-6 text-center text-sm text-slate-400">검색 중…</p>}
         {error && <p role="alert" className="p-6 text-center text-sm text-amber-400">{error}</p>}
 

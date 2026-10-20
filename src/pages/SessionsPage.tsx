@@ -1,3 +1,5 @@
+import InterfaceIcon from '@/components/InterfaceIcon';
+import ModernPageHeading from '@/components/ModernPageHeading';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -160,7 +162,7 @@ export default function SessionsPage() {
           onClick={() => setMenuId((id) => id === target.id ? null : target.id)}
           className="px-3 py-3 text-xl leading-none text-slate-400 active:text-white"
         >
-          ⋯
+          <InterfaceIcon name="more" />
         </button>
         {menuId === target.id && (
           <div className="absolute right-2 top-11 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">
@@ -205,10 +207,11 @@ export default function SessionsPage() {
   const allSelected = list.length > 0 && selected.size === list.length;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="sessions-page flex flex-col h-full">
+      <ModernPageHeading title="채팅방" description="진행 중인 대화를 이어가거나 보관한 대화를 찾아보세요." />
       {/* 상단 탭 + 버튼 영역 */}
       {selectMode === 'none' ? (
-        <div className="flex items-center border-b border-surface2">
+        <div className="sessions-tabs flex items-center border-b border-surface2">
           <button
             onClick={() => setViewTab('active')}
             className={`flex-1 py-2.5 text-sm ${viewTab === 'active' ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
@@ -287,7 +290,7 @@ export default function SessionsPage() {
             {viewTab === 'archived' ? '보관된 채팅방이 없습니다.' : '아직 플레이한 채팅방이 없습니다.'}
           </p>
         )}
-        <ul className="divide-y divide-surface2">
+        <ul className="session-list divide-y divide-surface2">
           {list.map((s) => (
             <li key={s.id} className="flex items-center">
               {selectMode !== 'none' && (
@@ -309,7 +312,7 @@ export default function SessionsPage() {
                 onClick={selectMode !== 'none' ? (e) => { e.preventDefault(); toggleSelect(s.id); } : undefined}
                 className="flex flex-1 items-center gap-3 p-4 active:bg-surface"
               >
-                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2">
+                <div className="session-list-thumb h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2">
                   {s.works?.thumbnail_url && (
                     <img src={s.works.thumbnail_url} alt="" className="h-full w-full object-cover" />
                   )}

@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { cacheTurnChoices, type CacheMessage } from '@/lib/llm/promptCache';
 import type { Session } from '@/types/db';
 import Toggle from './Toggle';
+import InterfaceIcon from './InterfaceIcon';
 
 interface Props {
   session: Session;
@@ -10,9 +11,10 @@ interface Props {
   turnCount: number;
   busy: boolean;
   onUpdate: (patch: Partial<Session>) => void;
+  compact?: boolean;
 }
 
-export default function PromptCacheSettings({ session, turnCount, busy, onUpdate }: Props) {
+export default function PromptCacheSettings({ session, turnCount, busy, onUpdate, compact = false }: Props) {
   const [choices, setChoices] = useState<{ id: string; turn: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -103,8 +105,11 @@ export default function PromptCacheSettings({ session, turnCount, busy, onUpdate
     }
   }
 
+  const Container = compact ? 'details' : 'div';
   return (
-    <section className="border-b border-surface2 py-4" aria-labelledby="prompt-cache-title">
+    <Container className={compact ? 'inu-section inu-accordion' : undefined}>
+      {compact && <summary><div><h3><InterfaceIcon name="cache" />명시적 캐시</h3><p className="inu-summary">{!enabled ? '사용 안 함' : loading ? '불러오는 중…' : loadError ? '기준 확인 필요' : unavailable ? '기준 다시 설정 필요' : autoLatest ? '사용 중 · 최신 턴 자동 갱신' : `사용 중 · ${selected?.turn ?? 0}턴까지 수동 지정`}</p></div><InterfaceIcon name="down" /></summary>}
+    <section className={compact ? 'inu-detail-body inu-cache-body' : 'border-b border-surface2 py-4'} aria-labelledby="prompt-cache-title">
       <h3 id="prompt-cache-title" className="text-sm font-semibold text-slate-300">명시적 캐시 설정</h3>
       <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-200">
         <span>이 채팅방에서 사용</span>
@@ -148,5 +153,6 @@ export default function PromptCacheSettings({ session, turnCount, busy, onUpdate
       {loadError && <div className="mt-2 text-xs text-amber-300" role="alert">{loadError}<button type="button" onClick={() => setRevision((v) => v + 1)} className="ml-2 underline">다시 불러오기</button></div>}
       <p className="mt-2 text-xs text-slate-300" role="status">{status}</p>
     </section>
+    </Container>
   );
 }

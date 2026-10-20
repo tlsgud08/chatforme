@@ -4,3 +4,24 @@
   border: 0;
   border-top: 1px solid color-mix(in srgb, var(--page-text) 20%, transparent);
 }
+
+/* Both designs use the legacy conversation layout, including dividers and padding. */
+.chat-header > button:first-child,
+.chat-header > button:last-child {
+  min-height: 28px;
+}
+
+.chat-message-action {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.chat-message-action:focus-visible {
+  outline: 2px solid rgb(var(--color-brand));
+  outline-offset: 2px;
+}

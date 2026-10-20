@@ -46,12 +46,12 @@ export default function WorksPage() {
   }
 
   return (
-    <div className="flex flex-col pb-4">
-      <div className="sticky top-0 z-10 flex items-center border-b border-surface2 bg-bg px-4 py-3">
+    <div className="catalog-page flex flex-col pb-4">
+      <div className="catalog-heading sticky top-0 z-10 flex items-center border-b border-surface2 bg-bg px-4 py-3">
         <h1 className="font-bold text-white">{labels[selected]}</h1>
         {selected === 'works' && latest.length > 0 && <span className="ml-auto text-xs text-slate-500">최신순</span>}
       </div>
-      <nav aria-label="콘텐츠 종류" className="flex gap-2 overflow-x-auto px-4 py-3">
+      <nav aria-label="콘텐츠 종류" className="category-tabs flex gap-2 overflow-x-auto px-4 py-3">
         {(['works', 'commands', 'plugins', 'themes'] as const).map((value) => <button key={value} type="button"
           aria-pressed={selected === value}
           onClick={() => setParams((current) => { const next = new URLSearchParams(current); next.set('category', value); return next; })}
@@ -69,7 +69,7 @@ export default function WorksPage() {
           <p className="p-6 text-slate-400">아직 작품이 없습니다. 제작 탭에서 만들어보세요.</p>
         )}
         {latest.length > 0 && (
-          <div className="grid grid-cols-3 gap-x-3 gap-y-5 p-4">
+          <div className="works-grid grid grid-cols-3 gap-x-3 gap-y-5 p-4">
             {latest.map((work) => (
               <WorkPosterCard
                 key={work.id}
