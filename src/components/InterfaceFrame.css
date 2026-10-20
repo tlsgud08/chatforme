@@ -43,6 +43,7 @@
 .interface-frame[data-interface='modern'] .interface-mobile-tabs { display: none; }
 .interface-frame[data-interface='modern']:not([data-login]) > .interface-content { grid-column: 2; grid-row: 2; overflow: hidden; }
 .interface-frame[data-interface='modern'] .app-layout,
+.interface-frame[data-interface='modern'] .chat-page,
 .interface-frame[data-interface='modern'] .search-page { width: 100%; max-width: none; }
 .interface-frame[data-interface='modern'] .app-header,
 .interface-frame[data-interface='modern'] .app-bottom-tabs { display: none; }
