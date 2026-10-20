@@ -4,7 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { canLeaveCurrentPage } from '@/lib/navigationGuard';
-import { loadInterfaceDesign, subscribeInterfaceDesign } from '@/lib/interfacePreference';
+import {
+  loadInterfaceDesign, subscribeInterfaceDesign,
+  loadAppWidthLimited, loadChatWidthLimited, subscribeInterfaceWidth,
+} from '@/lib/interfacePreference';
 import InterfaceIcon, { type InterfaceIconName } from './InterfaceIcon';
 import './InterfaceFrame.css';
 
@@ -19,6 +22,8 @@ type SidebarSession = { id: string; title: string; works: { title: string; thumb
 
 export default function InterfaceFrame({ children }: { children: ReactNode }) {
   const design = useSyncExternalStore(subscribeInterfaceDesign, loadInterfaceDesign, () => 'modern' as const);
+  const appWidthLimited = useSyncExternalStore(subscribeInterfaceWidth, loadAppWidthLimited, () => false);
+  const chatWidthLimited = useSyncExternalStore(subscribeInterfaceWidth, loadChatWidthLimited, () => true);
   const [collapsed, setCollapsed] = useState(() => window.matchMedia('(max-width: 920px)').matches);
   useEffect(() => {
     const query = window.matchMedia('(max-width: 920px)');
@@ -66,7 +71,8 @@ export default function InterfaceFrame({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="interface-frame" data-interface={design} data-focused-view={focusedView} data-login={!showNavigation || undefined} data-collapsed={collapsed || undefined}>
+    <div className="interface-viewport" data-interface={design} data-app-width-limited={design === 'modern' && appWidthLimited || undefined}>
+    <div className="interface-frame" data-interface={design} data-chat-width-limited={design === 'modern' && chatWidthLimited || undefined} data-focused-view={focusedView} data-login={!showNavigation || undefined} data-collapsed={collapsed || undefined}>
       {showNavigation && <>
         <header className="interface-topbar modern-only">
           <Link to="/works" onClick={event => void guardedNavigate(event, '/works')} className="interface-brand" aria-label="Inuchat 홈으로 이동">
@@ -101,6 +107,7 @@ export default function InterfaceFrame({ children }: { children: ReactNode }) {
         <nav className="interface-mobile-tabs modern-only" aria-label="모바일 주요 화면">{navigation('interface-mobile-link')}</nav>
       </>}
       <div className="interface-content">{children}</div>
+    </div>
     </div>
   );
 }
