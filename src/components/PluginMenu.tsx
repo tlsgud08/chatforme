@@ -1,4 +1,5 @@
 import InterfaceIcon from './InterfaceIcon';
+import { SessionMenuPage } from './SessionMenuFrame';
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Plugin } from '@/types/db';
@@ -9,6 +10,7 @@ interface Props {
   userId: string;
   onClose?: () => void;
   embedded?: boolean;
+  drawer?: boolean;
   onSelect?: (plugin: Plugin) => void;
   activeIds?: string[];
   selecting?: boolean;
@@ -19,7 +21,7 @@ type Draft = Pick<Plugin, 'name' | 'description' | 'prompt'>;
 const emptyDraft: Draft = { name: '', description: '', prompt: '' };
 const tabLabels: Record<Tab, string> = { all: '전체', mine: '내 플러그인', hub: '플러그인 허브', favorites: '즐겨찾기' };
 
-export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], selecting = false, embedded = false }: Props) {
+export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], selecting = false, embedded = false, drawer = false }: Props) {
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [authors, setAuthors] = useState<Record<string, string>>({});
@@ -160,29 +162,31 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
   }
 
   if (editing) return (
-    <div className={embedded ? "flex w-full justify-center" : "fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"} onMouseDown={(event) => event.target === event.currentTarget && setEditing(null)}>
-      <section className={embedded ? "flex w-full flex-col bg-bg p-4" : "flex max-h-[92dvh] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl bg-bg p-5 shadow-2xl sm:rounded-3xl"}>
+    <SessionMenuPage enabled={drawer} title={editing === 'new' ? '플러그인 제작' : '플러그인 편집'} onBack={() => setEditing(null)}>
+    <div className={drawer ? "inu-editor" : embedded ? "flex w-full justify-center" : "fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"} onMouseDown={(event) => event.target === event.currentTarget && setEditing(null)}>
+      <section className={drawer ? "flex w-full flex-col" : embedded ? "flex w-full flex-col bg-bg p-4" : "flex max-h-[92dvh] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl bg-bg p-5 shadow-2xl sm:rounded-3xl"}>
         <header className="mb-5 flex items-center justify-between"><button onClick={() => setEditing(null)} aria-label="목록으로 돌아가기" className="text-xl text-slate-400"><InterfaceIcon name="back" /></button><h2 className="font-bold text-white">플러그인 편집</h2><span className="w-5" /></header>
         <label className="mb-4 text-sm font-semibold text-slate-200">플러그인 이름 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.name.length.toLocaleString('ko-KR')}자</span>
           <div className="mt-2 flex rounded-xl bg-surface px-3"><input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="min-w-0 flex-1 bg-transparent py-3 outline-none" placeholder="플러그인" /></div>
         </label>
         <label className="mb-4 text-sm font-semibold text-slate-200">설명 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.description.length.toLocaleString('ko-KR')}자</span>
-          <input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className="mt-2 w-full rounded-xl bg-surface px-3 py-3 outline-none" placeholder="이 플러그인이 하는 일" />
+          {drawer?<textarea rows={2} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className="mt-2 w-full rounded-xl bg-surface px-3 py-3 outline-none" placeholder="이 플러그인이 하는 일" />:<input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} className="mt-2 w-full rounded-xl bg-surface px-3 py-3 outline-none" placeholder="이 플러그인이 하는 일" />}
         </label>
         <label className="text-sm font-semibold text-slate-200">프롬프트 본문 <span className="text-red-400">*</span><span className="float-right text-xs font-normal text-slate-500">{draft.prompt.length.toLocaleString('ko-KR')}자</span>
-          <textarea rows={10} value={draft.prompt} onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} className="mt-2 w-full resize-none rounded-xl bg-surface px-3 py-3 text-sm outline-none" placeholder="활성화 중 매 요청에 AI에게 전달할 프롬프트" />
+          <textarea rows={drawer?8:10} value={draft.prompt} onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} className="mt-2 w-full resize-none rounded-xl bg-surface px-3 py-3 text-sm outline-none" placeholder="활성화 중 매 요청에 AI에게 전달할 프롬프트" />
         </label>
-        <button disabled={busy || !draft.name.trim() || !draft.prompt.trim()} onClick={() => void save()} className="mt-5 rounded-xl bg-brand py-3 font-semibold text-white disabled:opacity-40">저장</button>
+        <button disabled={busy || !draft.name.trim() || !draft.prompt.trim()} onClick={() => void save()} className="mt-5 rounded-xl bg-brand py-3 font-semibold text-white disabled:opacity-40">{drawer?'플러그인 저장':'저장'}</button>
       </section>
     </div>
+    </SessionMenuPage>
   );
 
   return (
-    <div className={embedded ? "w-full" : "fixed inset-0 z-40 flex items-end justify-center bg-black/60"} onMouseDown={(event) => !embedded && event.target === event.currentTarget && onClose?.()}>
-      <section className={embedded ? "flex w-full flex-col bg-bg" : "flex h-[72dvh] w-full max-w-app flex-col rounded-t-3xl bg-bg shadow-2xl"}>
+    <div className={drawer ? "inu-plugin-catalog" : embedded ? "w-full" : "fixed inset-0 z-40 flex items-end justify-center bg-black/60"} onMouseDown={(event) => !embedded && event.target === event.currentTarget && onClose?.()}>
+      <section className={embedded || drawer ? "flex w-full flex-col bg-bg" : "flex h-[72dvh] w-full max-w-app flex-col rounded-t-3xl bg-bg shadow-2xl"}>
         <header className="flex items-center justify-between px-4 pb-2 pt-4"><div>{!embedded && <h2 className="text-lg font-bold text-white">플러그인</h2>}<p className="text-xs text-slate-500">{embedded ? '플러그인을 만들고 편집하거나 허브에 공개하세요.' : '선택한 플러그인은 끌 때까지 매 채팅 요청에 포함됩니다.'}</p></div>{!embedded && <button onClick={onClose} aria-label="닫기" className="p-2 text-xl text-slate-400"><InterfaceIcon name="close" /></button>}</header>
         <div className="flex shrink-0 overflow-x-auto border-b border-surface2 px-3">
-          {(['all', 'mine', 'hub', 'favorites'] as Tab[]).map((value) => <button key={value} onClick={() => { setTab(value); setOpenMenu(null); }} aria-pressed={tab === value} className={`whitespace-nowrap border-b-2 px-2.5 py-3 text-sm ${tab === value ? 'border-brand font-semibold text-white' : 'border-transparent text-slate-500'}`}>{tabLabels[value]}</button>)}
+          {(['all', 'mine', 'hub', 'favorites'] as Tab[]).map((value) => <button key={value} onClick={() => { setTab(value); setOpenMenu(null); }} aria-pressed={tab === value} className={`whitespace-nowrap border-b-2 px-2.5 py-3 text-sm ${tab === value ? 'border-brand font-semibold text-white' : 'border-transparent text-slate-500'}`}>{drawer && value === 'hub' ? '허브' : tabLabels[value]}</button>)}
         </div>
         <div className="shrink-0 border-b border-surface2 p-3">
           <div className="flex items-center gap-2 rounded-xl bg-surface px-3">
@@ -198,6 +202,10 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
           {loading ? <p className="p-8 text-center text-sm text-slate-500">불러오는 중…</p> : loadError ?
             <div role="alert" className="p-4 text-sm text-amber-400">{loadError}<button type="button" onClick={() => void load()} className="mt-2 block underline">다시 불러오기</button></div> : visible.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">{searchTerm ? `${tabLabels[tab]}에 검색 결과가 없습니다.` : '표시할 플러그인이 없습니다.'}</p> : visible.map((plugin) => {
             const mine = plugin.owner_id === userId;
+            if(drawer)return <article key={plugin.id} className="inu-list-item">
+              <div className="inu-item-main"><button type="button" disabled={selecting||activeIds.includes(plugin.id)} className="inu-item-select" onClick={()=>onSelect?.(plugin)}><strong>{plugin.name}</strong><p>{plugin.description||'설명 없음'}</p><p>{activeIds.includes(plugin.id)?'활성화됨 · ':''}{mine?'나':authors[plugin.owner_id]??'사용자'}{plugin.is_published?' · 허브 공개':''}</p></button><button type="button" className="inu-icon" aria-label={`${plugin.name} ${favoriteIds.has(plugin.id)?'즐겨찾기 해제':'즐겨찾기 추가'}`} aria-pressed={favoriteIds.has(plugin.id)} onClick={()=>void toggleFavorite(plugin)}><InterfaceIcon name="star" filled={favoriteIds.has(plugin.id)}/></button></div>
+              <details className="inu-small-details"><summary>관리</summary><div className="inu-item-actions">{mine?<><button type="button" onClick={()=>beginEdit(plugin)}>수정</button><button type="button" onClick={()=>void publish(plugin,!plugin.is_published)}>{plugin.is_published?'허브에서 비공개':'전체 공개'}</button><button type="button" className="inu-danger" onClick={()=>void remove(plugin)}>삭제</button></>:<button type="button" onClick={()=>void copy(plugin)}>내 플러그인으로 복사</button>}</div></details>
+            </article>;
             return <div key={plugin.id} className={`relative flex gap-3 border-b border-surface2/70 px-4 py-3 ${embedded ? 'flex-wrap' : ''}`}>
               <button disabled={selecting || activeIds.includes(plugin.id)} onClick={() => { if (embedded) setViewing(viewing === plugin.id ? null : plugin.id); else onSelect?.(plugin); }} className="min-w-0 flex-1 text-left disabled:opacity-50">
                 <p className="truncate font-semibold text-white">{plugin.name} {activeIds.includes(plugin.id) && <span className="ml-1 text-[10px] text-emerald-400">활성화됨</span>} {mine && <span className="ml-1 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-400">나</span>} {plugin.is_published && <span className="ml-1 rounded bg-blue-400/15 px-1.5 py-0.5 text-[10px] text-blue-400">허브</span>}</p>
@@ -216,7 +224,7 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
             </div>;
           })}
         </div>
-        <button disabled={loading || !!loadError} onClick={() => beginEdit()} className="m-3 rounded-xl border border-brand/40 py-3 text-sm font-semibold text-brand disabled:opacity-50">＋ 플러그인 추가</button>
+        <button disabled={loading || !!loadError} onClick={() => beginEdit()} className="m-3 rounded-xl border border-brand/40 py-3 text-sm font-semibold text-brand disabled:opacity-50">{drawer ? <><InterfaceIcon name="plus" /> 플러그인 제작</> : '＋ 플러그인 추가'}</button>
       </section>
     </div>
   );

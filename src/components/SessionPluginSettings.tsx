@@ -2,15 +2,18 @@ import { useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { ActivePlugin, Plugin, Session } from '@/types/db';
 import PluginMenu from './PluginMenu';
+import InterfaceIcon from './InterfaceIcon';
+import { SessionMenuPage } from './SessionMenuFrame';
 
 interface Props {
   session: Session;
   userId: string;
   busy: boolean;
   onUpdate: (patch: Partial<Session>) => void;
+  compact?: boolean;
 }
 
-export default function SessionPluginSettings({ session, userId, busy, onUpdate }: Props) {
+export default function SessionPluginSettings({ session, userId, busy, onUpdate, compact = false }: Props) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
@@ -41,6 +44,16 @@ export default function SessionPluginSettings({ session, userId, busy, onUpdate 
     if (plugins.some((item) => item.id === plugin.id)) return;
     void save([...plugins, { id: plugin.id, name: plugin.name, description: plugin.description, prompt: plugin.prompt }]);
   }
+
+  if (compact) return <section className="inu-section" aria-labelledby="session-plugin-title">
+    <div className="inu-row"><h3 id="session-plugin-title"><InterfaceIcon name="plugin" />플러그인</h3><span className="inu-help">{plugins.length}개 활성</span></div>
+    {plugins.map(plugin=><article key={plugin.id} className="inu-active-item"><div className="inu-row"><strong>{plugin.name}</strong><button type="button" className="inu-icon inu-danger" disabled={busy||saving} aria-label={`${plugin.name} 비활성화`} onClick={()=>void save(plugins.filter(item=>item.id!==plugin.id))}><InterfaceIcon name="close" /></button></div><p className="inu-help">{plugin.description||'설명 없음'}</p></article>)}
+    {plugins.length===0&&<p className="inu-help">활성화된 플러그인이 없습니다.</p>}
+    <button type="button" className="inu-button inu-full inu-outline" disabled={busy||saving} onClick={()=>setOpen(true)}><InterfaceIcon name="plus" />플러그인 추가</button>
+    <p className="inu-help">끌 때까지 매 요청에 포함돼요. 편집한 내용을 쓰려면 비활성화 후 다시 추가하세요.</p>
+    {status&&<p role="status" className="inu-help">{status}</p>}
+    {open&&<SessionMenuPage enabled title="플러그인 선택" onBack={()=>setOpen(false)}><PluginMenu drawer userId={userId} onClose={()=>setOpen(false)} onSelect={activate} activeIds={plugins.map(plugin=>plugin.id)} selecting={busy||saving}/></SessionMenuPage>}
+  </section>;
 
   return <section aria-labelledby="session-plugin-title">
     <h3 id="session-plugin-title" className="mb-2 text-sm font-semibold text-slate-300">플러그인</h3>

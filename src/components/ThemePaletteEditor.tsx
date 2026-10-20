@@ -13,9 +13,10 @@ const colorLabels: { key: ColorKey; name: string }[] = [
   { key: 'secondaryText', name: '보조 텍스트' },
 ];
 
-function PaletteFields({ palette, defaults, onChange }: {
+function PaletteFields({ palette, defaults, onChange, compact = false }: {
   palette: ThemePalette;
   defaults: ThemePalette;
+  compact?: boolean;
   onChange: (palette: ThemePalette) => void;
 }) {
   const id = useId();
@@ -45,8 +46,8 @@ function PaletteFields({ palette, defaults, onChange }: {
   }
   const secondary=secondaryTextStyles({...palette,...preview});
   return <>
-    <details className="theme-palette-bulk">
-      <summary>색상 5개 한 번에 입력</summary>
+    <details className="theme-palette-bulk" open={compact?true:undefined}>
+      <summary>{compact?'색상 5개 한 번에 붙여넣기':'색상 5개 한 번에 입력'}</summary>
       <label htmlFor={`${id}-bulk`}>강조색;강조색 글자;메인색;메인색 글자;보조 텍스트</label>
       <textarea id={`${id}-bulk`} aria-label="색상 5개 일괄 입력" rows={3} spellCheck={false}
         autoComplete="off" value={bulkInput} onChange={e=>changeBulk(e.target.value)}
@@ -86,6 +87,8 @@ function PaletteFields({ palette, defaults, onChange }: {
     <p className="theme-secondary-help">기본값은 65%입니다. 연하게 표시를 끄면 지정한 색을 100% 불투명도로 표시합니다.</p>
     {colorLabels.some(({ key }) => !HEX.test(colorValue(key))) &&
       <p id={`${id}-error`} className="theme-palette-error">6자리 HEX 코드를 입력해 주세요. #은 자동으로 추가되며, 미리보기에는 마지막 유효한 색상이 표시됩니다.</p>}
+    <details className={compact?'inu-small-details':undefined} open={compact?undefined:true}>
+      <summary hidden={!compact}>테마 미리보기</summary>
     <section aria-label="테마 미리보기" className="theme-palette-preview"
       style={{ backgroundColor: preview.main, color: preview.mainText }}>
       <h4>테마 미리보기</h4>
@@ -94,11 +97,13 @@ function PaletteFields({ palette, defaults, onChange }: {
       <button type="button" className="theme-palette-preview-button"
         style={{ backgroundColor: preview.accent, color: preview.accentText }}>강조색 버튼</button>
     </section>
+    </details>
   </>;
 }
 
-export default function ThemePaletteEditor({ variant, palette, onChange }: {
+export default function ThemePaletteEditor({ variant, palette, onChange, compact = false }: {
   variant: ThemeVariant | 'single';
+  compact?: boolean;
   palette: ThemePalette | null;
   onChange: (palette: ThemePalette) => void;
 }) {
@@ -107,6 +112,6 @@ export default function ThemePaletteEditor({ variant, palette, onChange }: {
     <div className="theme-palette-heading">
       <InterfaceIcon name={variant === 'single' ? 'palette' : variant === 'dark' ? 'moon' : 'sun'} /> {variant === 'single' ? '테마 색상' : variant === 'dark' ? '다크 버전' : '라이트 버전'}
     </div>
-    {palette && <PaletteFields palette={palette} defaults={defaults} onChange={onChange} />}
+    {palette && <PaletteFields compact={compact} palette={palette} defaults={defaults} onChange={onChange} />}
   </section>;
 }

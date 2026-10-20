@@ -1,4 +1,5 @@
 import InterfaceIcon from './InterfaceIcon';
+import { SessionMenuPage } from './SessionMenuFrame';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
@@ -13,6 +14,7 @@ type Props = {
   workId?: string;
   allowWorkCreate?: boolean;
   embedded?: boolean;
+  drawer?: boolean;
   scope?: 'work' | 'global';
   selectedId?: string|null;
   onSelect?: (theme: SavedTheme) => void;
@@ -35,7 +37,7 @@ function useCurrentVariant() {
   }, []);
   return variant;
 }
-export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=false,scope,selectedId,onSelect,onClose}:Props){
+export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=false,drawer=false,scope,selectedId,onSelect,onClose}:Props){
   const catalogScope=scope??(workId?'all':'global');
   const variant = useCurrentVariant();
   const [themes,setThemes]=useState<SavedTheme[]>([]);
@@ -143,11 +145,11 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     const {error}=await supabase.from('themes').delete().eq('id',t.id);
     if(error)showToast(error.message);else{await load();window.dispatchEvent(new Event('inuchat:theme-changed'));}
   }
-  if(editing)return <div className="flex flex-col gap-3 p-3">
+  if(editing)return <SessionMenuPage enabled={drawer} title={editing==='new'?'테마 제작':'테마 편집'} onBack={()=>setEditing(null)}><div className={`flex flex-col gap-3 p-3 ${drawer?'inu-theme-editor':''}`}>
     <div className="flex items-center justify-between"><h3 className="font-semibold text-white">{editing==='new'?'테마 제작':'테마 편집'}</h3><button disabled={busy} onClick={()=>setEditing(null)} className="text-sm text-slate-400">취소</button></div>
     <label className="text-xs text-slate-400">테마 이름<input maxLength={80} value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
     <label className="text-xs text-slate-400">설명<textarea maxLength={500} rows={2} value={draft.description} onChange={e=>setDraft(d=>({...d,description:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
-    {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="text-xs text-slate-400">AI 적용 조건<textarea maxLength={4000} rows={4} value={draft.ai_prompt} onChange={e=>setDraft(d=>({...d,ai_prompt:e.target.value}))} placeholder="이 테마를 언제 사용해야 하는지 설명하세요." className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>}
+    {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="text-xs text-slate-400">AI 적용 조건<textarea maxLength={4000} rows={drawer?3:4} value={draft.ai_prompt} onChange={e=>setDraft(d=>({...d,ai_prompt:e.target.value}))} placeholder="이 테마를 언제 사용해야 하는지 설명하세요." className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>}
     {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="flex items-start gap-2 text-xs text-slate-400">
       <input type="checkbox" aria-label="시간 전환을 켰을 때만 사용" disabled={busy}
         checked={!!draft.day_night_enabled} onChange={e=>changeDayNight(e.currentTarget.checked)}/>
@@ -171,23 +173,23 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
         <span>낮·밤에 따라 라이트·다크 전환<br/>켜면 채팅방의 시간 전환이 작동할 때 AI에 이름:낮·이름:밤으로 전달합니다. 끄면 이름 하나만 전달하고 유동적 모드의 색상은 전역 라이트·다크 선호를 따릅니다.</span>
       </label>}
       {draft.mode==='single'
-        ?<ThemePaletteEditor key="single" variant="single" palette={draft[draft.singleVariant==='dark'?'dark_colors':'light_colors']}
+        ?<ThemePaletteEditor compact={drawer} key="single" variant="single" palette={draft[draft.singleVariant==='dark'?'dark_colors':'light_colors']}
           onChange={p=>setDraft(d=>({...d,[d.singleVariant+'_colors']:p}))}/>
-        :(['light','dark']as const).map(v=><ThemePaletteEditor key={v} variant={v} palette={draft[v==='dark'?'dark_colors':'light_colors']} onChange={p=>setDraft(d=>({...d,[v+'_colors']:p}))}/>)}
+        :(['light','dark']as const).map(v=><ThemePaletteEditor compact={drawer} key={v} variant={v} palette={draft[v==='dark'?'dark_colors':'light_colors']} onChange={p=>setDraft(d=>({...d,[v+'_colors']:p}))}/>)}
       <p className="text-xs text-slate-400">{draft.mode==='single'
         ?'단일 테마는 라이트·다크 설정에 관계없이 같은 색상으로 표시됩니다.'
         :'각 버전의 색상은 독립적입니다. 단일로 바꾸면 편집을 시작할 때 선택된 버전의 색상만 저장됩니다.'}</p>
     </fieldset>
     <button disabled={busy} onClick={()=>void save()} className="rounded-lg bg-brand px-4 py-3 text-sm font-bold text-white disabled:opacity-50">테마 저장</button>
-  </div>;
-  return <section className="flex flex-col">
+  </div></SessionMenuPage>;
+  return <section className={`flex flex-col ${drawer?'inu-catalog':''}`}>
     <header className="flex items-center justify-between px-3 pt-3">
       <strong className="text-white">테마 {workId?'선택 및 관리':''}</strong>
       {onClose&&<button className="text-slate-400" onClick={onClose} aria-label="닫기"><InterfaceIcon name="close" /></button>}
     </header>
-    <nav aria-label="테마 목록" className="flex gap-2 overflow-x-auto px-3 py-3">
-      {(['all','work','mine','hub','favorites']as const).filter(t=>catalogScope==='work'?t==='work':catalogScope==='global'?t!=='work':true).map(t=><button key={t} aria-pressed={tab===t} onClick={()=>setTab(t)} className={`shrink-0 rounded-full px-3 py-2 text-xs ${tab===t?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>{labels[t]}</button>)}
-    </nav>
+    {(!drawer||catalogScope!=='work')&&<nav aria-label="테마 목록" className="flex gap-2 overflow-x-auto px-3 py-3">
+      {(['all','work','mine','hub','favorites']as const).filter(t=>catalogScope==='work'?t==='work':catalogScope==='global'?t!=='work':true).map(t=><button key={t} aria-pressed={tab===t} onClick={()=>setTab(t)} className={`shrink-0 rounded-full px-3 py-2 text-xs ${tab===t?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>{drawer&&t==='hub'?'허브':labels[t]}</button>)}
+    </nav>}
     <div className="px-3 pb-3"><input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="테마 이름·설명 검색" className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-white"/></div>
     {visible.length===0&&<p className="p-5 text-center text-sm text-slate-500">테마가 없습니다.</p>}
     <div className={embedded?'':'max-h-[45vh] overflow-y-auto'}>
@@ -198,6 +200,11 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
         const dual = bothVariants(t);
         const palette = preview?.palette ?? (variant === 'dark' ? DEFAULT_DARK : DEFAULT_LIGHT);
         const secondary=secondaryTextStyles(palette);
+        if(drawer)return <article key={t.id} className="inu-list-item">
+          <div className="inu-item-main"><button type="button" className="inu-item-select" disabled={!!onSelect&&!selectable} onClick={()=>selectable&&onSelect?onSelect(t):setOpened(opened===t.id?null:t.id)}><strong>{t.name}{selectedId===t.id?' · 적용 중':''}</strong><p>{t.description||'설명 없음'}</p><p>{t.work_id?(t.work_shared===false?'내 작품 전용':'작품 공용'):t.is_published?'허브 공개':'개인'} · {dual?'라이트·다크':'단일'}</p></button>{!t.work_id&&<button type="button" className="inu-icon" aria-label={`${t.name} 즐겨찾기`} aria-pressed={favorites.has(t.id)} onClick={()=>void toggleFavorite(t)}><InterfaceIcon name="star" filled={favorites.has(t.id)}/></button>}</div>
+          <div className="inu-swatch-row">{([['light',t.light_colors],['dark',t.dark_colors]]as const).filter(([,p])=>!!p).map(([name,p])=><button key={name} type="button" disabled={!editable} className="inu-palette-edit" aria-label={`${t.name} ${dual?(name==='dark'?'다크':'라이트')+' 버전':'단일 테마'} 수정`} onClick={()=>edit(t,name)}><InterfaceIcon name={dual?(name==='dark'?'moon':'sun'):'palette'}/>{[p!.accent,p!.accentText,p!.main,p!.mainText,p!.secondaryText??p!.mainText].map((color,index)=><span key={index} className="inu-swatch" style={{background:color}}/>)}</button>)}</div>
+          <details className="inu-small-details"><summary>관리</summary><div className="inu-item-actions">{editable&&<button type="button" onClick={()=>edit(t)}>수정</button>}{!t.work_id&&<button type="button" onClick={()=>void copy(t)}>내 테마로 복사</button>}{editable&&!t.work_id&&<button type="button" onClick={()=>void togglePublish(t)}>{t.is_published?'비공개':'허브 공개'}</button>}{editable&&<button type="button" className="inu-danger" onClick={()=>void remove(t)}>삭제</button>}</div></details>
+        </article>;
         return <article key={t.id} className="theme-card" data-preview-variant={dual?(preview?.variant ?? variant):'single'}
           style={{backgroundColor:palette.main,color:palette.mainText}}>
           <div className="theme-card-header" style={{backgroundColor:palette.accent,color:palette.accentText}}>
@@ -237,6 +244,6 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
         </article>;
       })}
     </div>
-    <button onClick={()=>edit()} className="m-3 rounded-xl border border-brand/40 py-3 text-sm font-semibold text-brand">＋ {allowWorkCreate?'작품 공용 테마':scope==='work'?'내 작품 전용 테마':'내 테마'} 제작</button>
+    <button onClick={()=>edit()} className="m-3 rounded-xl border border-brand/40 py-3 text-sm font-semibold text-brand">{drawer?<InterfaceIcon name="plus" />:'＋'} {allowWorkCreate?'작품 공용 테마':scope==='work'?'내 작품 전용 테마':'내 테마'} 제작</button>
   </section>;
 }

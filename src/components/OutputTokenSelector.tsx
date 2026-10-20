@@ -11,15 +11,16 @@ interface Props {
   value: number | null;
   onChange: (value: number | null) => void;
   label: string;
+  compact?: boolean;
 }
 
-export default function OutputTokenSelector({ value, onChange, label }: Props) {
+export default function OutputTokenSelector({ value, onChange, label, compact = false }: Props) {
   const normalized = normalizeOutputTokens(value);
   const selectedIndex = OUTPUT_TOKEN_OPTIONS.findIndex((option) => option === normalized);
 
   return (
     <div>
-      <label className="mb-2 block text-xs text-slate-400">{label}</label>
+      <div className={compact ? "inu-token-heading" : undefined}><label className="mb-2 block text-xs text-slate-400">{label}</label>{compact && <strong>{normalized === null ? '무제한' : `${normalized.toLocaleString()} 토큰`}</strong>}</div>
       <input
         type="range"
         min={0}

@@ -12,6 +12,7 @@ interface Props {
   value: OutputSettingsValue;
   onChange: (value: OutputSettingsValue) => void;
   tokenLabel: string;
+  compact?: boolean;
 }
 
 const REASONING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
@@ -19,12 +20,12 @@ const REASONING_LABELS = ['Off', '낮음', '중간', '높음'];
 const TEMPERATURE_RANGE = { min: 0.8, max: 1.2 } as const;
 const FREQUENCY_PENALTY_RANGE = { min: 0, max: 0.5 } as const;
 
-export default function OutputSettingsEditor({ value, onChange, tokenLabel }: Props) {
+export default function OutputSettingsEditor({ value, onChange, tokenLabel, compact = false }: Props) {
   const reasoningIndex = Math.max(0, REASONING_LEVELS.indexOf((value.reasoning.effort ?? 'medium') as typeof REASONING_LEVELS[number]));
   const update = (patch: Partial<OutputSettingsValue>) => onChange({ ...value, ...patch });
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className={`flex flex-col gap-5 ${compact ? 'inu-output-editor' : ''}`}>
       <ParameterRow
         title="추론"
         description="Off는 추론을 명시적으로 끄며, 전송 해제는 파라미터 자체를 보내지 않습니다."
@@ -37,7 +38,7 @@ export default function OutputSettingsEditor({ value, onChange, tokenLabel }: Pr
         </div>
       </ParameterRow>
 
-      <OutputTokenSelector label={tokenLabel} value={value.outputTokens} onChange={(outputTokens) => update({ outputTokens })} />
+      <OutputTokenSelector compact={compact} label={tokenLabel} value={value.outputTokens} onChange={(outputTokens) => update({ outputTokens })} />
 
       <ParameterRow
         title="Temperature"

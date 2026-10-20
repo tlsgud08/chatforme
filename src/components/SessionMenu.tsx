@@ -1,5 +1,6 @@
 import InterfaceIcon from './InterfaceIcon';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import SessionMenuFrame, { SessionMenuPage } from './SessionMenuFrame';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
@@ -114,6 +115,10 @@ export default function SessionMenu({
   const [selectedSummaryIds, setSelectedSummaryIds] = useState<string[]>([]);
   const [storyNoteDraft, setStoryNoteDraft] = useState('');
   const [summaryThroughTurn, setSummaryThroughTurn] = useState<number | ''>('');
+  const [activeTab, setActiveTab] = useState('chat');
+  const [noteSaving, setNoteSaving] = useState(false);
+  const scrollRef = useRef<HTMLElement>(null);
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0; }, [activeTab]);
 
   useEffect(() => {
     if (!user) return;
@@ -126,7 +131,11 @@ export default function SessionMenu({
   }, [user]);
 
   async function saveNote() {
-    await supabase.from('sessions').update({ user_note: note }).eq('id', session.id);
+    if (noteSaving) return;
+    setNoteSaving(true);
+    const { error } = await supabase.from('sessions').update({ user_note: note }).eq('id', session.id);
+    setNoteSaving(false);
+    if (error) { flash('유저 노트 저장 실패: ' + error.message); return; }
     onUpdate({ user_note: note });
     flash('유저 노트를 저장했습니다.');
   }
@@ -266,314 +275,103 @@ export default function SessionMenu({
     setTimeout(() => setSavedMsg(''), 1500);
   }
 
-  return (
-    <div className="fixed inset-0 z-20 flex justify-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50" />
-      <div
-        className="relative flex h-full w-[85%] max-w-[360px] flex-col gap-5 overflow-y-auto bg-bg p-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center">
-          <h2 className="font-semibold text-white">세션 메뉴</h2>
-          <button onClick={onClose} aria-label="세션 메뉴 닫기" className="ml-auto text-slate-400"><InterfaceIcon name="close" /></button>
-        </div>
+  const outputLabel = outputSettings.outputTokens === null ? '무제한' : `${outputSettings.outputTokens.toLocaleString()} 토큰`;
+  const reasoningLabel = outputSettings.reasoning.send === false ? '추론 미전송' : `추론 ${{ off: 'Off', low: '낮음', medium: '중간', high: '높음' }[outputSettings.reasoning.effort ?? 'medium'] ?? outputSettings.reasoning.effort}`;
+  const tabs = [{ id: 'chat', label: '대화' }, { id: 'ai', label: 'AI 설정' }, { id: 'memory', label: '메모리' }, { id: 'display', label: '표시' }];
 
-        {/* 크레딧 */}
-        <section className="rounded-xl bg-surface p-3">
-          <p className="mb-1 text-xs font-semibold text-slate-400">
-            OpenRouter 크레딧
-          </p>
-            <>
-              {!getApiKey('openrouter') ? (
-                <p className="text-xs text-slate-500">API 키를 설정하면 잔여 크레딧을 확인할 수 있습니다.</p>
-              ) : creditLoading ? (
-                <p className="text-xs text-slate-500">불러오는 중…</p>
-              ) : credit ? (
-                <div className="flex items-center justify-between">
-                  <div>
-                    {credit.remaining !== null ? (
-                      <>
-                        <p className="text-xl font-bold text-white">
-                          ${credit.remaining.toFixed(3)}
-                          <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
-                        </p>
-                        <p className="text-[11px] text-slate-500">약 {formatKrw(credit.remaining, exchange.rate)}</p>
-                      </>
-                    ) : (
-                      <p className="text-xl font-bold text-white">
-                        무제한
-                        <span className="ml-1 text-xs font-normal text-slate-400">잔여</span>
-                      </p>
-                    )}
-                  </div>
-                  {credit.remaining !== null && credit.limit !== null && (
-                    <div className="w-20">
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface2">
-                        <div
-                          className="h-full rounded-full bg-emerald-500"
-                          style={{ width: `${Math.max(0, Math.min(100, (credit.remaining / credit.limit) * 100))}%` }}
-                        />
-                      </div>
-                      <p className="mt-0.5 text-right text-[10px] text-slate-500">
-                        {Math.round((credit.remaining / credit.limit) * 100)}% 남음
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-xs text-slate-500">크레딧 정보를 불러올 수 없습니다.</p>
-              )}
-              <p className="mt-2 text-[11px] text-slate-500">
-                이 채팅방 사용: ${session.total_cost.toFixed(6)}
-              </p>
-              <p className="text-[10px] text-slate-500">약 {formatKrw(session.total_cost, exchange.rate)}{exchange.fallback ? ' · 폴백 환율(1달러=1,400원)' : ''}</p>
-            </>
-        </section>
-
-        {/* 페르소나 */}
-        <section>
-          <h3 className="mb-2 text-sm font-semibold text-slate-300">페르소나</h3>
-          <select aria-label="페르소나 선택" value={session.persona_id ?? ''}
-            disabled={sending}
-            onChange={(event) => void selectPersona(personas.find((item) => item.id === event.target.value) ?? null)}
-            className="w-full rounded-lg bg-surface px-3 py-2.5 text-sm text-slate-200 outline-none">
-            <option value="">없음 (페르소나 미사용)</option>
-            {personas.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-          {personas.find((item) => item.id === session.persona_id) &&
-            <p className="mt-2 line-clamp-3 text-xs text-slate-400">{personas.find((item) => item.id === session.persona_id)?.description}</p>}
-          {personas.length === 0 && <p className="mt-2 text-xs text-slate-500">My 탭에서 페르소나를 추가하세요.</p>}
-        </section>
-
-        {/* 테마 설정 */}
-        {user && <SessionThemeSettings session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate}/>}
-
-        {/* AI 공급사 / 모델 */}
-        <section>
-          <h3 className="mb-2 text-sm font-semibold text-slate-300">OpenRouter 모델</h3>
-          <div className="flex flex-col gap-2">
-            <ModelSelector
-              provider="openrouter"
-              model={sessionModel}
-              reasoning={sessionReasoning}
-              onModelChange={onModelChange}
-              onReasoningChange={onReasoningChange}
-              favoritesOnly
-              hideReasoning
-            />
-          </div>
-        </section>
-
-        {/* 출력 설정 */}
-        <section>
-          <h3 className="mb-3 text-sm font-semibold text-slate-300">출력 설정{hasExplicitOverride ? '' : ' (전역 기본값)'}</h3>
-          <OutputSettingsEditor value={outputSettings} onChange={setOutputSettings} tokenLabel="이 채팅방 출력량" />
-          <button type="button" onClick={() => void saveOverride()} className="mt-4 w-full rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">출력 저장</button>
-          {hasExplicitOverride && (
-            <button onClick={resetOverride} className="mt-1 text-xs text-slate-400 underline">
-              기본값으로 되돌리기
-            </button>
-          )}
-        </section>
-
-        {/* 유저 노트 */}
-        <section>
-          <label className="mb-1 block text-xs text-slate-400">
-            유저 노트 ({note.length}자 · 제한 없음)
-          </label>
-          <p className="mb-2 text-[11px] text-slate-500">
-            이 세션에서만 AI에게 전달되는 메모입니다.
-          </p>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={8}
-            placeholder="예: 내 캐릭터는 항상 존댓말을 쓴다."
-            className="w-full resize-none rounded-lg bg-surface px-3 py-2.5 text-sm outline-none"
-          />
-          <button
-            onClick={saveNote}
-            className="mt-2 w-full rounded-lg bg-brand py-2 text-sm font-semibold text-white"
-          >
-            유저 노트 저장
-          </button>
-        </section>
-
-        {user && <SessionPluginSettings session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
-
-        {/* 요약 메모리 */}
-        <section className="rounded-xl border border-surface2 p-3">
-          <h3 className="text-sm font-semibold text-slate-300">요약 메모리 설정</h3>
-          <div className="mt-3">
-            <p className="mb-1 text-xs text-slate-400">이 채팅방 요약 모델</p>
-            <ModelSelector provider="openrouter" model={session.summary_model_override || profile?.summary_model || profile?.default_model || sessionModel} reasoning={session.summary_reasoning_override ?? profile?.summary_reasoning ?? {}} onModelChange={(summary_model_override) => void saveSummarySettings({ summary_model_override })} onReasoningChange={(summary_reasoning_override) => void saveSummarySettings({ summary_reasoning_override })} favoritesOnly />
-            {session.summary_model_override && <button type="button" onClick={() => void saveSummarySettings({ summary_model_override: null })} className="mt-1 text-xs text-slate-400 underline">전역 모델 사용</button>}
-          </div>
-          <label className="mt-3 block text-xs text-slate-400">요약 입력 범위</label>
-          <select value={session.summary_source_mode_override ?? profile?.summary_source_mode ?? 'incremental'} onChange={(e) => void saveSummarySettings({ summary_source_mode_override: e.target.value as 'incremental' | 'full' })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none">
-            <option value="incremental">이전 요약 + 이후 메시지</option>
-            <option value="full">이전 요약 제외 + 세션 전체 메시지</option>
-          </select>
-          <label className="mt-3 block text-xs text-slate-400">요약 생성 기준 턴</label>
-          <input
-            type="number"
-            min={1}
-            max={Math.max(1, sessionTurnCount)}
-            value={summaryThroughTurn}
-            onChange={(event) => setSummaryThroughTurn(event.target.value === '' ? '' : Math.max(1, Math.min(sessionTurnCount, Number(event.target.value) || 1)))}
-            placeholder={`최신 (${sessionTurnCount}턴)`}
-            className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none"
-          />
-          <p className="mt-1 text-[11px] text-slate-500">비워 두면 최신 시점까지, 숫자를 입력하면 해당 턴까지만 요약합니다.</p>
-          <label className="mt-3 block text-xs text-slate-400">Summary level (0~10)</label>
-          <input type="number" min={0} max={10} value={session.summary_level_override ?? profile?.summary_level ?? 5} onChange={(e) => void saveSummarySettings({ summary_level_override: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface px-3 py-2 text-sm outline-none" />
-          <label className="mt-3 flex items-center justify-between text-xs text-slate-300"><span>Allow omission</span><input type="checkbox" checked={session.summary_allow_omission_override ?? profile?.summary_allow_omission ?? true} onChange={(e) => void saveSummarySettings({ summary_allow_omission_override: e.target.checked })} /></label>
-          <label className="mt-3 flex items-center justify-between text-xs text-slate-300"><span>요약 파라미터 함께 전송</span><input type="checkbox" disabled={!profile?.summary_prompt?.trim()} checked={session.summary_parameters_enabled_override ?? profile?.summary_parameters_enabled ?? true} onChange={(e) => void saveSummarySettings({ summary_parameters_enabled_override: e.target.checked })} /></label>
-          <button type="button" disabled={summaryGenerating || sessionTurnCount === 0} onClick={async () => { await onGenerateSummary(summaryThroughTurn === '' ? undefined : summaryThroughTurn); await loadSummaries(); }} className="mt-3 w-full rounded-lg bg-brand py-2 text-sm font-semibold text-white disabled:opacity-50">
-            {summaryGenerating ? '요약 생성 중…' : '지금 요약 노트 생성'}
-          </button>
-          <button type="button" onClick={() => void openSummaries()} className="mt-2 w-full rounded-lg bg-surface2 py-2 text-sm text-slate-200">요약 노트 보기</button>
-        </section>
-
-        <PromptCacheSettings key={session.id} session={session} model={sessionModel} turnCount={sessionTurnCount}
-          busy={sending || summaryGenerating} onUpdate={onUpdate} />
-
-        {summaryOpen && (
-          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4" onClick={() => setSummaryOpen(false)}>
-            <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-bg p-4" onClick={(event) => event.stopPropagation()}>
-              <div className="flex items-center"><h3 className="font-semibold text-white">요약 노트 기록</h3><button type="button" onClick={() => setSummaryOpen(false)} aria-label="요약 노트 기록 닫기" className="ml-auto text-slate-400"><InterfaceIcon name="close" /></button></div>
-              <div className="mt-3 flex flex-col gap-3">
-                <section className="rounded-xl border border-surface2 p-3">
-                  <h4 className="text-sm font-semibold text-slate-200">사용자 스토리 메모</h4>
-                  <p className="mt-1 text-[11px] text-slate-500">정식 요약과 별도로 요약 바로 아래에 항상 전송되며, 메시지 누적 범위에는 영향을 주지 않습니다.</p>
-                  <div className="mt-2 flex flex-col gap-2">{storyNotes.map((note) => <div key={note.id} className="rounded-lg bg-surface p-2"><p className="whitespace-pre-wrap text-xs text-slate-300">{note.content}</p><button type="button" onClick={() => void deleteStoryNote(note.id)} className="mt-1 text-[11px] text-red-400">삭제</button></div>)}</div>
-                  <textarea rows={4} value={storyNoteDraft} onChange={(event) => setStoryNoteDraft(event.target.value)} placeholder="호칭, 디테일 등 계속 전달할 메모" className="mt-2 w-full rounded-lg bg-surface p-2 text-xs outline-none" />
-                  <button type="button" onClick={() => void addStoryNote()} className="mt-2 w-full rounded-lg bg-surface2 py-2 text-xs text-white">스토리 메모 추가</button>
-                </section>
-                {summaryVersions.length > 0 && <div className="rounded-xl bg-surface p-3"><p className="text-xs text-amber-400">복수 노트 반영은 내용 중복이나 지시 충돌이 생길 수 있어 권장하지 않습니다.</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => void applySelectedSummaries()} className="flex-1 rounded-lg bg-surface2 py-2 text-xs text-white">선택 노트 반영</button><button type="button" disabled={selectedSummaryIds.length < 2 || summaryGenerating} onClick={async () => { await onMergeSummaries(summaryVersions.filter((v) => selectedSummaryIds.includes(v.id)).map((v) => v.content)); await loadSummaries(); }} className="flex-1 rounded-lg bg-brand py-2 text-xs text-white disabled:opacity-50">선택 노트 통합 생성</button></div></div>}
-                {summaryVersions.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">생성된 요약이 없습니다.</p> : summaryVersions.map((version) => (
-                  <article key={version.id} className={`rounded-xl border p-3 ${version.is_active ? 'border-emerald-500/50' : 'border-surface2 opacity-70'}`}>
-                    <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-500"><input type="checkbox" checked={selectedSummaryIds.includes(version.id)} onChange={(e) => setSelectedSummaryIds((ids) => e.target.checked ? [...ids, version.id] : ids.filter((id) => id !== version.id))} /><span>{new Date(version.created_at).toLocaleString('ko-KR')}</span><span>AI 요약 · {version.summarized_through_turn}턴 기준</span>{version.is_active && <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-emerald-400">전송 중</span>}</div>
-                    {editingSummary === version.id ? <><textarea rows={14} value={summaryDraft} onChange={(event) => setSummaryDraft(event.target.value)} className="w-full rounded-lg bg-surface p-3 text-xs outline-none"/><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={() => setEditingSummary(null)} className="text-xs text-slate-400">취소</button><button type="button" onClick={() => void saveSummary(version)} className="rounded bg-brand px-3 py-1.5 text-xs text-white">저장</button></div></> : <><pre className="whitespace-pre-wrap break-words text-xs text-slate-300">{version.content}</pre><div className="mt-2 flex gap-3"><button type="button" onClick={() => { setEditingSummary(version.id); setSummaryDraft(version.content); }} className="text-xs text-brand">편집</button><button type="button" onClick={() => void deleteSummary(version)} className="text-xs text-red-400">삭제</button></div></>}
-                  </article>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 응답별 크레딧 사용량 */}
-        <section>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-300">응답별 크레딧 사용량 보기</p>
-              <p className="text-xs text-slate-500">AI 응답 아래에 실제 비용과 전체 출력 토큰 표시</p>
-            </div>
-            <Toggle aria-label="응답별 크레딧 사용량 보기" checked={showCost} onChange={onShowCostToggle} />
-          </div>
-          <div className="mt-3 flex items-center justify-between border-t border-surface2 pt-3">
-            <div><p className="text-sm text-slate-300">소비 비용 원화로 표시</p><p className="text-[11px] text-slate-500">모든 채팅방에 적용 · 환율 {exchange.rate.toLocaleString('ko-KR')}</p></div>
-            <Toggle aria-label="소비 비용 원화로 표시" checked={showCostKrw} onChange={onShowCostKrwToggle} />
-          </div>
-        </section>
-
-        {/* OpenRouter prompt-cache usage */}
-        <section>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-300">캐시 토큰 보기</p>
-              <p className="text-xs text-slate-500">AI 응답 아래에 프롬프트 캐시 읽기·쓰기 표시</p>
-            </div>
-            <Toggle aria-label="캐시 토큰 보기" checked={showCacheTokens} onChange={onShowCacheTokensToggle} />
-          </div>
-          <p className="mt-2 text-[11px] text-slate-500">OpenRouter가 보고한 프롬프트 캐시 사용량만 표시합니다. 응답 캐시는 사용하지 않습니다.</p>
-        </section>
-
-        {/* Markdown images */}
-        <section>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-300">이미지 보기</p>
-              <p className="text-xs text-slate-500">끄면 마크다운 이미지를 흐린 링크로 표시</p>
-            </div>
-            <Toggle aria-label="마크다운 이미지 보기" checked={showImages} onChange={onShowImagesToggle} />
-          </div>
-        </section>
-
-        {/* 디버그 모드 */}
-        <section>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-300">디버그 모드</p>
-              <p className="text-xs text-slate-500">숨겨진 메시지를 채팅창에 표시</p>
-            </div>
-            <Toggle aria-label="디버그 모드" checked={debugMode} onChange={onDebugToggle} />
-          </div>
-        </section>
-
-        <section>
-          <button
-            type="button"
-            onClick={() => void onExportConversation()}
-            disabled={sending || exportingConversation}
-            aria-busy={exportingConversation}
-            className="w-full rounded-lg bg-surface2 px-3 py-2.5 text-sm font-semibold text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {exportingConversation ? '대화 추출 중…' : '대화 전체 추출'}
-          </button>
-          <p className="mt-1.5 text-xs text-slate-500">전체 대화를 TXT 파일로 다운로드합니다.</p>
-        </section>
-
-        {/* 에러 로그 */}
-        <section>
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setLogOpen((v) => !v)}
-              className="flex items-center gap-1.5 text-sm font-semibold text-slate-300"
-            >
-              <span>에러 로그</span>
-              {errorLog.length > 0 && (
-                <span className="rounded-full bg-red-500/80 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                  {errorLog.length}
-                </span>
-              )}
-              <span className="text-xs text-slate-500">{logOpen ? '▲' : '▼'}</span>
-            </button>
-            {errorLog.length > 0 && (
-              <button onClick={onClearErrors} className="text-xs text-slate-500 underline">
-                지우기
-              </button>
-            )}
-          </div>
-          {logOpen && (
-            <div className="mt-2 flex flex-col gap-2">
-              {errorLog.length === 0 ? (
-                <p className="text-xs text-slate-500">기록된 에러가 없습니다.</p>
-              ) : (
-                [...errorLog].reverse().map((e) => (
-                  <div key={e.id} className="rounded-lg border border-red-500/20 bg-surface p-2.5">
-                    <p className="text-[10px] text-slate-500">
-                      {new Date(e.at).toLocaleTimeString('ko-KR')}
-                    </p>
-                    <p className="mt-0.5 text-xs font-semibold text-red-400">{e.short}</p>
-                    {e.detail !== e.short && (
-                      <p className="mt-1 break-all text-[10px] text-slate-500">{e.detail}</p>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </section>
-
-        {savedMsg && (
-          <div className="toast-enter pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-4">
-            <div className="rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-lg">
-              {savedMsg}
-            </div>
-          </div>
-        )}
+  return <SessionMenuFrame subtitle={`${session.title || '채팅방'} · ${sessionTurnCount}턴`} onClose={onClose}>
+    <details className="inu-credit">
+      <summary><div><span className="inu-caption">OpenRouter 잔여 크레딧</span>
+        {!getApiKey('openrouter') ? <p className="inu-help">API 키를 설정하면 잔여 크레딧을 확인할 수 있습니다.</p>
+          : creditLoading ? <p className="inu-help">불러오는 중…</p>
+          : credit ? <strong>{credit.remaining === null ? '무제한' : `$${credit.remaining.toFixed(3)}`}<small>{credit.remaining === null ? '잔여' : `약 ${formatKrw(credit.remaining, exchange.rate)}`}</small></strong>
+          : <p className="inu-help">크레딧 정보를 불러올 수 없습니다.</p>}
+      </div><InterfaceIcon name="down" /></summary>
+      <div className="inu-credit-more">
+        {credit?.remaining != null && credit.limit != null && <>
+          <div className="inu-row"><span>총 충전 ${credit.limit.toFixed(3)}</span><span>{Math.round(credit.limit > 0 ? credit.remaining / credit.limit * 100 : 0)}% 남음</span></div>
+          <div className="inu-meter"><span style={{ width: `${Math.max(0, Math.min(100, credit.limit > 0 ? credit.remaining / credit.limit * 100 : 0))}%` }} /></div>
+        </>}
+        <div className="inu-row"><span>이 채팅방 사용</span><strong>${session.total_cost.toFixed(6)}<small>약 {formatKrw(session.total_cost, exchange.rate)}</small></strong></div>
+        <p className="inu-help">환율 1달러 = {exchange.rate.toLocaleString('ko-KR')}원{exchange.fallback ? ' · 폴백 환율' : ''}</p>
       </div>
-    </div>
-  );
+    </details>
+    <nav className="inu-tabs" role="tablist" aria-label="세션 설정 분류" onKeyDown={event => {
+      const current = tabs.findIndex(tab => tab.id === activeTab);
+      const next = event.key === 'ArrowRight' ? (current + 1) % tabs.length : event.key === 'ArrowLeft' ? (current + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
+      if (next >= 0) { event.preventDefault(); setActiveTab(tabs[next].id); document.getElementById(`session-tab-${tabs[next].id}`)?.focus(); }
+    }}>
+      {tabs.map(tab => <button key={tab.id} type="button" id={`session-tab-${tab.id}`} role="tab" aria-selected={activeTab === tab.id} aria-controls={`session-panel-${tab.id}`} onClick={() => setActiveTab(tab.id)}>{tab.label}</button>)}
+    </nav>
+    <main className="inu-main-scroll" ref={scrollRef}>
+      <div className="inu-content" id="session-panel-chat" role="tabpanel" aria-labelledby="session-tab-chat" hidden={activeTab !== 'chat'}>
+        <section className="inu-section">
+          <h3><InterfaceIcon name="my" />페르소나</h3>
+          <select aria-label="페르소나 선택" value={session.persona_id ?? ''} disabled={sending} onChange={event => void selectPersona(personas.find(item => item.id === event.target.value) ?? null)}>
+            <option value="">없음 · 페르소나 미사용</option>{personas.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+          {personas.find(item => item.id === session.persona_id) && <p className="inu-help">{personas.find(item => item.id === session.persona_id)?.description}</p>}
+          {personas.length === 0 && <p className="inu-help">My 탭에서 페르소나를 추가하세요.</p>}
+        </section>
+        {user && <SessionThemeSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
+        <section className="inu-section">
+          <div className="inu-row"><h3><InterfaceIcon name="note" />유저 노트</h3><span className="inu-help">{note.length.toLocaleString()}자 · 제한 없음</span></div>
+          <textarea aria-label="유저 노트" value={note} onChange={event => setNote(event.target.value)} rows={4} placeholder="이 채팅방에서 AI에게 전달할 메모" />
+          <div className="inu-note-footer"><span className="inu-help">{note !== session.user_note ? '저장하지 않은 변경사항' : '이 채팅방에만 전달됩니다.'}</span><button type="button" className="inu-button inu-primary" onClick={() => void saveNote()} disabled={noteSaving}>{noteSaving ? '저장 중…' : '노트 저장'}</button></div>
+        </section>
+        {user && <SessionPluginSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
+      </div>
+
+      <div className="inu-content" id="session-panel-ai" role="tabpanel" aria-labelledby="session-tab-ai" hidden={activeTab !== 'ai'}>
+        <section className="inu-section"><h3><InterfaceIcon name="model" />OpenRouter 모델</h3><ModelSelector drawer provider="openrouter" model={sessionModel} reasoning={sessionReasoning} onModelChange={onModelChange} onReasoningChange={onReasoningChange} favoritesOnly hideReasoning /></section>
+        <details className="inu-section inu-accordion" id="session-output-settings">
+          <summary><div><h3><InterfaceIcon name="output" />출력 설정</h3><p className="inu-summary">{outputLabel} · {reasoningLabel}<span className="inu-dot">·</span>{hasExplicitOverride ? '이 채팅방 설정' : '전역 기본값'}</p></div><InterfaceIcon name="down" /></summary>
+          <div className="inu-detail-body"><OutputSettingsEditor compact value={outputSettings} onChange={setOutputSettings} tokenLabel="이 채팅방 출력량" /><button type="button" className="inu-button inu-primary inu-full" onClick={() => void saveOverride()}>출력 저장</button><button type="button" className="inu-text-button" onClick={() => void resetOverride()}>기본값으로 되돌리기</button></div>
+        </details>
+        <PromptCacheSettings compact key={session.id} session={session} model={sessionModel} turnCount={sessionTurnCount} busy={sending || summaryGenerating} onUpdate={onUpdate} />
+      </div>
+
+      <div className="inu-content" id="session-panel-memory" role="tabpanel" aria-labelledby="session-tab-memory" hidden={activeTab !== 'memory'}>
+        <section className="inu-section">
+          <h3><InterfaceIcon name="memory" />요약 메모리</h3><p className="inu-field-label">이 채팅방 요약 모델</p>
+          <ModelSelector drawer displayLabel={!session.summary_model_override ? '전역 모델 사용' : undefined} provider="openrouter" model={session.summary_model_override || profile?.summary_model || profile?.default_model || sessionModel} reasoning={session.summary_reasoning_override ?? profile?.summary_reasoning ?? {}} onModelChange={summary_model_override => void saveSummarySettings({ summary_model_override })} onReasoningChange={summary_reasoning_override => void saveSummarySettings({ summary_reasoning_override })} favoritesOnly />
+          <button type="button" className="inu-text-button" onClick={() => void saveSummarySettings({ summary_model_override: null })}>전역 모델 사용</button>
+          <label htmlFor="session-summary-source" className="inu-field-label">요약 입력 범위</label>
+          <select id="session-summary-source" value={session.summary_source_mode_override ?? profile?.summary_source_mode ?? 'incremental'} onChange={event => void saveSummarySettings({ summary_source_mode_override: event.target.value as 'incremental' | 'full' })}><option value="incremental">이전 요약 + 이후 메시지</option><option value="full">이전 요약 제외 + 세션 전체 메시지</option></select>
+          <div className="inu-two-fields"><label className="inu-field-label">생성 기준 턴<input type="number" min={1} max={Math.max(1, sessionTurnCount)} value={summaryThroughTurn} onChange={event => setSummaryThroughTurn(event.target.value === '' ? '' : Math.max(1, Math.min(sessionTurnCount, Number(event.target.value) || 1)))} placeholder={`최신 · ${sessionTurnCount}턴`} /></label><label className="inu-field-label">Summary level<input type="number" min={0} max={10} value={session.summary_level_override ?? profile?.summary_level ?? 5} onChange={event => void saveSummarySettings({ summary_level_override: Math.max(0, Math.min(10, Number(event.target.value) || 0)) })} /></label></div>
+          <p className="inu-help">기준 턴을 비우면 최신까지 · 요약 수준 0~10</p>
+          <label className="inu-switch-row"><span>Allow omission <small>생략 허용</small></span><Toggle aria-label="요약 생략 허용" checked={session.summary_allow_omission_override ?? profile?.summary_allow_omission ?? true} onChange={summary_allow_omission_override => void saveSummarySettings({ summary_allow_omission_override })} /></label>
+          <label className="inu-switch-row"><span>요약 파라미터 함께 전송</span><Toggle aria-label="요약 파라미터 함께 전송" disabled={!profile?.summary_prompt?.trim()} checked={session.summary_parameters_enabled_override ?? profile?.summary_parameters_enabled ?? true} onChange={summary_parameters_enabled_override => void saveSummarySettings({ summary_parameters_enabled_override })} /></label>
+          <p className="inu-help">전역 요약 프롬프트를 설정했을 때 사용할 수 있어요.</p>
+          <button type="button" className="inu-button inu-primary inu-full" disabled={summaryGenerating || sessionTurnCount === 0} onClick={async () => { await onGenerateSummary(summaryThroughTurn === '' ? undefined : summaryThroughTurn); await loadSummaries(); }}><InterfaceIcon name="generate" />{summaryGenerating ? '요약 생성 중…' : '지금 요약 노트 생성'}</button>
+          <button type="button" className="inu-button inu-full" onClick={() => void openSummaries()}><InterfaceIcon name="history" />요약 노트 보기</button>
+        </section>
+      </div>
+
+      <div className="inu-content" id="session-panel-display" role="tabpanel" aria-labelledby="session-tab-display" hidden={activeTab !== 'display'}>
+        <section className="inu-section"><h3><InterfaceIcon name="visibility" />채팅 표시</h3>
+          <label className="inu-switch-row inu-tall"><span>응답별 크레딧 사용량<small>실제 비용과 전체 출력 토큰</small></span><Toggle aria-label="응답별 크레딧 사용량 보기" checked={showCost} onChange={onShowCostToggle} /></label>
+          <label className="inu-switch-row inu-tall"><span>소비 비용 원화로 표시<small>모든 채팅방에 적용 · 환율 {exchange.rate.toLocaleString('ko-KR')}원</small></span><Toggle aria-label="소비 비용 원화로 표시" checked={showCostKrw} onChange={onShowCostKrwToggle} /></label>
+          <label className="inu-switch-row inu-tall"><span>캐시 토큰 보기<small>OpenRouter 캐시 읽기·쓰기 토큰</small></span><Toggle aria-label="캐시 토큰 보기" checked={showCacheTokens} onChange={onShowCacheTokensToggle} /></label>
+          <label className="inu-switch-row inu-tall"><span>이미지 보기<small>끄면 이미지를 흐린 링크로 표시</small></span><Toggle aria-label="마크다운 이미지 보기" checked={showImages} onChange={onShowImagesToggle} /></label>
+          <label className="inu-switch-row inu-tall"><span>디버그 모드<small>숨겨진 메시지를 채팅창에 표시</small></span><Toggle aria-label="디버그 모드" checked={debugMode} onChange={onDebugToggle} /></label>
+        </section>
+        <section className="inu-section"><h3><InterfaceIcon name="download" />대화 내보내기</h3><button type="button" className="inu-button inu-full" onClick={() => void onExportConversation()} disabled={sending || exportingConversation} aria-busy={exportingConversation}><InterfaceIcon name="download" />{exportingConversation ? '대화 추출 중…' : '대화 전체 추출'}</button><p className="inu-help">전체 대화를 TXT로 다운로드 · 테마 태그 제외</p></section>
+        <details className="inu-section inu-accordion" open={logOpen} onToggle={event => setLogOpen(event.currentTarget.open)}><summary><h3><InterfaceIcon name="alert" />에러 로그{errorLog.length > 0 && <span className="inu-tag">{errorLog.length}</span>}</h3><InterfaceIcon name="down" /></summary><div className="inu-detail-body">{errorLog.length > 0 && <button type="button" className="inu-text-button inu-danger" onClick={onClearErrors}>로그 지우기</button>}{errorLog.length === 0 ? <p className="inu-help">기록된 에러가 없습니다.</p> : [...errorLog].reverse().map(error => <article key={error.id} className="inu-log"><small>{new Date(error.at).toLocaleTimeString('ko-KR')}</small><strong>{error.short}</strong>{error.detail !== error.short && <p>{error.detail}</p>}</article>)}</div></details>
+      </div>
+    </main>
+
+    {summaryOpen && <SessionMenuPage enabled title="요약 노트 기록" onBack={() => setSummaryOpen(false)}>
+      <div className="inu-summary-list">
+        <section className="inu-section"><h3>사용자 스토리 메모</h3><p className="inu-help">정식 요약 아래에 항상 전달돼요. 메시지 누적 범위는 바뀌지 않습니다.</p>{storyNotes.map(item => <article key={item.id} className="inu-active-item"><p>{item.content}</p><button type="button" className="inu-text-button inu-danger" onClick={() => void deleteStoryNote(item.id)}>삭제</button></article>)}<textarea rows={3} value={storyNoteDraft} onChange={event => setStoryNoteDraft(event.target.value)} aria-label="새 스토리 메모" placeholder="호칭, 디테일 등 계속 전달할 메모" /><button type="button" className="inu-button inu-full" onClick={() => void addStoryNote()}><InterfaceIcon name="plus" />스토리 메모 추가</button></section>
+        <section className="inu-section"><div className="inu-row"><h3>요약 노트 기록</h3><span className="inu-help">{summaryVersions.length}개</span></div><p className="inu-help">여러 노트를 반영하면 내용 중복이나 지시 충돌이 생길 수 있어요.</p>
+          {summaryVersions.length === 0 ? <p className="inu-help">생성된 요약이 없습니다.</p> : summaryVersions.map(version => <article key={version.id} className="inu-summary-item"><div className="inu-summary-meta"><label><input type="checkbox" checked={selectedSummaryIds.includes(version.id)} onChange={event => setSelectedSummaryIds(ids => event.target.checked ? [...ids, version.id] : ids.filter(id => id !== version.id))} aria-label={`${version.summarized_through_turn}턴 요약 선택`} /><time dateTime={version.created_at} title={new Date(version.created_at).toLocaleString('ko-KR')}>{new Date(version.created_at).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }).replace(/\s/g, '').replace(/\.$/, '')} {new Date(version.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}</time></label><span>AI 요약 · {version.summarized_through_turn}턴</span>{version.is_active && <span className="inu-tag">전송 중</span>}</div>
+            {editingSummary === version.id ? <><textarea rows={6} value={summaryDraft} onChange={event => setSummaryDraft(event.target.value)} aria-label="요약 노트 내용" /><div className="inu-item-actions"><button type="button" onClick={() => void saveSummary(version)}>저장</button><button type="button" onClick={() => setEditingSummary(null)}>취소</button></div></> : <><pre>{version.content}</pre><div className="inu-item-actions"><button type="button" onClick={() => { setEditingSummary(version.id); setSummaryDraft(version.content); }}>편집</button><button type="button" className="inu-danger" onClick={() => void deleteSummary(version)}>삭제</button></div></>}
+          </article>)}
+          {summaryVersions.length > 0 && <div className="inu-two-buttons"><button type="button" className="inu-button" onClick={() => void applySelectedSummaries()}>선택 노트 반영</button><button type="button" className="inu-button inu-primary" disabled={selectedSummaryIds.length < 2 || summaryGenerating} onClick={async () => { await onMergeSummaries(summaryVersions.filter(version => selectedSummaryIds.includes(version.id)).map(version => version.content)); await loadSummaries(); }}><InterfaceIcon name="merge" />통합 생성</button></div>}
+        </section>
+      </div>
+    </SessionMenuPage>}
+    {savedMsg && <div className="inu-feedback" role="status" aria-live="polite">{savedMsg}</div>}
+  </SessionMenuFrame>;
 }

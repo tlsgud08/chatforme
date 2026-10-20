@@ -1,4 +1,5 @@
 import InterfaceIcon from './InterfaceIcon';
+import { SessionMenuPage } from './SessionMenuFrame';
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -16,6 +17,8 @@ interface Props {
   onReasoningChange: (reasoning: ReasoningSelection) => void;
   favoritesOnly?: boolean;
   hideReasoning?: boolean;
+  drawer?: boolean;
+  displayLabel?: string;
 }
 
 const RELEASE_LABEL = { stable: 'Stable', preview: 'Preview', alias: 'Alias' } as const;
@@ -30,7 +33,7 @@ function vendorOf(modelId: string) {
   return modelId.split('/')[0].replace(/^~+/, '');
 }
 
-export default function ModelSelector({ provider, model, reasoning, onModelChange, onReasoningChange, favoritesOnly = false, hideReasoning = false }: Props) {
+export default function ModelSelector({ provider, model, reasoning, onModelChange, onReasoningChange, favoritesOnly = false, hideReasoning = false, drawer = false, displayLabel }: Props) {
   const [customInput, setCustomInput] = useState('');
   const [search, setSearch] = useState('');
   const [vendor, setVendor] = useState('전체');
@@ -108,24 +111,26 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
   }
 
   void revision;
+  const InfoContainer = drawer ? 'details' : 'div';
   return (
-    <div className="flex flex-col gap-2">
+    <div className={`flex flex-col gap-2 ${drawer ? 'inu-model-selector' : ''}`}>
       <label className="text-xs text-slate-400">모델</label>
       <button
         type="button"
         aria-expanded={browserOpen}
         onClick={() => setBrowserOpen((open) => !open)}
-        className="flex w-full items-center gap-3 rounded-lg bg-surface px-3 py-2.5 text-left"
+        className={drawer ? "inu-model" : "flex w-full items-center gap-3 rounded-lg bg-surface px-3 py-2.5 text-left"}
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-white">{currentCatalog?.name ?? capability.displayName}</span>
-          <span className="block truncate text-[11px] text-slate-500">{model}</span>
+          <span className="block truncate text-sm font-semibold text-white">{displayLabel ?? currentCatalog?.name ?? capability.displayName}</span>
+          <span className="block truncate text-[11px] text-slate-500">{drawer ? displayLabel ? currentCatalog?.name ?? capability.displayName : '즐겨찾기에서 선택' : model}</span>
         </span>
-        <span className="text-xs text-slate-400">{browserOpen ? '닫기 ▲' : '찾기 ▼'}</span>
+        <span className="text-xs text-slate-400">{drawer ? <InterfaceIcon name="down" /> : browserOpen ? '닫기 ▲' : '찾기 ▼'}</span>
       </button>
 
       {browserOpen && (
-        <div className="rounded-xl border border-surface2 bg-bg p-3">
+        <SessionMenuPage enabled={drawer} title="모델 선택" onBack={() => setBrowserOpen(false)}>
+        <div className={`rounded-xl border border-surface2 bg-bg p-3 ${drawer ? 'inu-model-browser' : ''}`}>
           <input
             type="search"
             value={search}
@@ -177,8 +182,11 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
             })}
           </div>
         </div>
+        </SessionMenuPage>
       )}
 
+      <InfoContainer className={drawer ? 'inu-small-details' : undefined}>
+      {drawer && <summary>모델 정보</summary>}
       <div className="rounded-lg border border-surface2 p-2.5 text-[11px] text-slate-400">
         <div className="flex flex-wrap gap-1.5">
           <span className="rounded bg-surface2 px-1.5 py-0.5">{RELEASE_LABEL[capability.release]}</span>
@@ -188,6 +196,9 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
         <p className="mt-1 break-all">ID: {capability.modelId}</p>
         {currentCatalog?.contextLength && <p>컨텍스트: {currentCatalog.contextLength.toLocaleString()} tokens</p>}
       </div>
+
+      {drawer && capability.notes?.map(note => <p key={note} className="inu-help">{note}</p>)}
+      </InfoContainer>
 
       {!favoritesOnly && <div className="flex gap-2">
         <input value={customInput} onChange={(event) => setCustomInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addModel(); } }} placeholder="OpenRouter 모델 ID 직접 입력" className="min-w-0 flex-1 rounded-lg bg-surface px-3 py-2.5 text-sm outline-none" />
@@ -207,7 +218,7 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
       ) : (
         <p className="text-[11px] text-slate-500">OpenRouter가 이 모델의 reasoning 지원을 보고하지 않았습니다.</p>
       ))}
-      {capability.notes?.map((note) => <p key={note} className="text-[11px] text-amber-500">{note}</p>)}
+      {!drawer && capability.notes?.map((note) => <p key={note} className="text-[11px] text-amber-500">{note}</p>)}
     </div>
   );
 }

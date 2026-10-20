@@ -56,6 +56,7 @@ function componentUri(name,extra={}){
   return uri(code);
 }
 baseImports['./InterfaceIcon']=componentUri('InterfaceIcon');
+baseImports['./SessionMenuFrame']=componentUri('SessionMenuFrame',{react:import.meta.resolve('react')});
 const buttonLabel = element => renderToStaticMarkup(element).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 const toggleUri=componentUri('Toggle');
 baseImports['./Toggle']=toggleUri;
@@ -498,3 +499,26 @@ for(const [override,preference,stored,expected] of [[null,'light','dark','light'
 }
 delete globalThis.__capturedEffects;delete globalThis.__themeResponse;
 console.log('Optional day/night UI → save → rendering: independent checkbox, exact palettes, global preference and fixed-mode preservation OK');
+
+// The approved compact drawer must keep the same preference and cache semantics.
+for(const selected of [single,dual]){
+ const room={...fluid,theme_id:selected.id,theme_day_night_enabled:false};
+ globalThis.__sessionResponse=room;
+ globalThis.__profileResponse={preferred_theme_mode:'custom',preferred_theme_id:'kept-global-theme',preferred_theme_variant:'light'};
+ let updated;
+ const view=tree(SessionThemeSettings,{compact:true,session:room,userId:'owner',onUpdate:patch=>updated=patch},[selected,false,'global',false,null,'custom','light',false]);
+ const night=elements(view).find(el=>el.props['aria-label']==='다크 버전을 밤 테마로 사용');
+ assert.equal(night.props.disabled,false);
+ await night.props.onChange(true);await flush();
+ assert.equal(updated.theme_day_night_enabled,true);
+ const before=writes.length;
+ await elements(view).find(el=>el.type==='button'&&buttonLabel(el)==='다크').props.onClick();await flush();
+ assert(writes.slice(before).some(write=>write.table==='profiles'&&write.patch.preferred_theme_variant==='dark'));
+ assert.equal(globalThis.__profileResponse.preferred_theme_mode,'custom');
+ assert.equal(globalThis.__profileResponse.preferred_theme_id,'kept-global-theme');
+ const fixed=tree(SessionThemeSettings,{compact:true,session:{...room,theme_override:'custom'},userId:'owner',onUpdate:()=>{}},[selected,false,'global',false,null,'custom','light',false]);
+ assert.equal(elements(fixed).filter(el=>el.type==='button'&&['라이트','다크'].includes(buttonLabel(el))).length,theme.bothVariants(selected)?2:0);
+ const busy=tree(SessionThemeSettings,{compact:true,busy:true,session:room,userId:'owner',onUpdate:()=>assert.fail('busy drawer wrote')},[selected,false,'global',false,null,'custom','light',false]);
+ assert.equal(elements(busy).find(el=>el.type==='button'&&buttonLabel(el)==='커스텀').props.disabled,true);
+}
+console.log('Compact session drawer: global palette identity, light/dark and single/dual choices, night gate and busy guards preserved OK');

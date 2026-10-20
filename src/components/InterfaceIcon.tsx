@@ -1,4 +1,5 @@
 import {
+  NotebookPen, NotebookText, Puzzle, Cpu, Database, Eye, Download, History, GitMerge, Sparkles, CircleAlert,
   ArrowLeft, ArrowUp, ArrowUpRight, BookOpen, Camera, Check, ChevronDown, ChevronRight,
   CircleDollarSign, Crown, TriangleAlert, FileText, GitBranch, Heart, KeyRound, Menu, MessageCircle, MoreHorizontal,
   Palette, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Save, Search, Settings,
@@ -7,6 +8,7 @@ import {
 
 // Share the same tree-shakable SVG icons across both interface designs.
 const icons = {
+  note: NotebookPen, memory: NotebookText, plugin: Puzzle, model: Cpu, cache: Database, visibility: Eye, download: Download, history: History, merge: GitMerge, generate: Sparkles, alert: CircleAlert,
   back: ArrowLeft, send: ArrowUp, external: ArrowUpRight, works: BookOpen, camera: Camera,
   check: Check, down: ChevronDown, next: ChevronRight, cost: CircleDollarSign, summary: FileText,
   branch: GitBranch, heart: Heart, key: KeyRound, menu: Menu, chat: MessageCircle,
