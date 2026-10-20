@@ -275,7 +275,7 @@ export default function SessionMenu({
       >
         <div className="flex items-center">
           <h2 className="font-semibold text-white">세션 메뉴</h2>
-          <button onClick={onClose} aria-label="세션 메뉴 닫기" className="ml-auto text-slate-400"><InterfaceIcon name="close" legacy="✕" /></button>
+          <button onClick={onClose} aria-label="세션 메뉴 닫기" className="ml-auto text-slate-400"><InterfaceIcon name="close" /></button>
         </div>
 
         {/* 크레딧 */}
@@ -441,7 +441,7 @@ export default function SessionMenu({
         {summaryOpen && (
           <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4" onClick={() => setSummaryOpen(false)}>
             <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-bg p-4" onClick={(event) => event.stopPropagation()}>
-              <div className="flex items-center"><h3 className="font-semibold text-white">요약 노트 기록</h3><button type="button" onClick={() => setSummaryOpen(false)} aria-label="요약 노트 기록 닫기" className="ml-auto text-slate-400"><InterfaceIcon name="close" legacy="✕" /></button></div>
+              <div className="flex items-center"><h3 className="font-semibold text-white">요약 노트 기록</h3><button type="button" onClick={() => setSummaryOpen(false)} aria-label="요약 노트 기록 닫기" className="ml-auto text-slate-400"><InterfaceIcon name="close" /></button></div>
               <div className="mt-3 flex flex-col gap-3">
                 <section className="rounded-xl border border-surface2 p-3">
                   <h4 className="text-sm font-semibold text-slate-200">사용자 스토리 메모</h4>

@@ -22,7 +22,7 @@ export default function WorkPosterCard({ work, className = '', isFavorited, onFa
           onClick={event => onFavoriteToggle(work.id, event)}
           className="work-poster-favorite absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-base leading-none"
           aria-label={`${work.title || '작품'} 하트 ${isFavorited ? '취소' : '추가'}`} aria-pressed={!!isFavorited}>
-          <InterfaceIcon name="heart" filled={isFavorited} legacy={isFavorited ? '❤️' : '🤍'} />
+          <InterfaceIcon name="heart" filled={isFavorited} />
         </button>}
       </div>
       <Link to={`/works/${work.id}`} className="work-poster-title mt-1.5 line-clamp-2 text-sm font-semibold leading-tight text-white">{work.title || '(제목 없음)'}</Link>

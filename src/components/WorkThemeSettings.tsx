@@ -35,7 +35,7 @@ export default function WorkThemeSettings({userId,workId,themeId,variant,onChang
     </div>
     {selected&&!bothVariants(selected)&&<p className="mt-2 text-xs text-slate-400">단일 테마 · 라이트·다크 설정에 관계없이 같은 색상으로 표시됩니다.</p>}
     {selected&&bothVariants(selected)&&<div className="mt-3 grid grid-cols-2 gap-2">
-      {(['light','dark']as const).map(v=><button key={v} type="button" aria-pressed={(variant??'light')===v} onClick={()=>onChange(themeId!,v)} className={`rounded-lg px-3 py-2 text-xs ${(variant??'light')===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}><InterfaceIcon name={v==='dark'?'moon':'sun'} legacy={v==='dark'?'🌙':'☀️'} /> {v==='dark'?'다크':'라이트'}</button>)}
+      {(['light','dark']as const).map(v=><button key={v} type="button" aria-pressed={(variant??'light')===v} onClick={()=>onChange(themeId!,v)} className={`rounded-lg px-3 py-2 text-xs ${(variant??'light')===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}><InterfaceIcon name={v==='dark'?'moon':'sun'} /> {v==='dark'?'다크':'라이트'}</button>)}
     </div>}
     {themeId&&<button type="button" onClick={()=>onChange(null,null)} className="mt-2 text-xs text-slate-400 underline">작품 기본 테마 해제</button>}
     {show&&<div className="mt-3 rounded-lg border border-surface2">

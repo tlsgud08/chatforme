@@ -5,7 +5,7 @@ import {
   Shield, SlidersHorizontal, Square, Star, Sun, Moon, SunMoon, Trash2, UserRound, Users, X,
 } from 'lucide-react';
 
-// Static imports keep the icon set tree-shakable. Legacy keeps its original glyphs.
+// Share the same tree-shakable SVG icons across both interface designs.
 const icons = {
   back: ArrowLeft, send: ArrowUp, external: ArrowUpRight, works: BookOpen, camera: Camera,
   check: Check, down: ChevronDown, next: ChevronRight, cost: CircleDollarSign, summary: FileText,
@@ -17,12 +17,9 @@ const icons = {
 };
 export type InterfaceIconName = keyof typeof icons;
 
-export default function InterfaceIcon({ name, legacy, filled = false }: {
-  name: InterfaceIconName; legacy?: string; filled?: boolean;
+export default function InterfaceIcon({ name, filled = false }: {
+  name: InterfaceIconName; filled?: boolean;
 }) {
   const Icon = icons[name];
-  return <>
-    <Icon className="interface-icon" size={17} strokeWidth={1.7} aria-hidden="true" fill={filled ? 'currentColor' : 'none'} />
-    {legacy && <span className="interface-legacy-icon" aria-hidden="true">{legacy}</span>}
-  </>;
+  return <Icon className="interface-icon" size={17} strokeWidth={1.7} aria-hidden="true" fill={filled ? 'currentColor' : 'none'} />;
 }

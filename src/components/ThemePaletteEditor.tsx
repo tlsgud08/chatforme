@@ -105,7 +105,7 @@ export default function ThemePaletteEditor({ variant, palette, onChange }: {
   const defaults = variant === 'dark' ? DEFAULT_DARK : DEFAULT_LIGHT;
   return <section className="theme-palette-editor">
     <div className="theme-palette-heading">
-      <InterfaceIcon name={variant === 'single' ? 'palette' : variant === 'dark' ? 'moon' : 'sun'} legacy={variant === 'single' ? '🎨' : variant === 'dark' ? '🌙' : '☀️'} /> {variant === 'single' ? '테마 색상' : variant === 'dark' ? '다크 버전' : '라이트 버전'}
+      <InterfaceIcon name={variant === 'single' ? 'palette' : variant === 'dark' ? 'moon' : 'sun'} /> {variant === 'single' ? '테마 색상' : variant === 'dark' ? '다크 버전' : '라이트 버전'}
     </div>
     {palette && <PaletteFields palette={palette} defaults={defaults} onChange={onChange} />}
   </section>;

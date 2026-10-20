@@ -120,7 +120,7 @@ export default function ThemePreferences({ userId }: { userId: string }) {
             onClick={() => changeMode(mode)}
             className={`theme-mode-button rounded-lg px-2 py-2.5 text-xs font-semibold ${currentMode === mode ? 'bg-brand text-white' : 'text-slate-400'}`}
           >
-            <InterfaceIcon name={mode === 'dark' ? 'moon' : mode === 'light' ? 'sun' : 'palette'} legacy={mode === 'dark' ? '🌙' : mode === 'light' ? '☀️' : '🎨'} /> {mode === 'dark' ? '다크' : mode === 'light' ? '라이트' : '커스텀'}
+            <InterfaceIcon name={mode === 'dark' ? 'moon' : mode === 'light' ? 'sun' : 'palette'} /> {mode === 'dark' ? '다크' : mode === 'light' ? '라이트' : '커스텀'}
           </button>
         )}
       </div>
@@ -150,7 +150,7 @@ export default function ThemePreferences({ userId }: { userId: string }) {
               onClick={() => void update({ preferred_theme_variant: variant })}
               className={`rounded-lg px-3 py-2 text-xs ${pref.preferred_theme_variant === variant ? 'bg-brand text-white' : 'bg-surface2 text-slate-400'}`}
             >
-              <InterfaceIcon name={variant === 'dark' ? 'moon' : 'sun'} legacy={variant === 'dark' ? '🌙' : '☀️'} /> {variant === 'dark' ? '다크' : '라이트'}
+              <InterfaceIcon name={variant === 'dark' ? 'moon' : 'sun'} /> {variant === 'dark' ? '다크' : '라이트'}
             </button>
           )}
         </div>

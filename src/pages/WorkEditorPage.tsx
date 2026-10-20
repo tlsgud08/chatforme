@@ -386,7 +386,7 @@ export default function WorkEditorPage() {
   return (
     <div className="work-editor flex h-full flex-col">
       <div className="work-editor-header flex items-center gap-2 px-4 py-3">
-        <button onClick={() => void confirmLeave().then((leave) => leave && navigate('/create'))} aria-label="제작 목록으로" className="editor-back text-sm text-slate-400"><InterfaceIcon name="back" legacy="←" /><span> 목록</span></button>
+        <button onClick={() => void confirmLeave().then((leave) => leave && navigate('/create'))} aria-label="제작 목록으로" className="editor-back text-sm text-slate-400"><InterfaceIcon name="back" /><span> 목록</span></button>
         <ModernPageHeading title={work.title || '제목 없는 작품'} description="작품 편집" />
         {isAdmin && !isCreator && <span className="editor-admin-badge rounded-full bg-brand/20 px-2 py-1 text-[11px] text-brand">운영자 편집</span>}
         <button
@@ -494,7 +494,7 @@ export default function WorkEditorPage() {
           <div>
             <div className="mb-2 flex items-center justify-between">
               <p className="text-xs text-slate-400">
-                {work.main_prompt.length > 6000 ? <><InterfaceIcon name="warning" legacy="⚠️" /> 6000자 권장 초과</> : '6000자 이내 권장 (제한 없음)'}
+                {work.main_prompt.length > 6000 ? <><InterfaceIcon name="warning" /> 6000자 권장 초과</> : '6000자 이내 권장 (제한 없음)'}
               </p>
               <span className={`text-[11px] ${work.main_prompt.length > 6000 ? 'text-amber-400' : 'text-slate-500'}`}>
                 {characterCount(work.main_prompt, 6000)}
@@ -552,7 +552,7 @@ export default function WorkEditorPage() {
                         title={cfg.is_default ? '기본 설정' : '기본으로 설정'}
                         className={`text-base leading-none ${cfg.is_default ? 'text-brand' : 'text-slate-600'}`}
                       >
-                        <InterfaceIcon name="star" filled={cfg.is_default} legacy={cfg.is_default ? '★' : '☆'} />
+                        <InterfaceIcon name="star" filled={cfg.is_default} />
                       </button>
                       <button onClick={() => deleteStartConfig(cfg.id)} className="text-xs text-red-400">삭제</button>
                     </div>
@@ -677,7 +677,7 @@ export default function WorkEditorPage() {
                             onClick={() => patchKeyword(kb.id, { keywords: kb.keywords.filter((_, i) => i !== ki) })}
                             aria-label={`${kw} 키워드 제거`}
                             className="ml-0.5 text-slate-400 hover:text-white"
-                          ><InterfaceIcon name="close" legacy="✕" /></button>
+                          ><InterfaceIcon name="close" /></button>
                         </span>
                       ))}
                       {kwCount < 5 && (

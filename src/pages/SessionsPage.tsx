@@ -162,7 +162,7 @@ export default function SessionsPage() {
           onClick={() => setMenuId((id) => id === target.id ? null : target.id)}
           className="px-3 py-3 text-xl leading-none text-slate-400 active:text-white"
         >
-          <InterfaceIcon name="more" legacy="⋯" />
+          <InterfaceIcon name="more" />
         </button>
         {menuId === target.id && (
           <div className="absolute right-2 top-11 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">

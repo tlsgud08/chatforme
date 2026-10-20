@@ -65,7 +65,7 @@ export default function MultichatCreatePage() {
   }
 
   return <div className="multichat-create-page mx-auto max-w-lg p-5">
-    <button onClick={() => navigate('/sessions')} className="mb-5 text-sm text-slate-400"><InterfaceIcon name="back" legacy="←" /> 채팅방</button>
+    <button onClick={() => navigate('/sessions')} className="mb-5 text-sm text-slate-400"><InterfaceIcon name="back" /> 채팅방</button>
     <h1 className="text-xl font-bold text-white">멀티챗 만들기</h1>
     <p className="mt-1 text-sm text-slate-400">정확히 두 명이 user1, user2가 되어 함께 AI와 대화합니다.</p>
     <form onSubmit={create} className="mt-6 space-y-4">

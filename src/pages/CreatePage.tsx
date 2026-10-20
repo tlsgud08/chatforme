@@ -138,7 +138,7 @@ export default function CreatePage() {
         onClick={createWork}
         className="create-work-button mb-4 w-full rounded-lg bg-brand py-3 font-semibold text-white"
       >
-        <InterfaceIcon name="plus" legacy="+" /> 새 작품 만들기
+        <InterfaceIcon name="plus" /> 새 작품 만들기
       </button>
 
       {isLoading ? (
@@ -164,7 +164,7 @@ export default function CreatePage() {
                 </div>
               </Link>
               <Link to={`/works/${w.id}`} aria-label={`${w.title || '작품'} 미리보기`} className="px-3 py-3 text-slate-500 active:text-white">
-                <InterfaceIcon name="external" legacy="↗" />
+                <InterfaceIcon name="external" />
               </Link>
               {(w.creator_id === user?.id || isAdmin) && <button
                 type="button"
@@ -173,7 +173,7 @@ export default function CreatePage() {
                 onClick={() => setMenuId((id) => id === w.id ? null : w.id)}
                 className="px-3 py-3 text-xl leading-none text-slate-400 active:text-white"
               >
-                <InterfaceIcon name="more" legacy="⋯" />
+                <InterfaceIcon name="more" />
               </button>}
               {menuId === w.id && (
                 <div className="absolute right-3 top-12 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">

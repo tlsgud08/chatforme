@@ -194,7 +194,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
         {(['light','dark']as const).map(v=><button key={v} type="button" disabled={busy||saving||siteSaving}
           aria-pressed={shownVariant===v} onClick={()=>void chooseSiteTheme(v)}
           className={`rounded-lg px-3 py-2 text-xs ${shownVariant===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>
-          <InterfaceIcon name={v==='light'?'sun':'moon'} legacy={v==='light'?'☀️':'🌙'} /> {v==='light'?'라이트':'다크'}
+          <InterfaceIcon name={v==='light'?'sun':'moon'} /> {v==='light'?'라이트':'다크'}
         </button>)}
       </div>
       <p className="mt-2 text-xs text-slate-500">{appliedSingle?'현재 화면은 단일 테마입니다. 라이트·다크는 이후 두 버전이 있는 테마에 사용할 사이트 전역 설정이며, 단일 테마의 색상은 바뀌지 않습니다.':'선택 표시는 현재 화면에 적용된 라이트·다크를 따릅니다. 버튼을 누르면 사이트 전역 설정도 함께 변경됩니다.'} 유동적 선택 자체는 현재 화면을 바꾸지 않으며, AI가 테마를 바꾸어도 유동적 모드는 유지됩니다.</p>
@@ -208,7 +208,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
       {(['light','dark']as const).map(v=>
         <button key={v} disabled={busy||saving} aria-pressed={variant===v} onClick={()=>void save(mode==='custom'?'custom':'builtin',mode==='custom'?session.theme_id??null:null,v)}
           className={`rounded-lg px-3 py-2 text-xs ${variant===v?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>
-          <InterfaceIcon name={v==='dark'?'moon':'sun'} legacy={v==='dark'?'🌙':'☀️'} /> {v==='dark'?'다크':'라이트'}
+          <InterfaceIcon name={v==='dark'?'moon':'sun'} /> {v==='dark'?'다크':'라이트'}
         </button>)}
     </div>}
     {mode==='custom'&&!open&&<p className="mt-2 text-xs text-slate-500">{theme&&!bothVariants(theme)?'단일 테마 · 라이트·다크 설정에 관계없이 같은 색상으로 표시됩니다.':'이 모드에서는 선택한 테마와 라이트·다크를 고정합니다.'}</p>}

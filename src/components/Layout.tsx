@@ -1,12 +1,13 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { canLeaveCurrentPage } from '@/lib/navigationGuard';
+import InterfaceIcon, { type InterfaceIconName } from './InterfaceIcon';
 
-const TABS = [
-  { to: '/works', label: '작품', icon: '📚' },
-  { to: '/sessions', label: '채팅방', icon: '💬' },
-  { to: '/create', label: '제작', icon: '✏️' },
-  { to: '/settings', label: '설정', icon: '⚙️' },
-  { to: '/my', label: 'My', icon: '👤' },
+const TABS: { to: string; label: string; icon: InterfaceIconName }[] = [
+  { to: '/works', label: '작품', icon: 'works' },
+  { to: '/sessions', label: '채팅방', icon: 'chat' },
+  { to: '/create', label: '제작', icon: 'edit' },
+  { to: '/settings', label: '설정', icon: 'settings' },
+  { to: '/my', label: 'My', icon: 'my' },
 ];
 
 export default function Layout() {
@@ -25,9 +26,9 @@ export default function Layout() {
         </button>
         <button
           onClick={() => void guardedNavigate('/search')}
-          className="app-header-search ml-auto flex-1 rounded-full bg-surface px-4 py-2 text-left text-sm text-slate-400"
+          className="app-header-search ml-auto flex min-w-0 flex-1 items-center gap-2 rounded-full bg-surface px-4 py-2 text-left text-sm text-slate-400"
         >
-          🔍 작품·유저 검색…
+          <InterfaceIcon name="search" /> 작품·유저 검색…
         </button>
       </header>
 
@@ -52,7 +53,7 @@ export default function Layout() {
               }`
             }
           >
-            <span className="text-xl">{t.icon}</span>
+            <span className="flex h-7 items-center"><InterfaceIcon name={t.icon} /></span>
             {t.label}
           </NavLink>
         ))}

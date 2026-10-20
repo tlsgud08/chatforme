@@ -184,7 +184,7 @@ export default function MyPage() {
             )}
           </div>
           <div className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full bg-surface2 text-xs shadow">
-            <InterfaceIcon name="camera" legacy="📷" />
+            <InterfaceIcon name="camera" />
           </div>
           {avatarUploading && (
             <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
@@ -267,9 +267,9 @@ export default function MyPage() {
               onClick={() => navigate('/favorites')}
               className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
             >
-              <span className="text-xl"><InterfaceIcon name="heart" legacy="❤️" /></span>
+              <span className="text-xl"><InterfaceIcon name="heart" /></span>
               <span className="flex-1 text-sm text-white">하트 목록</span>
-              <span className="text-slate-500"><InterfaceIcon name="next" legacy="›" /></span>
+              <span className="text-slate-500"><InterfaceIcon name="next" /></span>
             </button>
           </li>
         </ul>
@@ -367,14 +367,14 @@ export default function MyPage() {
                 </div>
                 {!p.is_default && (
                   <button onClick={() => setDefaultPersona(p.id)} title="기본으로 설정" className="shrink-0 px-1 text-slate-600 text-base leading-none">
-                    <InterfaceIcon name="star" legacy="☆" />
+                    <InterfaceIcon name="star" />
                   </button>
                 )}
                 <button onClick={() => { setEditingPersona(p); setShowAddForm(false); }} aria-label={`${p.name} 편집`} className="shrink-0 px-1 text-slate-400">
-                  <InterfaceIcon name="edit" legacy="✏️" />
+                  <InterfaceIcon name="edit" />
                 </button>
                 <button onClick={() => deletePersona(p.id)} aria-label={`${p.name} 삭제`} className="shrink-0 px-1 text-red-400">
-                  <InterfaceIcon name="delete" legacy="✕" />
+                  <InterfaceIcon name="delete" />
                 </button>
               </li>
             )

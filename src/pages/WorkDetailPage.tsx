@@ -202,7 +202,7 @@ export default function WorkDetailPage() {
 
   return (
     <div className="work-detail-page p-4">
-      <button onClick={() => navigate(-1)} className="mb-3 text-sm text-slate-400"><InterfaceIcon name="back" legacy="←" /> 뒤로</button>
+      <button onClick={() => navigate(-1)} className="mb-3 text-sm text-slate-400"><InterfaceIcon name="back" /> 뒤로</button>
       <div className="work-detail-grid">
       <div className="work-detail-cover mx-auto aspect-[2/3] w-full max-w-[240px] overflow-hidden rounded-xl bg-surface2">
         {work.thumbnail_url ? <img src={work.thumbnail_url} alt="" className="h-full w-full object-cover" /> : <div className="poster-fallback modern-only" aria-hidden="true"><small>작품</small><strong>{work.title || '(제목 없음)'}</strong></div>}
@@ -220,7 +220,7 @@ export default function WorkDetailPage() {
               onClick={() => setMenuOpen((open) => !open)}
               className="px-2 text-2xl leading-none text-slate-400 active:text-white"
             >
-              <InterfaceIcon name="more" legacy="⋯" />
+              <InterfaceIcon name="more" />
             </button>
             {menuOpen && (
               <div className="absolute right-0 top-8 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">
@@ -250,13 +250,13 @@ export default function WorkDetailPage() {
             className="shrink-0 text-2xl leading-none"
             aria-label="하트"
           >
-            <InterfaceIcon name="heart" filled={isFavorited} legacy={isFavorited ? '❤️' : '🤍'} />
+            <InterfaceIcon name="heart" filled={isFavorited} />
           </button>
         )}
       </div>
 
       <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
-        <span><InterfaceIcon name="heart" legacy="❤️" /> {formatCount(favoriteCount)}</span>
+        <span><InterfaceIcon name="heart" /> {formatCount(favoriteCount)}</span>
       </div>
 
       <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">{work.description}</p>
