@@ -1237,14 +1237,14 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full min-h-0 max-w-app flex-col bg-bg">
-      <header className="flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
+    <div className="chat-page mx-auto flex h-full min-h-0 max-w-app flex-col bg-bg">
+      <header className="chat-header flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
         <button onClick={() => navigate('/sessions')} className="text-slate-400">←</button>
         <button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 flex-1 text-left">
           <p className="truncate text-sm font-semibold text-white">{currentSession.title || work.title}</p>
 
         </button>
-        <button onClick={() => setMenuOpen(true)} className="px-2 text-xl text-slate-300">☰</button>
+        <button onClick={() => setMenuOpen(true)} aria-label="세션 메뉴 열기" className="px-2 text-xl text-slate-300">☰</button>
       </header>
 
       {toastError && (
@@ -1258,11 +1258,11 @@ export default function ChatPage() {
         const element = event.currentTarget;
         shouldAutoScrollRef.current = isNearScrollBottom(element);
         if (element.scrollTop <= 80) revealOlderMessages();
-      }} className="w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
+      }} className="chat-scroll w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
         )}
-        <div className="flex w-full flex-col gap-3">
+        <div className="chat-message-list flex w-full flex-col gap-3">
           {hasOlderDisplayMessages && (
             <div ref={olderMessagesSentinelRef} className="py-1 text-center text-xs text-slate-500" aria-live="polite">
               <button type="button" onClick={revealOlderMessages} disabled={loadingOlderMessages} className="disabled:opacity-60">
@@ -1346,12 +1346,12 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {selectedCommand && <div className="flex shrink-0 items-center gap-2 border-t border-surface2 bg-brand/10 px-3 py-2 text-sm">
+      {selectedCommand && <div className="chat-command-banner flex shrink-0 items-center gap-2 border-t border-surface2 bg-brand/10 px-3 py-2 text-sm">
         <span className="font-semibold text-brand">/{selectedCommand.name}</span>
         <span className="min-w-0 flex-1 truncate text-xs text-slate-400">{selectedCommand.description}</span>
         <button onClick={() => setSelectedCommand(null)} aria-label="선택한 명령어 해제" className="text-slate-500">×</button>
       </div>}
-      <div className="flex shrink-0 items-end gap-2 border-t border-surface2 p-2">
+      <div className="chat-composer flex shrink-0 items-end gap-2 border-t border-surface2 p-2">
         <button onClick={() => setCommandMenuOpen(true)} aria-label="명령어 메뉴 열기" className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-semibold ${selectedCommand ? 'bg-brand text-white' : 'bg-surface text-slate-400'}`}>/</button>
         <textarea
           value={input}

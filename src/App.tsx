@@ -8,6 +8,7 @@ import SetupNotice from './components/SetupNotice';
 import AppToast from './components/AppToast';
 import AppConfirmDialog from './components/AppConfirmDialog';
 import ThemeManager from './components/ThemeManager';
+import InterfaceFrame from './components/InterfaceFrame';
 
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const WorksPage = lazy(() => import('./pages/WorksPage'));
@@ -45,6 +46,7 @@ export default function App() {
     <ThemeManager />
     <PageLoadBoundary resetKey={location.pathname}>
     <Suspense fallback={fallback}>
+    <InterfaceFrame>
     <Routes>
       {/* 로그인 화면 (CreatePage에서 로그인 유도 시 이동) */}
       <Route path="/login" element={<LoginPage />} />
@@ -70,6 +72,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/works" replace />} />
       </Route>
     </Routes>
+    </InterfaceFrame>
     </Suspense>
     </PageLoadBoundary>
   </>);

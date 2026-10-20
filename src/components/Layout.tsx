@@ -17,27 +17,27 @@ export default function Layout() {
   }
 
   return (
-    <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
-      <header className="flex items-center gap-2 border-b border-surface2 px-4 py-3">
-        <button onClick={() => void guardedNavigate('/works')} className="flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand" aria-label="Inuchat 홈으로 이동">
+    <div className="app-layout mx-auto flex h-full max-w-app flex-col bg-bg">
+      <header className="app-header flex items-center gap-2 border-b border-surface2 px-4 py-3">
+        <button onClick={() => void guardedNavigate('/works')} className="app-header-home flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand" aria-label="Inuchat 홈으로 이동">
           <img src="/logo-128.png" alt="" className="h-8 w-8 rounded-full object-cover" />
           <span className="text-lg font-bold text-white">Inuchat</span>
         </button>
         <button
           onClick={() => void guardedNavigate('/search')}
-          className="ml-auto flex-1 rounded-full bg-surface px-4 py-2 text-left text-sm text-slate-400"
+          className="app-header-search ml-auto flex-1 rounded-full bg-surface px-4 py-2 text-left text-sm text-slate-400"
         >
           🔍 작품·유저 검색…
         </button>
       </header>
 
       {/* 본문 */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="app-main min-h-0 flex-1 overflow-y-auto">
         <Outlet />
       </main>
 
       {/* 하단 탭바 */}
-      <nav className="grid grid-cols-5 border-t border-surface2 bg-bg">
+      <nav className="app-bottom-tabs grid grid-cols-5 border-t border-surface2 bg-bg" aria-label="주요 화면">
         {TABS.map((t) => (
           <NavLink
             key={t.to}

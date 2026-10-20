@@ -130,7 +130,7 @@ export default function CreatePage() {
   }
 
   return (
-    <div className="p-4">
+    <div className="create-page p-4">
       <button
         onClick={createWork}
         className="mb-4 w-full rounded-lg bg-brand py-3 font-semibold text-white"

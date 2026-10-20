@@ -7,6 +7,7 @@ import { discoverOpenRouterModels } from '@/lib/llm/modelDiscovery';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, saveDefaultReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import ModelSelector from '@/components/ModelSelector';
 import ThemePreferences from '@/components/ThemePreferences';
+import InterfacePreferences from '@/components/InterfacePreferences';
 import type { Profile, Provider } from '@/types/db';
 import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/OutputSettingsEditor';
@@ -218,7 +219,8 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-4">
+    <div className="settings-page flex flex-col gap-6 p-4">
+      <InterfacePreferences />
       {/* 계정 동기화 테마 */}
       <ThemePreferences userId={user!.id}/>
 

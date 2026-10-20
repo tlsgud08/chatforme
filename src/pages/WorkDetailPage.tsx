@@ -200,13 +200,15 @@ export default function WorkDetailPage() {
   }
 
   return (
-    <div className="p-4">
+    <div className="work-detail-page p-4">
       <button onClick={() => navigate(-1)} className="mb-3 text-sm text-slate-400">← 뒤로</button>
-      <div className="mx-auto aspect-[2/3] w-full max-w-[240px] overflow-hidden rounded-xl bg-surface2">
+      <div className="work-detail-grid">
+      <div className="work-detail-cover mx-auto aspect-[2/3] w-full max-w-[240px] overflow-hidden rounded-xl bg-surface2">
         {work.thumbnail_url && <img src={work.thumbnail_url} alt="" className="h-full w-full object-cover" />}
       </div>
 
-      <div className="relative mt-4 flex items-start gap-2">
+      <div className="work-detail-main">
+      <div className="work-detail-title relative mt-4 flex items-start gap-2">
         <h1 className="flex-1 text-xl font-bold text-white">{work.title || '(제목 없음)'}</h1>
         {(isCreator || isAdmin) && (
           <div data-popup-menu className="relative shrink-0">
@@ -312,6 +314,8 @@ export default function WorkDetailPage() {
             </button>
           )}
         </div>
+      </div>
+      </div>
       </div>
       {confirmDelete && (
         <ConfirmDialog

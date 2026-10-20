@@ -381,8 +381,8 @@ export default function WorkEditorPage() {
   if (!work) return <p className="p-6 text-slate-400">불러오는 중…</p>;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 px-4 py-3">
+    <div className="work-editor flex h-full flex-col">
+      <div className="work-editor-header flex items-center gap-2 px-4 py-3">
         <button onClick={() => void confirmLeave().then((leave) => leave && navigate('/create'))} className="text-sm text-slate-400">← 목록</button>
         {isAdmin && !isCreator && <span className="rounded-full bg-brand/20 px-2 py-1 text-[11px] text-brand">운영자 편집</span>}
         <button
@@ -395,7 +395,7 @@ export default function WorkEditorPage() {
       </div>
 
       {/* 탭 */}
-      <div className="flex border-b border-surface2 text-sm">
+      <div className="work-editor-tabs flex border-b border-surface2 text-sm">
         {([
           ['basic', '기본정보'],
           ['prompt', '메인 프롬프트'],
@@ -406,6 +406,7 @@ export default function WorkEditorPage() {
         ] as [Tab, string][]).map(([k, label]) => (
           <button
             key={k}
+            aria-current={tab === k ? 'page' : undefined}
             onClick={() => setTab(k)}
             className={`flex-1 py-2.5 text-xs ${tab === k ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
           >
@@ -414,7 +415,7 @@ export default function WorkEditorPage() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="work-editor-content flex-1 overflow-y-auto p-4">
         {/* 기본정보 탭 */}
         {tab === 'basic' && (
           <div className="flex flex-col gap-4">

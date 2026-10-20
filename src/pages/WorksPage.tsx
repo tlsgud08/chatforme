@@ -69,7 +69,7 @@ export default function WorksPage() {
           <p className="p-6 text-slate-400">아직 작품이 없습니다. 제작 탭에서 만들어보세요.</p>
         )}
         {latest.length > 0 && (
-          <div className="grid grid-cols-3 gap-x-3 gap-y-5 p-4">
+          <div className="works-grid grid grid-cols-3 gap-x-3 gap-y-5 p-4">
             {latest.map((work) => (
               <WorkPosterCard
                 key={work.id}

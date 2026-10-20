@@ -161,7 +161,7 @@ export default function MyPage() {
   const initial = profile?.display_name?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? '?';
 
   return (
-    <div className="flex flex-col gap-6 p-4">
+    <div className="my-page flex flex-col gap-6 p-4">
       {/* 프로필 카드 */}
       <section className="flex flex-col items-center gap-3 rounded-xl bg-surface p-5">
         {/* 아바타 */}

@@ -79,7 +79,7 @@ export default function SearchPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full max-w-app flex-col bg-bg">
+    <div className="search-page mx-auto flex h-full max-w-app flex-col bg-bg">
       <header className="flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
         <button onClick={() => navigate(-1)} className="text-slate-400">←</button>
         <input
@@ -106,7 +106,7 @@ export default function SearchPage() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="search-results flex-1 overflow-y-auto">
         {loading && <p className="p-6 text-center text-sm text-slate-400">검색 중…</p>}
         {error && <p role="alert" className="p-6 text-center text-sm text-amber-400">{error}</p>}
 
