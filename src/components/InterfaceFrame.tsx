@@ -29,6 +29,8 @@ export default function InterfaceFrame({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const focusedView = /^\/(chat|multichat)\/(?!new(?:\/|$))/.test(pathname) ? 'chat'
+    : /^\/create\/[^/]+/.test(pathname) ? 'editor' : undefined;
   const showNavigation = !!user && design === 'modern' && pathname !== '/login';
   const { data: sessions, isError, isLoading, refetch } = useQuery({
     queryKey: ['sessions', user?.id, 'sidebar'],
@@ -64,7 +66,7 @@ export default function InterfaceFrame({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="interface-frame" data-interface={design} data-login={!showNavigation || undefined} data-collapsed={collapsed || undefined}>
+    <div className="interface-frame" data-interface={design} data-focused-view={focusedView} data-login={!showNavigation || undefined} data-collapsed={collapsed || undefined}>
       {showNavigation && <>
         <header className="interface-topbar modern-only">
           <Link to="/works" onClick={event => void guardedNavigate(event, '/works')} className="interface-brand" aria-label="Inuchat 홈으로 이동">

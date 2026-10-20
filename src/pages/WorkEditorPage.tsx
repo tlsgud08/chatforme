@@ -387,8 +387,8 @@ export default function WorkEditorPage() {
     <div className="work-editor flex h-full flex-col">
       <div className="work-editor-header flex items-center gap-2 px-4 py-3">
         <button onClick={() => void confirmLeave().then((leave) => leave && navigate('/create'))} aria-label="제작 목록으로" className="editor-back text-sm text-slate-400"><InterfaceIcon name="back" legacy="←" /><span> 목록</span></button>
-        <ModernPageHeading title="작품 편집" description={work.title || '제목 없는 작품'} />
-        {isAdmin && !isCreator && <span className="rounded-full bg-brand/20 px-2 py-1 text-[11px] text-brand">운영자 편집</span>}
+        <ModernPageHeading title={work.title || '제목 없는 작품'} description="작품 편집" />
+        {isAdmin && !isCreator && <span className="editor-admin-badge rounded-full bg-brand/20 px-2 py-1 text-[11px] text-brand">운영자 편집</span>}
         <button
           onClick={save}
           disabled={saving}
