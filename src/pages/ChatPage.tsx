@@ -13,6 +13,8 @@ import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import { assemblePrompt } from '@/lib/prompt/assemble';
 import { loadWorkCombination } from '@/lib/workCombinationData';
+import { activeThemeWorkIds, workThemeScopeKey } from '@/lib/workCombination';
+import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import { resolvePromptCache } from '@/lib/llm/promptCache';
 import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
@@ -23,7 +25,7 @@ import { showToast } from '@/lib/toast';
 import { conversationFilename, downloadConversationText, formatConversationText } from '@/lib/chatExport';
 import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
-import { availableWorkThemes, dayNightModeEnabled, dayNightThemeEligible, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
+import { availableWorkThemes, dayNightCatalogNames, dayNightModeEnabled, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
 import { paletteFor, preferredThemeVariant, requestThemeRefresh, type SavedTheme } from '@/lib/theme';
 import InterfaceIcon from '@/components/InterfaceIcon';
 import './ChatPage.css';
@@ -215,7 +217,9 @@ export default function ChatPage() {
   const [keywordBooks, setKeywordBooks] = useState<KeywordBook[]>([]);
   const [themePrompt,setThemePrompt]=useState('');
   const [workThemes,setWorkThemes]=useState<SavedTheme[]>([]);
+  const themeSelectionKey=JSON.stringify([session?.work_id,session?.work_combination_enabled,session?.combined_work_ids??[]]);
   const themeMessageRef=useRef<{sessionId:string;fingerprint:string}|null>(null);
+  const themeRequestScopeRef=useRef<{messageId:string;scope:string}|null>(null);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -449,23 +453,24 @@ export default function ChatPage() {
   // Stable ordering keeps the theme catalog cacheable in the system core.
   useEffect(()=>{
     if(!session?.work_id||!user?.id){setWorkThemes([]);return;}
-    let live=true;
+    let controller:AbortController|undefined;
     const refresh=async()=>{
-      const items:SavedTheme[]=[];
-      for(let offset=0;;offset+=500){
-        const {data,error}=await supabase.from('themes').select('*').eq('work_id',session.work_id).order('id').range(offset,offset+499);
-        if(error){if(live)addError('작품 테마 목록 불러오기 실패: '+error.message);return;}
-        items.push(...(data??[]) as SavedTheme[]);
-        if((data??[]).length<500)break;
+      controller?.abort();
+      const pending=new AbortController();
+      controller=pending;
+      try{
+        const catalog=await loadWorkThemeCatalog(session,user.id,pending.signal);
+        if(!pending.signal.aborted)setWorkThemes(catalog.themes);
+      }catch(error){
+        if(!pending.signal.aborted)addError('작품 테마 목록 불러오기 실패: '+describeUnknownError(error));
       }
-      if(live)setWorkThemes(availableWorkThemes(items,session.work_id,user.id));
     };
     void refresh();
     window.addEventListener('inuchat:theme-changed',refresh);
-    return ()=>{live=false;window.removeEventListener('inuchat:theme-changed',refresh);};
-  },[session?.work_id,user?.id]);
+    return ()=>{controller?.abort();window.removeEventListener('inuchat:theme-changed',refresh);};
+  },[session?.id,themeSelectionKey,user?.id]);
 
-  async function readLiveThemeContext(){
+  async function readLiveThemeContext(withCatalog=true){
     if(!session||!profile)throw new Error('테마 설정을 불러오지 못했습니다.');
     const roomColumns = session.work_combination_enabled !== undefined
       ? 'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids'
@@ -480,7 +485,14 @@ export default function ChatPage() {
     const preference=account.data;
     const variant=preferredThemeVariant(preference,'light');
     const dayNight=dayNightModeEnabled(liveSession,variant);
-    return {session:liveSession,preference,variant,dayNight,names:dayNight?workThemes.filter(dayNightThemeEligible).map(t=>t.name):[]};
+    // Combined catalogs are read against the live room and work permissions,
+    // rather than a previous render (including changes on another device).
+    const combined=activeThemeWorkIds(liveSession).length>1;
+    const catalog=withCatalog&&combined&&liveSession.theme_override==null
+      ? await loadWorkThemeCatalog(liveSession,session.user_id)
+      : {themes:availableWorkThemes(workThemes,session.work_id,session.user_id),scope:undefined};
+    return {session:liveSession,preference,variant,dayNight,...catalog,
+      names:dayNight?dayNightCatalogNames(catalog.themes,!!catalog.scope):[]};
   }
 
   useEffect(()=>{
@@ -496,7 +508,9 @@ export default function ChatPage() {
       try{
         const live=await readLiveThemeContext();
         if(live.session.theme_override!=null||themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
-        const choice=resolveThemeDirectiveChoice(finalThemeDirective(latest.content),workThemes,live.dayNight);
+        const requestScope=themeRequestScopeRef.current;
+        if(requestScope?.messageId===latest.id&&requestScope.scope!==workThemeScopeKey(live.session))return;
+        const choice=resolveThemeDirectiveChoice(finalThemeDirective(latest.content),live.themes,live.dayNight,!!live.scope);
         if(!choice)return;
         const {theme:selected,period}=choice;
         if(!paletteFor(selected,period==='night'?'dark':live.variant))return;
@@ -507,14 +521,18 @@ export default function ChatPage() {
           .eq('theme_day_night_enabled',live.session.theme_day_night_enabled??false);
         // Reject an in-flight write after a concurrent preference change.
         update=live.session.theme_variant==null?update.is('theme_variant',null):update.eq('theme_variant',live.session.theme_variant);
+        if(live.session.work_combination_enabled!==undefined){
+          update=update.eq('work_combination_enabled',live.session.work_combination_enabled)
+            .eq('combined_work_ids',`{${(live.session.combined_work_ids??[]).join(',')}}`);
+        }
         const {data,error}=await update.select('id').maybeSingle();
         if(error)throw error;
         if(!data||themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
-        setSession(current=>current?.id===targetSessionId&&current.theme_override==null&&(current.theme_day_night_enabled??false)===(live.session.theme_day_night_enabled??false)?{...current,...patch}:current);
+        setSession(current=>current?.id===targetSessionId&&current.theme_override==null&&workThemeScopeKey(current)===workThemeScopeKey(live.session)&&(current.theme_day_night_enabled??false)===(live.session.theme_day_night_enabled??false)?{...current,...patch}:current);
         requestThemeRefresh();
       }catch(error){addError('자동 테마 변경 실패: '+describeUnknownError(error));}
     })();
-  },[messages,session?.id,session?.theme_override,session?.theme_day_night_enabled,workThemes]);
+  },[messages,session?.id,session?.theme_override,session?.theme_day_night_enabled,themeSelectionKey,workThemes]);
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
@@ -794,11 +812,15 @@ export default function ChatPage() {
 
     if (!session || !profile) { releaseSend(); return; }
     let liveTheme;
-    try{liveTheme=await readLiveThemeContext();}
+    try{liveTheme=await readLiveThemeContext(false);}
     catch(error){addError('테마 설정 조회 실패: '+describeUnknownError(error));restoreSubmitted();releaseSend();return;}
     let workCombination;
     try {
       workCombination = await loadWorkCombination(liveTheme.session, work, controller.signal);
+      if(workCombination&&liveTheme.session.theme_override==null){
+        const catalog=await loadWorkThemeCatalog(liveTheme.session,session.user_id,controller.signal,[{id:work.id,title:work.title},...workCombination.works]);
+        liveTheme={...liveTheme,...catalog,names:liveTheme.dayNight?dayNightCatalogNames(catalog.themes,true):[]};
+      }
       if (controller.signal.aborted) throw new Error('응답 생성을 중단했습니다.');
     } catch (error) {
       addError('작품 결합 확인 실패: ' + describeUnknownError(error));
@@ -846,7 +868,7 @@ export default function ChatPage() {
 
     try {
     const assembled = assemblePrompt({
-      autoThemeEnabled:liveTheme.session.theme_override==null,dayNightThemeNames:liveTheme.names,themePrompt,themeCatalog:themeCatalogPrompt(workThemes,liveTheme.dayNight),
+      autoThemeEnabled:liveTheme.session.theme_override==null,dayNightThemeNames:liveTheme.names,themePrompt,themeCatalog:themeCatalogPrompt(liveTheme.themes,liveTheme.dayNight,liveTheme.scope),
       systemPrompt, mainPrompt: work.main_prompt, workCombination, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
       plugins: session.active_plugins,
@@ -870,6 +892,7 @@ export default function ChatPage() {
         throw draftError ?? new Error('응답 임시 저장 공간을 만들 수 없습니다.');
       }
       draftMessageId = draft.id;
+      themeRequestScopeRef.current={messageId:draft.id,scope:workThemeScopeKey(liveTheme.session)};
       startGenerationTimeout();
       const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: assembled.systemParts, messages: assembled.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, signal: controller.signal });
       await draftWriter.stop();

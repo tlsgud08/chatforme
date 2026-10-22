@@ -1,4 +1,4 @@
-import type { Work } from '@/types/db';
+import type { Session, Work } from '@/types/db';
 
 export const DEFAULT_WORK_COMBINATION_PROMPT = '아래 작품들은 하나의 대화에 함께 적용된다. 설정이나 지시가 충돌하면 메인 작품을 최우선으로 따르고, 추가 작품은 지정된 우선순위에 따른다. 충돌하지 않는 설정은 함께 적용한다. 우선순위가 낮다는 이유만으로 해당 작품의 인물이나 설정을 생략하지 않는다.';
 
@@ -11,6 +11,19 @@ export interface WorkCombinationPrompt {
   mainWorkTitle: string;
   instruction: string;
   works: CombinedWork[];
+}
+
+export type WorkThemeScope = Pick<Session, 'work_id' | 'work_combination_enabled' | 'combined_work_ids'>;
+
+/** Disabled selections are retained, but never expand the room's theme scope. */
+export function activeThemeWorkIds(session: WorkThemeScope): string[] {
+  return session.work_combination_enabled === true
+    ? [session.work_id, ...combinedWorkIds(session.combined_work_ids, session.work_id)]
+    : [session.work_id];
+}
+
+export function workThemeScopeKey(session: WorkThemeScope): string {
+  return activeThemeWorkIds(session).join(',');
 }
 
 /** Validate rather than silently dropping malformed entries or changing priority. */

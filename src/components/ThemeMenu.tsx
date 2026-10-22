@@ -1,10 +1,11 @@
 import InterfaceIcon from './InterfaceIcon';
 import { SessionMenuPage } from './SessionMenuFrame';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 import ThemePaletteEditor from './ThemePaletteEditor';
+import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import './ThemeMenu.css';
 import { bothVariants, changePaletteMode, createPaletteDraft, DEFAULT_DARK, DEFAULT_LIGHT, paletteDraftColors, paletteFor, previewThemeVariant, secondaryTextStyles, validPalette, type SavedTheme, type ThemePaletteDraft, type ThemeVariant } from '@/lib/theme';
 
@@ -12,6 +13,7 @@ type Tab = 'all'|'work'|'mine'|'hub'|'favorites';
 type Props = {
   userId: string;
   workId?: string;
+  workIds?: string[];
   allowWorkCreate?: boolean;
   embedded?: boolean;
   drawer?: boolean;
@@ -37,8 +39,11 @@ function useCurrentVariant() {
   }, []);
   return variant;
 }
-export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=false,drawer=false,scope,selectedId,onSelect,onClose}:Props){
+export default function ThemeMenu({userId,workId,workIds,allowWorkCreate=false,embedded=false,drawer=false,scope,selectedId,onSelect,onClose}:Props){
   const catalogScope=scope??(workId?'all':'global');
+  const workScopeKey=(workIds??(workId?[workId]:[])).join(',');
+  const scopeWorkIds=useMemo(()=>workScopeKey?workScopeKey.split(','):[],[workScopeKey]);
+  const combinedScope=catalogScope==='work'&&scopeWorkIds.length>1;
   const variant = useCurrentVariant();
   const [themes,setThemes]=useState<SavedTheme[]>([]);
   const [favorites,setFavorites]=useState<Set<string>>(new Set());
@@ -49,10 +54,18 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
   const [draft,setDraft]=useState<Draft>(defaultDraft);
   const [busy,setBusy]=useState(false);
   const [opened,setOpened]=useState<string|null>(null);
+  const loadGeneration=useRef(0);
   const load=useCallback(async()=>{
+    const run=++loadGeneration.current;
+    let catalogWorkNames:Record<string,string>={};
     // Supabase limits single SELECT responses (usually 1,000 rows).
     // Page both catalogs so "전체" and "즐겨찾기" do not silently truncate.
     const fetchThemes = async () => {
+      if(combinedScope){
+        const catalog=await loadWorkThemeCatalog({work_id:workId!,work_combination_enabled:true,combined_work_ids:scopeWorkIds.filter(id=>id!==workId)},userId);
+        catalogWorkNames=catalog.scope?.workNames??{};
+        return catalog.themes;
+      }
       const items: SavedTheme[] = [];
       for(let start=0;;start+=500){
         let query=supabase.from('themes').select('*');
@@ -79,24 +92,31 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     };
     let data: SavedTheme[], stars:string[];
     try{[data,stars]=await Promise.all([fetchThemes(),fetchFavorites()]);}
-    catch(error){showToast('테마 목록을 불러오지 못했습니다: '+(error instanceof Error?error.message:String(error)));return;}
+    catch(error){if(run===loadGeneration.current)showToast('테마 목록을 불러오지 못했습니다: '+(error instanceof Error?error.message:String(error)));return;}
+    if(run!==loadGeneration.current)return;
+    const catalogIds=[...new Set(data.map((t:SavedTheme)=>t.work_id).filter((id):id is string=>!!id))];
+    if(!combinedScope&&catalogIds.length){
+      const {data:works}=await supabase.from('works').select('id,title').in('id',catalogIds);
+      if(run!==loadGeneration.current)return;
+      catalogWorkNames=Object.fromEntries((works??[]).map(w=>[w.id,w.title]));
+    }
     setThemes(data);
-    const workIds=[...new Set(data.map((t:SavedTheme)=>t.work_id).filter((id):id is string=>!!id))];
-    if(workIds.length){const {data:works}=await supabase.from('works').select('id,title').in('id',workIds);setWorkNames(Object.fromEntries((works??[]).map(w=>[w.id,w.title])));}
+    setWorkNames(catalogWorkNames);
     setFavorites(new Set(stars));
-  },[userId,workId,catalogScope]);
-  useEffect(()=>{void load();},[load]);
+  },[userId,workId,catalogScope,combinedScope,scopeWorkIds]);
+  useEffect(()=>{void load();return()=>{loadGeneration.current++;};},[load]);
   const visible=useMemo(()=>themes.filter(t=>{
-    if(t.work_id&&t.work_id!==workId)return false;
-    if(catalogScope==='work'&&t.work_id!==workId)return false;
+    const inWorkScope=!!t.work_id&&scopeWorkIds.includes(t.work_id);
+    if(t.work_id&&!inWorkScope)return false;
+    if(catalogScope==='work'&&!inWorkScope)return false;
     if(catalogScope==='global'&&t.work_id)return false;
-    const active=tab==='all'?(t.work_id===null||!workId||t.work_id===workId)
-      :tab==='work'?!!t.work_id&&(!workId||t.work_id===workId)
+    const active=tab==='all'?(t.work_id===null||inWorkScope)
+      :tab==='work'?inWorkScope
       :tab==='mine'?t.work_id===null&&t.owner_id===userId
       :tab==='hub'?t.work_id===null&&t.is_published
       :favorites.has(t.id);
-    return active&&(!search.trim()||[t.name,t.description].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
-  }),[themes,tab,workId,userId,favorites,search,catalogScope]);
+    return active&&(!search.trim()||[t.name,t.description,combinedScope?workNames[t.work_id??'']:''].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
+  }).sort((a,b)=>combinedScope?scopeWorkIds.indexOf(a.work_id!)-scopeWorkIds.indexOf(b.work_id!):0),[themes,tab,scopeWorkIds,userId,favorites,search,catalogScope,combinedScope,workNames]);
   function edit(theme?:SavedTheme,preferred=variant){setEditing(theme??'new');setDraft(theme?{name:theme.name,description:theme.description,ai_prompt:theme.ai_prompt??'',day_night_enabled:theme.day_night_enabled??false,use_day_night_variants:theme.use_day_night_variants!==false,...createPaletteDraft(theme,preferred)}:defaultDraft());}
   function changeDayNight(enabled:boolean){
     setDraft(d=>({...d,day_night_enabled:enabled}));
@@ -193,19 +213,21 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
     <div className="px-3 pb-3"><input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="테마 이름·설명 검색" className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-white"/></div>
     {visible.length===0&&<p className="p-5 text-center text-sm text-slate-500">테마가 없습니다.</p>}
     <div className={embedded?'':'max-h-[45vh] overflow-y-auto'}>
-      {visible.map(t=>{
+      {visible.map((t,index)=>{
         const editable=t.work_id?(t.work_shared!==false?allowWorkCreate&&t.work_id===workId:t.owner_id===userId):t.owner_id===userId;
-        const selectable=!t.work_id||t.work_id===workId;
+        const selectable=!t.work_id||scopeWorkIds.includes(t.work_id);
+        const heading=combinedScope&&(index===0||visible[index-1].work_id!==t.work_id)
+          ? <h4 className="px-3 py-2 text-xs font-semibold text-slate-400">{workNames[t.work_id!]??'작품'} · {t.work_id===workId?'메인 작품':`추가 ${scopeWorkIds.indexOf(t.work_id!)}순위`}</h4> : null;
         const preview = paletteFor(t, variant);
         const dual = bothVariants(t);
         const palette = preview?.palette ?? (variant === 'dark' ? DEFAULT_DARK : DEFAULT_LIGHT);
         const secondary=secondaryTextStyles(palette);
-        if(drawer)return <article key={t.id} className="inu-list-item">
+        if(drawer)return <Fragment key={t.id}>{heading}<article className="inu-list-item">
           <div className="inu-item-main"><button type="button" className="inu-item-select" disabled={!!onSelect&&!selectable} onClick={()=>selectable&&onSelect?onSelect(t):setOpened(opened===t.id?null:t.id)}><strong>{t.name}{selectedId===t.id?' · 적용 중':''}</strong><p>{t.description||'설명 없음'}</p><p>{t.work_id?(t.work_shared===false?'내 작품 전용':'작품 공용'):t.is_published?'허브 공개':'개인'} · {dual?'라이트·다크':'단일'}</p></button>{!t.work_id&&<button type="button" className="inu-icon" aria-label={`${t.name} 즐겨찾기`} aria-pressed={favorites.has(t.id)} onClick={()=>void toggleFavorite(t)}><InterfaceIcon name="star" filled={favorites.has(t.id)}/></button>}</div>
           <div className="inu-swatch-row">{([['light',t.light_colors],['dark',t.dark_colors]]as const).filter(([,p])=>!!p).map(([name,p])=><button key={name} type="button" disabled={!editable} className="inu-palette-edit" aria-label={`${t.name} ${dual?(name==='dark'?'다크':'라이트')+' 버전':'단일 테마'} 수정`} onClick={()=>edit(t,name)}><InterfaceIcon name={dual?(name==='dark'?'moon':'sun'):'palette'}/>{[p!.accent,p!.accentText,p!.main,p!.mainText,p!.secondaryText??p!.mainText].map((color,index)=><span key={index} className="inu-swatch" style={{background:color}}/>)}</button>)}</div>
           <details className="inu-small-details"><summary>관리</summary><div className="inu-item-actions">{editable&&<button type="button" onClick={()=>edit(t)}>수정</button>}{!t.work_id&&<button type="button" onClick={()=>void copy(t)}>내 테마로 복사</button>}{editable&&!t.work_id&&<button type="button" onClick={()=>void togglePublish(t)}>{t.is_published?'비공개':'허브 공개'}</button>}{editable&&<button type="button" className="inu-danger" onClick={()=>void remove(t)}>삭제</button>}</div></details>
-        </article>;
-        return <article key={t.id} className="theme-card" data-preview-variant={dual?(preview?.variant ?? variant):'single'}
+        </article></Fragment>;
+        return <Fragment key={t.id}>{heading}<article className="theme-card" data-preview-variant={dual?(preview?.variant ?? variant):'single'}
           style={{backgroundColor:palette.main,color:palette.mainText}}>
           <div className="theme-card-header" style={{backgroundColor:palette.accent,color:palette.accentText}}>
             <button onClick={()=>selectable&&onSelect?onSelect(t):setOpened(opened===t.id?null:t.id)} disabled={!!onSelect&&!selectable} className="min-w-0 flex-1 text-left disabled:opacity-40" style={{color:'inherit'}}>
@@ -241,9 +263,9 @@ export default function ThemeMenu({userId,workId,allowWorkCreate=false,embedded=
             {editable&&<button onClick={()=>void remove(t)} className="theme-card-action rounded-lg px-3 py-2 text-xs">삭제</button>}
           </div>}
           </div>
-        </article>;
+        </article></Fragment>;
       })}
     </div>
-    <button onClick={()=>edit()} className="m-3 rounded-xl border border-brand/40 py-3 text-sm font-semibold text-brand">{drawer?<InterfaceIcon name="plus" />:'＋'} {allowWorkCreate?'작품 공용 테마':scope==='work'?'내 작품 전용 테마':'내 테마'} 제작</button>
+    <button onClick={()=>edit()} className="m-3 rounded-xl border border-brand/40 py-3 text-sm font-semibold text-brand">{drawer?<InterfaceIcon name="plus" />:'＋'} {allowWorkCreate?'작품 공용 테마':combinedScope?'내 메인 작품 전용 테마':scope==='work'?'내 작품 전용 테마':'내 테마'} 제작</button>
   </section>;
 }

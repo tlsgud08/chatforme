@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { combinedWorkIds, type CombinationWorkInfo } from '@/lib/workCombination';
-import { COMBINATION_SEARCH_PAGE_SIZE, fetchCombinationWorkInfo, saveWorkCombination, searchCombinationWorks } from '@/lib/workCombinationData';
+import { COMBINATION_SEARCH_PAGE_SIZE, WORK_COMBINATION_COLUMNS, fetchCombinationWorkInfo, saveWorkCombination, searchCombinationWorks } from '@/lib/workCombinationData';
 import type { Session } from '@/types/db';
+import { requestThemeRefresh } from '@/lib/theme';
 import InterfaceIcon from './InterfaceIcon';
 import Toggle from './Toggle';
 
@@ -80,6 +81,7 @@ export default function SessionWorkCombinationSettings({ session, userId, busy, 
     try {
       const patch = await saveWorkCombination(session, userId, nextEnabled, nextIds);
       onUpdate(patch);
+      requestThemeRefresh();
       if (mounted.current) setStatus('저장했습니다. 다음 채팅 요청부터 적용됩니다.');
     } catch (failure) {
       if (mounted.current) setError(failure instanceof Error ? failure.message : '설정을 저장하지 못했습니다.');
@@ -106,9 +108,10 @@ export default function SessionWorkCombinationSettings({ session, userId, busy, 
     setStatus('');
     try {
       const { data, error: failure } = await supabase.from('sessions')
-        .select('work_combination_enabled,combined_work_ids').eq('id', session.id).eq('user_id', userId).single();
+        .select(WORK_COMBINATION_COLUMNS).eq('id', session.id).eq('user_id', userId).single();
       if (failure || !data) throw new Error('설정을 불러오지 못했습니다. DB 업데이트와 접근 권한을 확인해 주세요.');
       onUpdate(data as Partial<Session>);
+      requestThemeRefresh();
       if (mounted.current) setReload(value => value + 1);
     } catch (failure) {
       if (mounted.current) setError(failure instanceof Error ? failure.message : '설정을 불러오지 못했습니다.');
@@ -162,7 +165,7 @@ export default function SessionWorkCombinationSettings({ session, userId, busy, 
         <span className="inu-help">{page + 1}페이지</span>
         <button type="button" className="inu-text-button" disabled={disabled || searchLoading || results.length < COMBINATION_SEARCH_PAGE_SIZE} onClick={() => setPage(value => value + 1)}>다음</button>
       </div>}
-      <p className="inu-help">추가 작품의 메인 프롬프트를 함께 전달해요. 작품 수와 길이에 따라 입력 비용이 늘어납니다.</p>
+      <p className="inu-help">추가 작품의 메인 프롬프트와 작품 테마를 함께 사용해요. 작품 수와 프롬프트·테마 조건의 길이에 따라 입력 비용이 늘어납니다.</p>
     </>}
     {infoError && <p role="alert" className="inu-help">{infoError}</p>}
     {error && <p role="alert" className="inu-help">{error}</p>}
