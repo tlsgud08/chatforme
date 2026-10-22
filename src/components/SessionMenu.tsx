@@ -51,7 +51,7 @@ interface Props {
   onExportConversation: () => Promise<void>;
   exportingConversation: boolean;
   onGenerateSummary: (throughTurn?: number) => Promise<void>;
-  onMergeSummaries: (contents: string[]) => Promise<void>;
+  onMergeSummaries: (versions: SummaryVersion[]) => Promise<void>;
   summaryGenerating: boolean;
   storyNotes: StoryNote[];
   onStoryNotesChange: (notes: StoryNote[]) => void;
@@ -348,7 +348,7 @@ export default function SessionMenu({
           {summaryVersions.length === 0 ? <p className="inu-help">생성된 요약이 없습니다.</p> : summaryVersions.map(version => <article key={version.id} className="inu-summary-item"><div className="inu-summary-meta"><label><input type="checkbox" checked={selectedSummaryIds.includes(version.id)} onChange={event => setSelectedSummaryIds(ids => event.target.checked ? [...ids, version.id] : ids.filter(id => id !== version.id))} aria-label={`${version.summarized_through_turn}턴 요약 선택`} /><time dateTime={version.created_at} title={new Date(version.created_at).toLocaleString('ko-KR')}>{new Date(version.created_at).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }).replace(/\s/g, '').replace(/\.$/, '')} {new Date(version.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}</time></label><span>AI 요약 · {version.summarized_through_turn}턴</span>{version.is_active && <span className="inu-tag">전송 중</span>}</div>
             {editingSummary === version.id ? <><textarea rows={6} value={summaryDraft} onChange={event => setSummaryDraft(event.target.value)} aria-label="요약 노트 내용" /><div className="inu-item-actions"><button type="button" onClick={() => void saveSummary(version)}>저장</button><button type="button" onClick={() => setEditingSummary(null)}>취소</button></div></> : <><pre>{version.content}</pre><div className="inu-item-actions"><button type="button" onClick={() => { setEditingSummary(version.id); setSummaryDraft(version.content); }}>편집</button><button type="button" className="inu-danger" onClick={() => void deleteSummary(version)}>삭제</button></div></>}
           </article>)}
-          {summaryVersions.length > 0 && <div className="inu-two-buttons"><button type="button" className="inu-button" onClick={() => void applySelectedSummaries()}>선택 노트 반영</button><button type="button" className="inu-button inu-primary" disabled={sending || selectedSummaryIds.length < 2 || summaryGenerating} onClick={async () => { await onMergeSummaries(summaryVersions.filter(version => selectedSummaryIds.includes(version.id)).map(version => version.content)); await loadSummaries(); }}><InterfaceIcon name="merge" />통합 생성</button></div>}
+          {summaryVersions.length > 0 && <div className="inu-two-buttons"><button type="button" className="inu-button" onClick={() => void applySelectedSummaries()}>선택 노트 반영</button><button type="button" className="inu-button inu-primary" disabled={sending || selectedSummaryIds.length < 2 || summaryGenerating} onClick={async () => { await onMergeSummaries(summaryVersions.filter(version => selectedSummaryIds.includes(version.id))); await loadSummaries(); }}><InterfaceIcon name="merge" />통합 생성</button></div>}
         </section>
       </div>
     </SessionMenuPage>}

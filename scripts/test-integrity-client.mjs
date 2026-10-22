@@ -18,6 +18,16 @@ assert.equal(writes.length,2);
 const failed=createDraftWriter(async()=>{throw Error('offline');},1);
 failed.push('partial');await assert.rejects(failed.flush(),/offline/);await failed.stop();
 
+const taskModule=compile(readFileSync(new URL('../src/lib/accountTasks.ts',import.meta.url),'utf8'));
+const {registerAccountTask,abortAccountTasks}=await import('data:text/javascript;base64,'+Buffer.from(taskModule).toString('base64'));
+const continuing=new AbortController(),finished=new AbortController();
+const stopContinuing=registerAccountTask(continuing),stopFinished=registerAccountTask(finished);
+stopFinished();abortAccountTasks();stopContinuing();
+assert.equal(continuing.signal.aborted,true,'account change cancels work even with no screen listeners');
+assert.equal(finished.signal.aborted,false,'completed requests are removed');
+const nextAccount=new AbortController(),unregisterNext=registerAccountTask(nextAccount);
+stopContinuing();assert.equal(nextAccount.signal.aborted,false);unregisterNext();
+
 const source=readFileSync(new URL('../src/pages/ChatPage.tsx',import.meta.url),'utf8');
 const ast=ts.createSourceFile('page.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 function fn(name){let found;function visit(n){if(ts.isFunctionDeclaration(n)&&n.name?.text===name)found=n.getText(ast);ts.forEachChild(n,visit);}visit(ast);assert.ok(found);return compile(found);}
@@ -33,4 +43,30 @@ const summary=vm.runInNewContext(fn('generateSummary')+'\ngenerateSummary',{
   session:{id:'s'},profile:{},messages:[],sendInFlightRef:{current:true},generate:()=>paidCalls++,
 });
 await summary();assert.equal(paidCalls,0);
-console.log('Integrity client: bounded latest-only draft writes, failures/stop, keyword boundary and generation conflict guard passed');
+
+// Merging checkpoints from turns 10 and 20 must retain turn 20 even when
+// the viewport contains only the final five user turns of a longer room.
+const commits=[], summaryErrors=[], summaryRequests=[];
+const complete=Array.from({length:30},(_,i)=>({id:'u'+i,role:'user',content:'turn '+(i+1),is_active_variant:true,generation_status:'complete'}));
+const merging=vm.runInNewContext(fn('messagesThroughTurn')+'\n'+fn('generateSummary')+'\ngenerateSummary',{
+  session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'custom core'},
+  messages:complete.slice(-5),sendInFlightRef:{current:false},summaryGenerating:false,
+  activeGenerations:new Map(),activeSummaryGenerations:new Map(),AbortController,
+  getApiKey:()=> 'mock-key',registerAccountTask:()=>()=>{},
+  setSummaryGenerating:()=>{},finishSummaryGeneration:()=>{},setMessages:()=>{},setSession:()=>{},
+  readLiveThemeContext:async()=>({session:{theme_override:'builtin'},names:[]}),
+  fetchAllSessionMessages:async()=>complete,stripThemeDirectives:text=>text,
+  modelsFor:()=>['mock-model'],normalizeReasoning:()=>({send:false}),
+  generate:async(_provider,args)=>{summaryRequests.push(args);return {text:'merged memory',usage:{inputTokens:1,outputTokens:2,cost:0}};},
+  supabase:{rpc:async(name,args)=>{commits.push({name,args});return {data:{id:'s'},error:null};}},
+  addError:message=>summaryErrors.push(message),describeUnknownError:error=>error.message,
+});
+await merging([
+  {id:'note10',content:'memory through ten',summarized_through_turn:10},
+  {id:'note20',content:'memory through twenty',summarized_through_turn:20},
+],20);
+assert.deepEqual(summaryErrors,[]);
+assert.equal(commits[0]?.args.through_turn,20,'summary merge must not replace the checkpoint with the viewport count');
+assert.ok(summaryRequests[0].messages[0].content.includes('memory through twenty'));
+assert.equal(commits[0].args.source_versions[1].id,'note20');
+console.log('Integrity client: bounded draft writes, account cancellation without screen listeners, keyword boundary, summary conflict guard and merge checkpoint passed');

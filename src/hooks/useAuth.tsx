@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { useQueryClient } from '@tanstack/react-query';
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 import { supabase, ADMIN_EMAIL } from '@/lib/supabase';
+import { abortAccountTasks } from '@/lib/accountTasks';
 
 interface AuthState {
   user: User | null;
@@ -27,8 +28,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const apply = (next: AuthSession | null) => {
       if (!mounted) return;
       if (accountId.current !== next?.user.id) {
+        abortAccountTasks();
         queryClient.clear();
-        window.dispatchEvent(new Event('inuchat:account-changed'));
         accountId.current = next?.user.id;
       }
       setSession(next);

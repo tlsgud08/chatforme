@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
 import { createDraftWriter } from '@/lib/draftWriter';
+import { registerAccountTask } from '@/lib/accountTasks';
 import { generationContext, selectResponse } from '@/lib/sessionData';
 import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '@/lib/llm/types';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
@@ -204,15 +205,6 @@ export default function ChatPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-
-  useEffect(() => {
-    const changed = () => {
-      for (const active of activeGenerations.values()) active.controller.abort();
-      for (const active of activeSummaryGenerations.values()) active.controller.abort();
-    };
-    window.addEventListener('inuchat:account-changed', changed);
-    return () => window.removeEventListener('inuchat:account-changed', changed);
-  }, []);
 
   const [session, setSession] = useState<Session | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -568,12 +560,13 @@ export default function ChatPage() {
     });
   }
 
-  async function generateSummary(sourceMessages = messages, archivesToMerge: string[] = [], requestedThroughTurn?: number) {
+  async function generateSummary(archivesToMerge: SummaryVersion[] = [], requestedThroughTurn?: number) {
     if (!session || !profile || sendInFlightRef.current || activeGenerations.has(session.id) || summaryGenerating || activeSummaryGenerations.has(session.id)) return;
     const apiKey = getApiKey('openrouter');
     if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return; }
     const summarySessionId = session.id;
     const summaryController = new AbortController();
+    const unregisterTask = registerAccountTask(summaryController);
     activeSummaryGenerations.set(summarySessionId, { controller: summaryController, listeners: new Set() });
     setSummaryGenerating(true);
     try {
@@ -581,17 +574,14 @@ export default function ChatPage() {
       // Include the hidden initial context in the first archive so important
       // scenario setup is not lost after its short keep_turns window expires.
       const sourceMode = session.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
-      let completeSourceMessages = sourceMessages;
-      if (archivesToMerge.length === 0) {
-        completeSourceMessages = await fetchAllSessionMessages(session.id);
-      }
+      const completeSourceMessages = await fetchAllSessionMessages(session.id);
       const allActiveMessages = completeSourceMessages.filter((message) => message.is_active_variant !== false);
       if (allActiveMessages.some(message => message.generation_status === 'streaming')) throw new Error('응답 생성이 끝난 뒤 요약해 주세요.');
       const latestTurn = allActiveMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
       const throughTurn = Math.max(0, Math.min(requestedThroughTurn ?? latestTurn, latestTurn));
       const activeSourceMessages = messagesThroughTurn(allActiveMessages, throughTurn);
       let previous = archivesToMerge.length > 0
-        ? archivesToMerge.join('\n\n--- Summary to Merge ---\n\n')
+        ? archivesToMerge.map(version => version.content).join('\n\n--- Summary to Merge ---\n\n')
         : '';
       let previousTurn = 0;
       if (archivesToMerge.length === 0 && sourceMode === 'incremental' && throughTurn > 0) {
@@ -622,6 +612,7 @@ export default function ChatPage() {
       const parameterBlock = parametersEnabled ? `[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = ${summaryLevel}\nALLOW_OMISSION = ${allowOmission ? 'ON' : 'OFF'}` : '';
       const extraNote = profile.summary_extra_note?.trim() ? `[ADDITIONAL NOTE]\n${profile.summary_extra_note.trim()}` : '';
       const summaryCore = [profile.summary_prompt?.trim() || DEFAULT_SUMMARY_PROMPT, parameterBlock, extraNote].filter(Boolean).join('\n\n');
+      if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
       const result = await generate('openrouter', {
         apiKey,
         sessionId: `${session.id}:summary`,
@@ -632,11 +623,16 @@ export default function ChatPage() {
         messages: [{ role: 'user', content: input }],
         maxOutputTokens: 4096,
       });
+      if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
       if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
       const ids = candidates.map((message) => message.id);
       const { data: updated, error } = await supabase.rpc('save_generated_summary', {
         target_session: session.id, summary_text: result.text, through_turn: throughTurn,
-        source_versions: candidates.map(message => ({ id: message.id, version: message.content_version ?? 0 })),
+        source_versions: [
+          ...candidates.map(message => ({ id: message.id, version: message.content_version ?? 0 })),
+          ...archivesToMerge.map(version => ({ kind: 'summary', id: version.id, content: version.content,
+            summarized_through_turn: version.summarized_through_turn })),
+        ],
         previous_summary: session.summary, previous_summary_turn: session.summary_last_turn,
         in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost,
       });
@@ -646,6 +642,7 @@ export default function ChatPage() {
     } catch (error) {
       addError(`요약 생성 실패: ${describeUnknownError(error)}`);
     } finally {
+      unregisterTask();
       setSummaryGenerating(false);
       finishSummaryGeneration(summarySessionId);
     }
@@ -681,7 +678,12 @@ export default function ChatPage() {
     if (!options?.reroll) { setInput(''); setSelectedCommand(null); }
     setSending(true);
     setStreamingContent('');
+    const controller = new AbortController();
+    const unregisterTask = registerAccountTask(controller);
+    abortControllerRef.current = controller;
+    if (sessionId) activeGenerations.set(sessionId, { controller, content: '', listeners: new Set() });
     const releaseSend = () => {
+      unregisterTask();
       sendInFlightRef.current = false;
       setSending(false);
       setStreamingContent('');
@@ -694,7 +696,8 @@ export default function ChatPage() {
     let contextSummaryTurn = session.summary_last_turn;
     if (sessionId) {
       try {
-        const context = await generationContext(session, Math.max(0, ...keywordBooks.map(book => book.activation_turns)), options?.reroll === true);
+        const context = await generationContext(session, Math.max(0, ...keywordBooks.map(book => book.activation_turns)), options?.reroll === true, controller.signal);
+        if (controller.signal.aborted) throw new Error('응답 생성을 중단했습니다.');
         completeMessages = context.messages;
         contextSummary = context.summary;
         contextSummaryTurn = context.summaryLastTurn;
@@ -740,8 +743,6 @@ export default function ChatPage() {
     const commandName = options?.reroll ? rerollUserMessage?.command_name : submittedCommand?.name;
     const commandPrompt = options?.reroll ? rerollCommandPrompt : submittedCommand?.prompt.trim() ?? '';
     const promptText = commandPrompt ? `${text}${text ? '\n\n' : ''}[Selected Command /${commandName}]\n${commandPrompt}` : text;
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
     let generationTimedOut = false;
     let generationTimeout: ReturnType<typeof setTimeout> | null = null;
     const startGenerationTimeout = () => {
@@ -750,7 +751,6 @@ export default function ChatPage() {
         controller.abort('모델 응답이 8분 안에 완료되지 않아 생성을 중단했습니다.');
       }, GENERATION_TIMEOUT_MS);
     };
-    if (sessionId) activeGenerations.set(sessionId, { controller, content: '', listeners: new Set() });
     // A turn is one user/assistant exchange. Counting every message made the
     // persisted index advance by two and made a branch continue at a seemingly
     // unrelated number. Rerolls must retain the turn they replace; a new user
@@ -767,7 +767,10 @@ export default function ChatPage() {
       if (error) throw error;
     }, DRAFT_SAVE_INTERVAL_MS);
     const commitRerollVariant = async (newMessageId: string) => {
-      if (rerollTarget && rerollGroupId) await selectResponse(session!.id, rerollGroupId, newMessageId, rerollTarget.id);
+      if (rerollTarget && rerollGroupId) {
+        const updated = await selectResponse(session!.id, rerollGroupId, newMessageId, rerollTarget.id);
+        if (updated) setSession(current => current?.id === updated.id ? { ...current, ...updated } : current);
+      }
     };
     const applyGeneratedMessage = (generatedMessage: Message) => {
       setMessages((current) => {
@@ -1157,7 +1160,8 @@ export default function ChatPage() {
     const groupIds = group.map((item) => item.id);
     if (!groupIds.includes(id)) { addError('선택할 응답 버전을 찾을 수 없습니다.'); return; }
     try {
-      await selectResponse(session!.id, groupId, id, group.find(item => item.is_active_variant)?.id);
+      const updated = await selectResponse(session!.id, groupId, id, group.find(item => item.is_active_variant)?.id);
+      if (updated) setSession(current => current?.id === updated.id ? { ...current, ...updated } : current);
     } catch (error) { addError(`응답 버전 변경 실패: ${describeUnknownError(error)}`); return; }
     setMessages((current) => current.map((item) => groupIds.includes(item.id) ? { ...item, is_active_variant: item.id === id } : item));
   }
@@ -1394,8 +1398,8 @@ export default function ChatPage() {
           onClearErrors={() => setErrorLog([])}
           onExportConversation={exportConversation}
           exportingConversation={exportingConversation}
-          onGenerateSummary={(throughTurn) => generateSummary(messages, [], throughTurn)}
-          onMergeSummaries={(contents) => generateSummary(messages, contents)}
+          onGenerateSummary={(throughTurn) => generateSummary([], throughTurn)}
+          onMergeSummaries={(versions) => generateSummary(versions, Math.max(0, ...versions.map(version => version.summarized_through_turn)))}
           summaryGenerating={summaryGenerating}
           storyNotes={storyNotes}
           onStoryNotesChange={setStoryNotes}

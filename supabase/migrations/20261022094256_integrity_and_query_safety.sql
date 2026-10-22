@@ -103,20 +103,41 @@ for each row execute function public.bump_message_content_version();
 create or replace function public.select_session_variant(target_session uuid,target_group uuid,
   target_message uuid,expected_active uuid default null) returns void
 language plpgsql security invoker set search_path=public as $$
+declare s public.sessions; m public.messages; selected_turn integer;
 begin
-  perform 1 from public.sessions where id=target_session and user_id=(select auth.uid()) for update;
+  select * into s from public.sessions where id=target_session and user_id=(select auth.uid()) for update;
   if not found then raise exception 'Session is inaccessible' using errcode='42501'; end if;
-  if not exists(select 1 from public.messages where session_id=target_session and id=target_message
-    and role='assistant' and coalesce(reroll_group_id,id)=target_group) then
-    raise exception 'Response is inaccessible' using errcode='42501';
-  end if;
+  select * into m from public.messages where session_id=target_session and id=target_message
+    and role='assistant' and coalesce(reroll_group_id,id)=target_group;
+  if not found then raise exception 'Response is inaccessible' using errcode='42501'; end if;
   if expected_active is not null and not exists(select 1 from public.messages where
     session_id=target_session and id=expected_active and is_active_variant
     and coalesce(reroll_group_id,id)=target_group) then
     raise exception 'Response selection changed; refresh and retry' using errcode='40001';
   end if;
+  if m.is_active_variant and not exists(select 1 from public.messages where session_id=target_session
+    and role='assistant' and id<>target_message and is_active_variant and coalesce(reroll_group_id,id)=target_group) then
+    return;
+  end if;
   update public.messages set is_active_variant=(id=target_message),reroll_group_id=target_group
   where session_id=target_session and role='assistant' and coalesce(reroll_group_id,id)=target_group;
+  select count(*) into selected_turn from public.messages where session_id=target_session
+    and role='user' and not is_hidden and is_active_variant and turn_index<=m.turn_index;
+  if s.summary_last_turn>=selected_turn then
+    update public.summary_versions set is_active=false where session_id=target_session
+      and summarized_through_turn>=selected_turn;
+    if not exists(select 1 from public.summary_versions where session_id=target_session and is_active) then
+      update public.summary_versions set is_active=true where id=(select id from public.summary_versions
+        where session_id=target_session and summarized_through_turn<selected_turn
+        order by summarized_through_turn desc,created_at desc,id desc limit 1);
+    end if;
+    update public.sessions set
+      summary=coalesce((select string_agg(content,E'\n\n--- 추가 요약 노트 ---\n\n' order by created_at,id)
+        from public.summary_versions where session_id=target_session and is_active),''),
+      summary_last_turn=coalesce((select max(summarized_through_turn) from public.summary_versions
+        where session_id=target_session and is_active),0)
+    where id=target_session;
+  end if;
 end $$;
 
 create or replace function public.finish_session_response(target_session uuid,target_message uuid,
@@ -169,10 +190,17 @@ begin
   if s.summary is distinct from previous_summary or s.summary_last_turn is distinct from previous_summary_turn then
     raise exception 'Summary changed while generating; refresh and retry' using errcode='40001';
   end if;
-  if exists(select 1 from jsonb_to_recordset(source_versions) as v(id uuid,version integer)
-    where not exists(select 1 from public.messages m where m.id=v.id and m.session_id=target_session
+  if exists(select 1 from jsonb_to_recordset(source_versions) as v(id uuid,version integer,kind text)
+    where v.kind is null and not exists(select 1 from public.messages m where m.id=v.id and m.session_id=target_session
       and m.content_version=v.version and m.is_active_variant and m.generation_status<>'streaming')) then
     raise exception 'Source dialogue changed while generating' using errcode='40001';
+  end if;
+  if exists(select 1 from jsonb_to_recordset(source_versions)
+      as v(id uuid,kind text,content text,summarized_through_turn integer)
+    where v.kind='summary' and not exists(select 1 from public.summary_versions sv
+      where sv.id=v.id and sv.session_id=target_session and sv.content=v.content
+        and sv.summarized_through_turn=v.summarized_through_turn)) then
+    raise exception 'Source summaries changed while merging' using errcode='40001';
   end if;
   update public.summary_versions set is_active=false where session_id=target_session;
   insert into public.summary_versions(session_id,content,summarized_through_turn,input_tokens,output_tokens,cost)
@@ -180,7 +208,7 @@ begin
   on conflict(session_id,summarized_through_turn) do update set content=excluded.content,
     input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,cost=excluded.cost,is_active=true;
   update public.messages set is_summarized=true where session_id=target_session
-    and id in(select (v->>'id')::uuid from jsonb_array_elements(source_versions) v);
+    and id in(select (v->>'id')::uuid from jsonb_array_elements(source_versions) v where not (v ? 'kind'));
   update public.sessions set summary=summary_text,summary_last_turn=through_turn,
     total_input_tokens=total_input_tokens+greatest(in_tokens,0),total_output_tokens=total_output_tokens+greatest(out_tokens,0),
     total_cost=total_cost+greatest(response_cost,0),updated_at=now()
