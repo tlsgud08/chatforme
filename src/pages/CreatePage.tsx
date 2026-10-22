@@ -85,50 +85,11 @@ export default function CreatePage() {
 
   async function duplicateWork(item: WorkListItem) {
     setMenuId(null);
-    const { data: fullWork, error: loadError } = await supabase.from('works').select('*').eq('id', item.id).single();
-    if (loadError || !fullWork) { showToast('복제할 작품을 불러오지 못했습니다.'); return; }
-    const work = fullWork as Work;
-    const { id: _id, created_at: _created, updated_at: _updated, ...copy } = work;
-    // A copied work must never keep a reference to another work's private theme.
-    const { data: created, error } = await supabase.from('works').insert({
-      ...copy, default_theme_id:null, default_theme_variant:null,
-      title: `${work.title || '제목 없음'} (복제본)`, creator_id: user!.id, is_published: false,
-    }).select('id').single();
-    if (error || !created) { showToast(`복제 실패: ${error?.message ?? '작품을 만들 수 없습니다.'}`); return; }
-    const [{ data: configs }, { data: books }, { data: themes }, { data: commands }] = await Promise.all([
-      supabase.from('start_configs').select('name,initial_message,initial_context,keep_turns,sort_order,is_default').eq('work_id', work.id),
-      supabase.from('keyword_books').select('name,keywords,content,activation_turns,sort_order').eq('work_id', work.id),
-      supabase.from('themes').select('*').eq('work_id',work.id),
-      supabase.from('commands').select('name,description,prompt').eq('work_id',work.id),
-    ]);
-    if (configs?.length) await supabase.from('start_configs').insert(configs.map((item) => ({ ...item, work_id: created.id })));
-    if (books?.length) await supabase.from('keyword_books').insert(books.map((item) => ({ ...item, work_id: created.id })));
-    if (commands?.length) {
-      const {error:commandError}=await supabase.from('commands').insert(commands.map(item=>({...item,work_id:created.id,owner_id:user!.id,is_published:false})));
-      if(commandError)showToast('작품 전용 명령어 복제 실패: '+commandError.message);
-    }
-    // Map old IDs to the newly inserted IDs explicitly. INSERT RETURNING row
-    // ordering is not guaranteed, so index-based mapping can attach the wrong theme.
-    let copiedDefaultId = work.default_theme_id ?? null;
-    for (const original of (themes??[]).filter(theme=>theme.work_shared!==false)) {
-      const {data:copiedTheme,error:themesError}=await supabase.from('themes').insert({
-        owner_id:user!.id,work_id:created.id,name:original.name,description:original.description,
-        ai_prompt:original.ai_prompt??'',day_night_enabled:original.day_night_enabled??false,
-        use_day_night_variants:original.use_day_night_variants!==false,work_shared:true,
-        dark_colors:original.dark_colors,light_colors:original.light_colors,is_published:false,
-      }).select('id').single();
-      if(themesError){showToast('작품 전용 테마 복제 실패: '+themesError.message);continue;}
-      if(original.id===work.default_theme_id) copiedDefaultId=copiedTheme!.id;
-    }
-    if (copiedDefaultId && (copiedDefaultId!==work.default_theme_id || !themes?.some(item=>item.id===work.default_theme_id))) {
-      const {error:defaultError}=await supabase.from('works').update({
-        default_theme_id:copiedDefaultId,default_theme_variant:work.default_theme_variant??null,
-      }).eq('id',created.id);
-      if(defaultError)showToast('기본 테마 복제 실패: '+defaultError.message);
-    }
+    const { data, error } = await supabase.rpc('duplicate_work_atomic', { target_work: item.id });
+    if (error || !data) { showToast(`복제 실패: ${error?.message ?? '작품을 만들 수 없습니다.'}`); return; }
     await refetch();
     showToast('작품을 복제했습니다.');
-    navigate(`/create/${created.id}`);
+    navigate(`/create/${data}`);
   }
 
   return (

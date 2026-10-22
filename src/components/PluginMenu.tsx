@@ -1,6 +1,6 @@
 import InterfaceIcon from './InterfaceIcon';
 import { SessionMenuPage } from './SessionMenuFrame';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Plugin } from '@/types/db';
 import { showToast } from '@/lib/toast';
@@ -32,6 +32,9 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
   const [viewing, setViewing] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [previewText, setPreviewText] = useState('');
+  const contentRead = useRef<AbortController | null>(null);
+  useEffect(() => () => contentRead.current?.abort(), []);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -45,7 +48,7 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
       await Promise.all([
         (async () => {
           for (let from = 0; ; from += 500) {
-            const { data, error } = await supabase.from('plugins').select('*')
+            const { data, error } = await supabase.from('plugins').select('id,owner_id,name,description,is_published,copied_from_id,created_at,updated_at')
               .or(`owner_id.eq.${userId},is_published.eq.true`)
               .order('updated_at', { ascending: false }).order('id').range(from, from + 499);
             if (error) throw error;
@@ -67,7 +70,7 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
       setFavoriteIds(new Set(favorites.map((favorite) => favorite.plugin_id)));
       const ids = [...new Set(next.map((item) => item.owner_id))];
       if (ids.length) {
-        const { data: profiles } = await supabase.from('profiles').select('id,display_name').in('id', ids);
+        const { data: profiles } = await supabase.from('public_profiles').select('id,display_name').in('id', ids);
         setAuthors(Object.fromEntries((profiles ?? []).map((profile) => [profile.id, profile.display_name || '이름 없음'])));
       }
     } catch {
@@ -88,6 +91,29 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
           : favoriteIds.has(plugin.id);
     return inTab && (!searchTerm || `${plugin.name} ${plugin.description} ${authors[plugin.owner_id] ?? ''}`.toLocaleLowerCase().includes(searchTerm));
   }), [authors, plugins, favoriteIds, searchTerm, tab, userId]);
+
+  async function readContent(item: Plugin): Promise<Plugin | null> {
+    contentRead.current?.abort();
+    const controller = new AbortController();
+    contentRead.current = controller;
+    try {
+      const { data, error } = await supabase.from('plugins').select('*').eq('id', item.id).abortSignal(controller.signal).single();
+      if (controller.signal.aborted) return null;
+      if (error || !data) throw error ?? new Error('본문에 접근할 수 없습니다.');
+      return data as Plugin;
+    } catch (error) {
+      if (!controller.signal.aborted) showToast('본문 조회 실패: ' + (error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error)));
+      return null;
+    }
+  }
+
+  async function chooseItem(item: Plugin) {
+    if (embedded && viewing === item.id) { setViewing(null); return; }
+    const full = await readContent(item);
+    if (!full) return;
+    if (embedded) { setPreviewText(full.prompt); setViewing(full.id); }
+    else { onSelect?.(full);  }
+  }
 
   async function toggleFavorite(plugin: Plugin) {
     const wasFavorite = favoriteIds.has(plugin.id);
@@ -112,7 +138,12 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
     showToast(wasFavorite ? '즐겨찾기에서 삭제했습니다.' : '즐겨찾기에 추가했습니다.');
   }
 
-  function beginEdit(plugin?: Plugin) {
+  async function beginEdit(plugin?: Plugin) {
+    if (plugin) {
+      const full = await readContent(plugin);
+      if (!full) return;
+      plugin = full;
+    }
     setEditing(plugin ?? 'new');
     setDraft(plugin ? { name: plugin.name, description: plugin.description, prompt: plugin.prompt } : emptyDraft);
     setOpenMenu(null);
@@ -141,6 +172,9 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
   }
 
   async function copy(plugin: Plugin) {
+    const full = await readContent(plugin);
+    if (!full) return;
+    plugin = full;
     setOpenMenu(null);
     const base = plugin.name;
     const names = new Set(plugins.filter((item) => item.owner_id === userId).map((item) => item.name));
@@ -203,18 +237,18 @@ export default function PluginMenu({ userId, onClose, onSelect, activeIds = [], 
             <div role="alert" className="p-4 text-sm text-amber-400">{loadError}<button type="button" onClick={() => void load()} className="mt-2 block underline">다시 불러오기</button></div> : visible.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">{searchTerm ? `${tabLabels[tab]}에 검색 결과가 없습니다.` : '표시할 플러그인이 없습니다.'}</p> : visible.map((plugin) => {
             const mine = plugin.owner_id === userId;
             if(drawer)return <article key={plugin.id} className="inu-list-item">
-              <div className="inu-item-main"><button type="button" disabled={selecting||activeIds.includes(plugin.id)} className="inu-item-select" onClick={()=>onSelect?.(plugin)}><strong>{plugin.name}</strong><p>{plugin.description||'설명 없음'}</p><p>{activeIds.includes(plugin.id)?'활성화됨 · ':''}{mine?'나':authors[plugin.owner_id]??'사용자'}{plugin.is_published?' · 허브 공개':''}</p></button><button type="button" className="inu-icon" aria-label={`${plugin.name} ${favoriteIds.has(plugin.id)?'즐겨찾기 해제':'즐겨찾기 추가'}`} aria-pressed={favoriteIds.has(plugin.id)} onClick={()=>void toggleFavorite(plugin)}><InterfaceIcon name="star" filled={favoriteIds.has(plugin.id)}/></button></div>
+              <div className="inu-item-main"><button type="button" disabled={selecting||activeIds.includes(plugin.id)} className="inu-item-select" onClick={()=>void chooseItem(plugin)}><strong>{plugin.name}</strong><p>{plugin.description||'설명 없음'}</p><p>{activeIds.includes(plugin.id)?'활성화됨 · ':''}{mine?'나':authors[plugin.owner_id]??'사용자'}{plugin.is_published?' · 허브 공개':''}</p></button><button type="button" className="inu-icon" aria-label={`${plugin.name} ${favoriteIds.has(plugin.id)?'즐겨찾기 해제':'즐겨찾기 추가'}`} aria-pressed={favoriteIds.has(plugin.id)} onClick={()=>void toggleFavorite(plugin)}><InterfaceIcon name="star" filled={favoriteIds.has(plugin.id)}/></button></div>
               <details className="inu-small-details"><summary>관리</summary><div className="inu-item-actions">{mine?<><button type="button" onClick={()=>beginEdit(plugin)}>수정</button><button type="button" onClick={()=>void publish(plugin,!plugin.is_published)}>{plugin.is_published?'허브에서 비공개':'전체 공개'}</button><button type="button" className="inu-danger" onClick={()=>void remove(plugin)}>삭제</button></>:<button type="button" onClick={()=>void copy(plugin)}>내 플러그인으로 복사</button>}</div></details>
             </article>;
             return <div key={plugin.id} className={`relative flex gap-3 border-b border-surface2/70 px-4 py-3 ${embedded ? 'flex-wrap' : ''}`}>
-              <button disabled={selecting || activeIds.includes(plugin.id)} onClick={() => { if (embedded) setViewing(viewing === plugin.id ? null : plugin.id); else onSelect?.(plugin); }} className="min-w-0 flex-1 text-left disabled:opacity-50">
+              <button disabled={selecting || activeIds.includes(plugin.id)} onClick={() => void chooseItem(plugin)} className="min-w-0 flex-1 text-left disabled:opacity-50">
                 <p className="truncate font-semibold text-white">{plugin.name} {activeIds.includes(plugin.id) && <span className="ml-1 text-[10px] text-emerald-400">활성화됨</span>} {mine && <span className="ml-1 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-400">나</span>} {plugin.is_published && <span className="ml-1 rounded bg-blue-400/15 px-1.5 py-0.5 text-[10px] text-blue-400">허브</span>}</p>
                 <p className="mt-1 truncate text-xs text-slate-400">{plugin.description || '설명 없음'}</p>
                 {plugin.is_published && <p className="mt-1 text-[11px] text-slate-500">올린 사람 · {mine ? '나' : authors[plugin.owner_id] ?? '사용자'}</p>}
               </button>
               {embedded && viewing === plugin.id && <div className="order-last w-full rounded-lg bg-surface p-3">
                 <p className="mb-2 text-xs font-semibold text-slate-400">프롬프트 본문</p>
-                <pre className="whitespace-pre-wrap break-words text-sm text-slate-200">{plugin.prompt}</pre>
+                <pre className="whitespace-pre-wrap break-words text-sm text-slate-200">{previewText}</pre>
               </div>}
               <button aria-label={`${plugin.name} ${favoriteIds.has(plugin.id) ? '즐겨찾기 해제' : '즐겨찾기 추가'}`} aria-pressed={favoriteIds.has(plugin.id)} onClick={() => void toggleFavorite(plugin)} className={`self-start px-1 text-2xl leading-none ${favoriteIds.has(plugin.id) ? 'text-amber-400' : 'text-slate-500'}`}><InterfaceIcon name="star" filled={favoriteIds.has(plugin.id)} /></button>
               <button aria-label="플러그인 메뉴" onClick={() => setOpenMenu(openMenu === plugin.id ? null : plugin.id)} className="self-start px-1 text-xl text-slate-500"><InterfaceIcon name="more" /></button>

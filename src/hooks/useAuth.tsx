@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 import { supabase, ADMIN_EMAIL } from '@/lib/supabase';
 
@@ -15,19 +16,34 @@ interface AuthState {
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const accountId = useRef<string | null | undefined>(undefined);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+    let mounted = true;
+    let authEvents = 0;
+    const apply = (next: AuthSession | null) => {
+      if (!mounted) return;
+      if (accountId.current !== next?.user.id) {
+        queryClient.clear();
+        window.dispatchEvent(new Event('inuchat:account-changed'));
+        accountId.current = next?.user.id;
+      }
+      setSession(next);
       setLoading(false);
-    });
+    };
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
+      authEvents += 1;
+      apply(s);
     });
-    return () => sub.subscription.unsubscribe();
-  }, []);
+    const eventAtRead = authEvents;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (authEvents === eventAtRead) apply(data.session);
+    }).catch(() => { if (authEvents === eventAtRead) apply(null); });
+    return () => { mounted = false; sub.subscription.unsubscribe(); };
+  }, [queryClient]);
 
   const user = session?.user ?? null;
   const isAdmin = Boolean(user?.email && ADMIN_EMAIL && user.email === ADMIN_EMAIL);

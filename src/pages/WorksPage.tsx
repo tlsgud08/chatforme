@@ -7,6 +7,8 @@ import WorkPosterCard from '@/components/WorkPosterCard';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchWorks } from '@/lib/works';
+import { showToast } from '@/lib/toast';
+import { useRef } from 'react';
 
 export default function WorksPage() {
   const { user, isAdmin } = useAuth();
@@ -15,6 +17,7 @@ export default function WorksPage() {
   const selected = category === 'commands' || category === 'plugins' || category === 'themes' ? category : 'works';
   const labels = { works: '작품', commands: '명령어', plugins: '플러그인', themes: '테마' };
   const queryClient = useQueryClient();
+  const favoriteLocks = useRef(new Set<string>());
   const { data, isLoading, error } = useQuery({
     queryKey: ['works-list', { includePrivate: isAdmin }],
     queryFn: () => fetchWorks(isAdmin),
@@ -33,16 +36,22 @@ export default function WorksPage() {
   });
 
   async function toggleFavorite(workId: string) {
-    if (!user) return;
+    if (!user || favoriteLocks.current.has(workId)) return;
+    favoriteLocks.current.add(workId);
     const isFavorite = favoritedIds.includes(workId);
-    queryClient.setQueryData(['user-favorites', user.id], (old: string[] = []) =>
-      isFavorite ? old.filter((id) => id !== workId) : [...old, workId],
-    );
-    if (isFavorite) {
-      await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId);
-    } else {
-      await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
-    }
+    try {
+      const { error } = isFavorite
+        ? await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId)
+        : await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
+      if (error) throw error;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['user-favorites', user.id] }),
+        queryClient.invalidateQueries({ queryKey: ['work-fav-me', workId] }),
+        queryClient.invalidateQueries({ queryKey: ['work-fav-count', workId] }),
+      ]);
+    } catch (error) {
+      showToast('하트 변경 실패: ' + (error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error)));
+    } finally { favoriteLocks.current.delete(workId); }
   }
 
   return (

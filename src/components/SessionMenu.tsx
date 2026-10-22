@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import SessionMenuFrame, { SessionMenuPage } from './SessionMenuFrame';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { mutateSummary } from '@/lib/sessionData';
 import { getApiKey } from '@/lib/apiKeys';
 import type { ReasoningSelection } from '@/lib/llm/types';
 import ModelSelector from './ModelSelector';
@@ -197,64 +198,40 @@ export default function SessionMenu({
     setSummaryOpen(true);
   }
 
+  const summarySaveLock = useRef(false);
+  async function commitSummary(operation: 'edit' | 'delete' | 'select', versionId: string | null = null, content: string | null = null) {
+    if (summarySaveLock.current || sending || summaryGenerating) return false;
+    summarySaveLock.current = true;
+    try {
+      const updated = await mutateSummary(session.id, operation, versionId, content, selectedSummaryIds);
+      onUpdate(updated);
+      await loadSummaries();
+      return true;
+    } catch (error) {
+      flash('요약 저장 실패: ' + (error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error)));
+      return false;
+    } finally { summarySaveLock.current = false; }
+  }
+
   async function saveSummary(version: SummaryVersion) {
     const content = summaryDraft.trim();
     if (!content) return;
-    await supabase.from('summary_versions').update({ content }).eq('id', version.id);
-    if (version.is_active) {
-      const combined = summaryVersions
-        .filter((item) => item.is_active)
-        .map((item) => item.id === version.id ? content : item.content)
-        .join('\n\n--- 추가 요약 노트 ---\n\n');
-      await supabase.from('sessions').update({ summary: combined }).eq('id', session.id);
-      onUpdate({ summary: combined });
-    }
-    setEditingSummary(null);
-    await loadSummaries();
-    flash('요약 노트를 수정했습니다.');
+    if (await commitSummary('edit', version.id, content)) { setEditingSummary(null); flash('요약 노트를 수정했습니다.'); }
   }
 
   async function saveSummarySettings(patch: Partial<Session>) {
-    await supabase.from('sessions').update(patch).eq('id', session.id);
+    const { error } = await supabase.from('sessions').update(patch).eq('id', session.id);
+    if (error) { flash('요약 설정 저장 실패: ' + error.message); return; }
     onUpdate(patch);
   }
 
   async function applySelectedSummaries() {
-    const selected = summaryVersions
-      .filter((version) => selectedSummaryIds.includes(version.id))
-      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
-    const summary = selected.map((version) => version.content).join('\n\n--- 추가 요약 노트 ---\n\n');
-    const { error } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id);
-    if (error) { flash(error.message); return; }
-    if (selectedSummaryIds.length > 0) {
-      const { error: selectError } = await supabase.from('summary_versions').update({ is_active: true }).in('id', selectedSummaryIds);
-      if (selectError) { flash(selectError.message); return; }
-    }
-    const newestSelected = selected[selected.length - 1];
-    const summaryLastTurn = newestSelected?.summarized_through_turn ?? 0;
-    await supabase.from('sessions').update({ summary, summary_last_turn: summaryLastTurn }).eq('id', session.id);
-    onUpdate({ summary, summary_last_turn: summaryLastTurn });
-    await loadSummaries();
-    flash('선택한 요약 노트를 채팅에 반영했습니다.');
+    if (await commitSummary('select')) flash('선택한 요약 노트를 채팅에 반영했습니다.');
   }
 
   async function deleteSummary(version: SummaryVersion) {
     if (!await showConfirmDialog('이 요약 노트를 삭제할까요?', '삭제한 요약 노트는 복구할 수 없습니다.', '삭제')) return;
-    const { error } = await supabase.from('summary_versions').delete().eq('id', version.id);
-    if (error) { flash(error.message); return; }
-    const remaining = summaryVersions.filter((item) => item.id !== version.id);
-    let active = remaining.filter((item) => selectedSummaryIds.includes(item.id));
-    if (version.is_active && active.length === 0 && remaining.length > 0) {
-      active = [remaining[0]];
-      await supabase.from('summary_versions').update({ is_active: true }).eq('id', remaining[0].id);
-    }
-    const summary = active.map((item) => item.content).join('\n\n--- 추가 요약 노트 ---\n\n');
-    const newestActive = [...active].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
-    const summaryLastTurn = newestActive?.summarized_through_turn ?? 0;
-    await supabase.from('sessions').update({ summary, summary_last_turn: summaryLastTurn }).eq('id', session.id);
-    onUpdate({ summary, summary_last_turn: summaryLastTurn });
-    await loadSummaries();
-    flash('요약 노트를 삭제했습니다.');
+    if (await commitSummary('delete', version.id)) flash('요약 노트를 삭제했습니다.');
   }
 
   async function addStoryNote() {
@@ -346,7 +323,7 @@ export default function SessionMenu({
           <label className="inu-switch-row"><span>Allow omission <small>생략 허용</small></span><Toggle aria-label="요약 생략 허용" checked={session.summary_allow_omission_override ?? profile?.summary_allow_omission ?? true} onChange={summary_allow_omission_override => void saveSummarySettings({ summary_allow_omission_override })} /></label>
           <label className="inu-switch-row"><span>요약 파라미터 함께 전송</span><Toggle aria-label="요약 파라미터 함께 전송" disabled={!profile?.summary_prompt?.trim()} checked={session.summary_parameters_enabled_override ?? profile?.summary_parameters_enabled ?? true} onChange={summary_parameters_enabled_override => void saveSummarySettings({ summary_parameters_enabled_override })} /></label>
           <p className="inu-help">전역 요약 프롬프트를 설정했을 때 사용할 수 있어요.</p>
-          <button type="button" className="inu-button inu-primary inu-full" disabled={summaryGenerating || sessionTurnCount === 0} onClick={async () => { await onGenerateSummary(summaryThroughTurn === '' ? undefined : summaryThroughTurn); await loadSummaries(); }}><InterfaceIcon name="generate" />{summaryGenerating ? '요약 생성 중…' : '지금 요약 노트 생성'}</button>
+          <button type="button" className="inu-button inu-primary inu-full" disabled={sending || summaryGenerating || sessionTurnCount === 0} onClick={async () => { await onGenerateSummary(summaryThroughTurn === '' ? undefined : summaryThroughTurn); await loadSummaries(); }}><InterfaceIcon name="generate" />{summaryGenerating ? '요약 생성 중…' : '지금 요약 노트 생성'}</button>
           <button type="button" className="inu-button inu-full" onClick={() => void openSummaries()}><InterfaceIcon name="history" />요약 노트 보기</button>
         </section>
       </div>
@@ -371,7 +348,7 @@ export default function SessionMenu({
           {summaryVersions.length === 0 ? <p className="inu-help">생성된 요약이 없습니다.</p> : summaryVersions.map(version => <article key={version.id} className="inu-summary-item"><div className="inu-summary-meta"><label><input type="checkbox" checked={selectedSummaryIds.includes(version.id)} onChange={event => setSelectedSummaryIds(ids => event.target.checked ? [...ids, version.id] : ids.filter(id => id !== version.id))} aria-label={`${version.summarized_through_turn}턴 요약 선택`} /><time dateTime={version.created_at} title={new Date(version.created_at).toLocaleString('ko-KR')}>{new Date(version.created_at).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }).replace(/\s/g, '').replace(/\.$/, '')} {new Date(version.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}</time></label><span>AI 요약 · {version.summarized_through_turn}턴</span>{version.is_active && <span className="inu-tag">전송 중</span>}</div>
             {editingSummary === version.id ? <><textarea rows={6} value={summaryDraft} onChange={event => setSummaryDraft(event.target.value)} aria-label="요약 노트 내용" /><div className="inu-item-actions"><button type="button" onClick={() => void saveSummary(version)}>저장</button><button type="button" onClick={() => setEditingSummary(null)}>취소</button></div></> : <><pre>{version.content}</pre><div className="inu-item-actions"><button type="button" onClick={() => { setEditingSummary(version.id); setSummaryDraft(version.content); }}>편집</button><button type="button" className="inu-danger" onClick={() => void deleteSummary(version)}>삭제</button></div></>}
           </article>)}
-          {summaryVersions.length > 0 && <div className="inu-two-buttons"><button type="button" className="inu-button" onClick={() => void applySelectedSummaries()}>선택 노트 반영</button><button type="button" className="inu-button inu-primary" disabled={selectedSummaryIds.length < 2 || summaryGenerating} onClick={async () => { await onMergeSummaries(summaryVersions.filter(version => selectedSummaryIds.includes(version.id)).map(version => version.content)); await loadSummaries(); }}><InterfaceIcon name="merge" />통합 생성</button></div>}
+          {summaryVersions.length > 0 && <div className="inu-two-buttons"><button type="button" className="inu-button" onClick={() => void applySelectedSummaries()}>선택 노트 반영</button><button type="button" className="inu-button inu-primary" disabled={sending || selectedSummaryIds.length < 2 || summaryGenerating} onClick={async () => { await onMergeSummaries(summaryVersions.filter(version => selectedSummaryIds.includes(version.id)).map(version => version.content)); await loadSummaries(); }}><InterfaceIcon name="merge" />통합 생성</button></div>}
         </section>
       </div>
     </SessionMenuPage>}

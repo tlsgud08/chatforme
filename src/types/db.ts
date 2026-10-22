@@ -196,6 +196,7 @@ export interface StoryNote {
 }
 
 export interface Message {
+  content_version?: number;
   id: string;
   session_id: string;
   role: Role;

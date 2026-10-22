@@ -24,7 +24,7 @@ const imports = {
   'react-router-dom': uri(`import {createElement} from ${JSON.stringify(import.meta.resolve('react'))};export const useNavigate=()=>()=>{};export function Link({to,children,...props}){return createElement('a',{...props,href:to},children);}`),
   '@tanstack/react-query': uri(`export const useQueryClient=()=>({invalidateQueries:async value=>globalThis.__auditInvalidations.push(value),setQueriesData:()=>{}});export const useQuery=()=>({data:[],isLoading:false,refetch:async()=>{}});`),
   '@/hooks/useAuth': uri(`export const useAuth=()=>({user:{id:'owner'},isAdmin:false});`),
-  '@/lib/supabase': uri(`export const supabase={from:table=>globalThis.__auditFrom(table)};`),
+  '@/lib/supabase': uri(`export const supabase={from:table=>globalThis.__auditFrom(table),rpc:(name,args)=>globalThis.__auditRpc(name,args)};`),
   '@/lib/works': uri(`export const WORK_LIST_COLUMNS='id,creator_id,title';`),
   '@/lib/toast': uri(`export const showToast=message=>globalThis.__auditNotices.push(message);`),
   '@/components/ConfirmDialog': uri(`export default function ConfirmDialog(){return null;}`),
@@ -68,7 +68,7 @@ globalThis.setTimeout=callback=>{timers.push(callback);return callback;};
 globalThis.clearTimeout=callback=>{const i=timers.indexOf(callback);if(i>=0)timers.splice(i,1);};
 try {
   const deferred=[];
-  respond=request=>request.table==='profiles'?{data:[],error:null}:new Promise(resolve=>deferred.push({request,resolve}));
+  respond=request=>request.table==='public_profiles'?{data:[],error:null}:new Promise(resolve=>deferred.push({request,resolve}));
   const old=['old','works',[],[],false,''];
   render(SearchPage,old);
   const cleanupOld=globalThis.__audit.effects[1]();timers.shift()();await flush();
@@ -107,28 +107,18 @@ assert.equal(favValues[0].length,0);
 assert.ok(invalidations.some(item=>item.queryKey[0]==='user-favorites'));
 assert.ok(invalidations.some(item=>item.queryKey[0]==='work-fav-me'));
 
-const palette={accent:'#123456',accentText:'#ffffff',main:'#000000',mainText:'#ffffff'};
-const original={id:'original',title:'Original',creator_id:'owner',default_theme_id:'shared',default_theme_variant:'light'};
-const shared={id:'shared',name:'Garden',description:'',dark_colors:palette,light_colors:palette,ai_prompt:'Garden condition',day_night_enabled:true,use_day_night_variants:false,work_shared:true};
-const privateTheme={...shared,id:'private',name:'Private',work_shared:false};
-respond=request=>{
- if(request.table==='works'&&!request.insert&&!request.update)return {data:original,error:null};
- if(request.table==='works'&&request.insert)return {data:{id:'copied-work'},error:null};
- if(request.table==='themes'&&!request.insert)return {data:[shared,privateTheme],error:null};
- if(request.table==='themes'&&request.insert)return {data:{id:'copied-theme'},error:null};
- return {data:[],error:null};
-};
-// Supply a list row to the real page's useQuery result for its menu handler.
-// Recompile with an explicit query fixture, leaving all mutation code intact.
+// The database regression suite verifies complete copies and transaction rollback.
+// The page must call that API and must never report success after its failure.
 imports['@tanstack/react-query']=uri(`export const useQueryClient=()=>({invalidateQueries:async()=>{},setQueriesData:()=>{}});export const useQuery=()=>({data:[{id:'original',title:'Original',creator_id:'owner'}],isLoading:false,refetch:async()=>{}});`);
+const copyCalls=[];
+globalThis.__auditRpc=async(name,args)=>{copyCalls.push({name,args});return {data:null,error:{message:'copy failed'}};};
 const {default:CreateWithWork}=await loadPage('CreatePage');
 view=render(CreateWithWork,['original',null,false]);
-await elements(view).find(el=>el.type==='button'&&el.props.children==='작품 복제').props.onClick();
-await flush();
-const copied=calls.filter(call=>call.table==='themes'&&call.insert);
-assert.equal(copied.length,1,'personal scene themes do not become shared on copy');
-assert.equal(copied[0].insert.ai_prompt,shared.ai_prompt);
-assert.equal(copied[0].insert.day_night_enabled,true);
-assert.equal(copied[0].insert.use_day_night_variants,false);
-assert.deepEqual(copied[0].insert.dark_colors,palette);
-console.log('Audit regressions: superseded/empty/error searches, inaccessible favorites, failed/successful deletion and complete shared-theme copies OK');
+await elements(view).find(el=>el.type==='button'&&el.props.children==='작품 복제').props.onClick();await flush();
+assert.ok(notices.at(-1).includes('복제 실패'));
+assert.deepEqual(copyCalls[0],{name:'duplicate_work_atomic',args:{target_work:'original'}});
+globalThis.__auditRpc=async()=>({data:'copied-work',error:null});
+view=render(CreateWithWork,['original',null,false]);
+await elements(view).find(el=>el.type==='button'&&el.props.children==='작품 복제').props.onClick();await flush();
+assert.equal(notices.at(-1),'작품을 복제했습니다.');
+console.log('Audit regressions: stale/failed search, favorite rollback and transactional work-copy success/failure passed');
