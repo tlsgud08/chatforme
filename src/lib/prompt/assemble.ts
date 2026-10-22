@@ -1,10 +1,12 @@
 import { normalizeThemePeriods, stripThemeDirectives } from '../themeDirectives';
 import type { ChatMessage, SystemParts } from '@/lib/llm/types';
 import type { ActivePlugin, Message, Persona } from '@/types/db';
+import { workCombinationPrompt, type WorkCombinationPrompt } from '../workCombination';
 
 export interface AssembleInput {
   systemPrompt: string;
   mainPrompt: string;
+  workCombination?: WorkCombinationPrompt;
   autoThemeEnabled?: boolean;
   dayNightThemeNames?: string[];
   themePrompt?: string;
@@ -32,7 +34,9 @@ export function assemblePrompt(input: AssembleInput): AssembledPrompt {
   // L1: core — 플랫폼 시스템 + 메인 프롬프트 (세션 내 불변)
   const coreParts: string[] = [];
   if (input.systemPrompt.trim()) coreParts.push(input.systemPrompt.trim());
-  if (input.mainPrompt.trim()) coreParts.push(section('Main Prompt', input.mainPrompt));
+  const combination = workCombinationPrompt(input.mainPrompt, input.workCombination);
+  if (combination !== null) coreParts.push(combination);
+  else if (input.mainPrompt.trim()) coreParts.push(section('Main Prompt', input.mainPrompt));
 
   if (input.autoThemeEnabled) {
     if (input.themePrompt?.trim()) coreParts.push(section('Theme Change Rules', input.themePrompt));

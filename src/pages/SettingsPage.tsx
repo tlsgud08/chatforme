@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import InterfaceIcon from '@/components/InterfaceIcon';
 import ModernPageHeading from '@/components/ModernPageHeading';
 import type { InterfaceIconName } from '@/components/InterfaceIcon';
@@ -17,6 +17,7 @@ import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/Out
 import { useUsdKrwRate } from '@/lib/exchangeRate';
 import { loadTurnPriceWarning, saveTurnPriceWarning, type TurnPriceWarningCurrency } from '@/lib/turnPriceWarning';
 import Toggle from '@/components/Toggle';
+import { DEFAULT_WORK_COMBINATION_PROMPT } from '@/lib/workCombination';
 
 export default function SettingsPage() {
   const { user, signOut } = useAuth();
@@ -44,6 +45,11 @@ export default function SettingsPage() {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [multichatSystemPrompt, setMultichatSystemPrompt] = useState('');
   const [systemPromptLoaded, setSystemPromptLoaded] = useState(false);
+  const [workCombinationPrompt, setWorkCombinationPrompt] = useState('');
+  const [workCombinationPromptLoaded, setWorkCombinationPromptLoaded] = useState(false);
+  const [workCombinationPromptSaving, setWorkCombinationPromptSaving] = useState(false);
+  const [workCombinationPromptError, setWorkCombinationPromptError] = useState('');
+  const workCombinationPromptLock = useRef(false);
 
   useEffect(() => {
     if (!user) return;
@@ -85,6 +91,48 @@ export default function SettingsPage() {
     setDefaultReasoning(loadDefaultReasoning(profile.default_provider, model));
     setSummaryReasoning(normalizeReasoning(profile.summary_reasoning, 'openrouter', profile.summary_model || model));
   }, [profile?.id]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const controller = new AbortController();
+    void loadWorkCombinationPrompt(controller.signal);
+    return () => controller.abort();
+  }, [isAdmin]);
+
+  async function loadWorkCombinationPrompt(signal?: AbortSignal) {
+    setWorkCombinationPromptLoaded(false);
+    setWorkCombinationPromptError('');
+    try {
+      let query = supabase.from('platform_config').select('work_combination_prompt').eq('id', 1);
+      if (signal) query = query.abortSignal(signal);
+      const { data, error } = await query.single();
+      if (signal?.aborted) return;
+      if (error || typeof data?.work_combination_prompt !== 'string') throw new Error('작품 결합 지침을 불러오지 못했습니다. DB 업데이트와 연결을 확인해 주세요.');
+      setWorkCombinationPrompt(data.work_combination_prompt);
+      setWorkCombinationPromptLoaded(true);
+    } catch (error) {
+      if (!signal?.aborted) setWorkCombinationPromptError(error instanceof Error ? error.message : '작품 결합 지침 조회 실패');
+    }
+  }
+
+  async function saveWorkCombinationPrompt() {
+    if (!isAdmin || !workCombinationPromptLoaded || workCombinationPromptLock.current) return;
+    workCombinationPromptLock.current = true;
+    setWorkCombinationPromptSaving(true);
+    setWorkCombinationPromptError('');
+    try {
+      const { data, error } = await supabase.from('platform_config')
+        .update({ work_combination_prompt: workCombinationPrompt, updated_at: new Date().toISOString() })
+        .eq('id', 1).select('id').single();
+      if (error || !data) throw new Error('작품 결합 지침을 저장하지 못했습니다. 관리자 권한과 연결을 확인해 주세요.');
+      flash('작품 결합 지침을 저장했습니다. 다음 결합 채팅 요청부터 적용됩니다.');
+    } catch (error) {
+      setWorkCombinationPromptError(error instanceof Error ? error.message : '작품 결합 지침 저장 실패');
+    } finally {
+      workCombinationPromptLock.current = false;
+      setWorkCombinationPromptSaving(false);
+    }
+  }
 
   function saveKeys() {
     saveApiKeys(keys);
@@ -449,6 +497,19 @@ export default function SettingsPage() {
           <textarea value={multichatSystemPrompt} onChange={e=>setMultichatSystemPrompt(e.target.value)} rows={6} placeholder="예: user1과 user2의 입력을 하나의 동시 행동으로 처리하세요." className="w-full resize-y rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none" />
         </section>
       )}
+
+      {isAdmin && <section data-settings-section="admin" className="rounded-lg border border-yellow-600/30 bg-yellow-950/20 p-4">
+        <h2 className="mb-1 font-semibold text-yellow-400">관리자 — 작품 결합 지침</h2>
+        <p className="mb-3 text-xs text-slate-400">작품 결합 사용 시 메인 작품과 추가 작품 프롬프트 묶음 바로 앞에 적용됩니다. 비워 저장하면 지침 문구를 생략합니다.</p>
+        <textarea aria-label="작품 결합 지침" value={workCombinationPrompt} onChange={event => setWorkCombinationPrompt(event.target.value)} rows={7}
+          disabled={!workCombinationPromptLoaded || workCombinationPromptSaving} className="w-full resize-y rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none disabled:opacity-50" />
+        {workCombinationPromptError && <p role="alert" className="mt-2 text-xs text-red-400">{workCombinationPromptError}</p>}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" disabled={!workCombinationPromptLoaded || workCombinationPromptSaving} onClick={() => setWorkCombinationPrompt(DEFAULT_WORK_COMBINATION_PROMPT)} className="rounded-lg bg-surface2 px-3 py-2 text-xs disabled:opacity-50">기본 문구 불러오기</button>
+          {!workCombinationPromptLoaded && <button type="button" onClick={() => void loadWorkCombinationPrompt()} className="rounded-lg bg-surface2 px-3 py-2 text-xs">다시 불러오기</button>}
+          <button type="button" disabled={!workCombinationPromptLoaded || workCombinationPromptSaving} onClick={() => void saveWorkCombinationPrompt()} className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{workCombinationPromptSaving ? '저장 중…' : '작품 결합 지침 저장'}</button>
+        </div>
+      </section>}
 
       {user && (
         <section data-settings-section="account" className="border-t border-slate-700 pt-6">

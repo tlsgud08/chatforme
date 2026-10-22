@@ -9,6 +9,7 @@ import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import { assemblePrompt } from '@/lib/prompt/assemble';
+import { loadWorkCombination } from '@/lib/workCombinationData';
 import { resolvePromptCache } from '@/lib/llm/promptCache';
 import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
@@ -231,6 +232,14 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [workCombinationSaving, setWorkCombinationSaving] = useState(false);
+  const workCombinationSavingRef = useRef(false);
+  const onWorkCombinationSavingChange = useCallback((saving: boolean) => {
+    if (saving && (sendInFlightRef.current || branchInFlightRef.current || workCombinationSavingRef.current)) return false;
+    workCombinationSavingRef.current = saving;
+    setWorkCombinationSaving(saving);
+    return true;
+  }, []);
   const [exportingConversation, setExportingConversation] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
@@ -478,9 +487,12 @@ export default function ChatPage() {
 
   async function readLiveThemeContext(){
     if(!session||!profile)throw new Error('테마 설정을 불러오지 못했습니다.');
+    const roomColumns = session.work_combination_enabled !== undefined
+      ? 'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids'
+      : 'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period';
     const [account,room]=await Promise.all([
       supabase.from('profiles').select('preferred_theme_mode,preferred_theme_variant,prefer_work_theme,preferred_theme_id').eq('id',session.user_id).single(),
-      supabase.from('sessions').select('theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period').eq('id',session.id).eq('user_id',session.user_id).single(),
+      supabase.from('sessions').select(roomColumns).eq('id',session.id).eq('user_id',session.user_id).returns<Partial<Session>[]>().single(),
     ]);
     if(account.error)throw account.error;
     if(room.error)throw room.error;
@@ -671,6 +683,7 @@ export default function ChatPage() {
   }
 
   async function send(options?: { reroll?: boolean }) {
+    if (workCombinationSavingRef.current) { showToast('작품 결합 설정을 저장한 뒤 전송해 주세요.'); return; }
     if (!work || sendInFlightRef.current || (sessionId && activeGenerations.has(sessionId))) return;
 
     const provider: Provider = 'openrouter';
@@ -821,6 +834,19 @@ export default function ChatPage() {
     let liveTheme;
     try{liveTheme=await readLiveThemeContext();}
     catch(error){addError('테마 설정 조회 실패: '+describeUnknownError(error));releaseSend();return;}
+    let workCombination;
+    try {
+      workCombination = await loadWorkCombination(liveTheme.session, work, controller.signal);
+      if (controller.signal.aborted) throw new Error('응답 생성을 중단했습니다.');
+    } catch (error) {
+      addError('작품 결합 확인 실패: ' + describeUnknownError(error));
+      if (!options?.reroll) {
+        setInput(current => current ? `${submittedInput}${submittedInput ? '\n\n' : ''}${current}` : submittedInput);
+        setSelectedCommand(current => current ?? submittedCommand);
+      }
+      releaseSend();
+      return;
+    }
 
     // A reroll re-sends the original user turn as the latest message, so remove
     // that same row from history to avoid sending it twice.
@@ -863,7 +889,7 @@ export default function ChatPage() {
 
     const assembled = assemblePrompt({
       autoThemeEnabled:liveTheme.session.theme_override==null,dayNightThemeNames:liveTheme.names,themePrompt,themeCatalog:themeCatalogPrompt(workThemes,liveTheme.dayNight),
-      systemPrompt, mainPrompt: work.main_prompt, userNote: session.user_note,
+      systemPrompt, mainPrompt: work.main_prompt, workCombination, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
       plugins: session.active_plugins,
       keywordBookContents: getActiveKeywordContents(currentMessages, promptText),
@@ -1095,6 +1121,7 @@ export default function ChatPage() {
   }
 
   async function branchFrom(message: Message) {
+    if (workCombinationSavingRef.current) { showToast('작품 결합 설정을 저장한 뒤 분기해 주세요.'); return; }
     if (!session || !user) return;
     if (branchInFlightRef.current) return;
     branchInFlightRef.current = true;
@@ -1125,6 +1152,10 @@ export default function ChatPage() {
     const { data: newSession, error } = await supabase.from('sessions').insert({
       user_id: user.id, work_id: session.work_id, title: `${session.title} (분기)`, persona_id: session.persona_id,
       start_config_id: session.start_config_id, user_note: session.user_note, active_plugins: session.active_plugins ?? [],
+      ...(session.work_combination_enabled !== undefined && {
+        work_combination_enabled: session.work_combination_enabled,
+        combined_work_ids: session.combined_work_ids ?? [],
+      }),
       theme_day_night_enabled:session.theme_day_night_enabled??false,theme_period:session.theme_override==null?session.theme_period??null:null,
       auto_theme_enabled:session.theme_override==null,
       theme_override: session.theme_override ?? null, theme_id: session.theme_id ?? null, theme_variant: session.theme_variant ?? null,
@@ -1373,6 +1404,7 @@ export default function ChatPage() {
         ) : (
           <button
           onClick={() => void send()}
+            disabled={workCombinationSaving}
             aria-label="메시지 전송"
             className="chat-send-button rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white"
           >
@@ -1385,11 +1417,13 @@ export default function ChatPage() {
 
       {menuOpen && session && (
         <SessionMenu
+          key={session.id}
           sending={sending}
           session={session}
           profile={profile}
           onClose={() => setMenuOpen(false)}
-          onUpdate={(patch) => setSession((s) => (s ? { ...s, ...patch } : s))}
+          onUpdate={(patch) => setSession((s) => (s?.id === session.id ? { ...s, ...patch } : s))}
+          onWorkCombinationSavingChange={onWorkCombinationSavingChange}
           onPersonaChange={(p) => setPersona(p)}
           debugMode={debugMode}
           onDebugToggle={setDebugMode}

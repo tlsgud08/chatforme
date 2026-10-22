@@ -7,7 +7,8 @@ const themeURL=uri(transpile(readFileSync(new URL('../src/lib/theme.ts',import.m
 const theme=await import(themeURL);
 const helpersURL=uri(transpile(readFileSync(new URL('../src/lib/themeDirectives.ts',import.meta.url),'utf8').replace("'./theme'",JSON.stringify(themeURL))));
 const h=await import(helpersURL);
-const assemblySource=readFileSync(new URL('../src/lib/prompt/assemble.ts',import.meta.url),'utf8').replace("'../themeDirectives'",JSON.stringify(helpersURL));
+const combinationURL=uri(transpile(readFileSync(new URL('../src/lib/workCombination.ts',import.meta.url),'utf8')));
+const assemblySource=readFileSync(new URL('../src/lib/prompt/assemble.ts',import.meta.url),'utf8').replace("'../themeDirectives'",JSON.stringify(helpersURL)).replace("'../workCombination'",JSON.stringify(combinationURL));
 const {assemblePrompt}=await import(uri(transpile(assemblySource)));
 const text='장면 본문\n{{theme::밤거리}}';
 assert.equal(h.stripThemeDirectives(text),'장면 본문\n');
