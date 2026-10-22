@@ -1,5 +1,5 @@
 import InterfaceIcon from './InterfaceIcon';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Command } from '@/types/db';
 import { showToast } from '@/lib/toast';
@@ -31,12 +31,15 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
   const [viewing, setViewing] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [previewText, setPreviewText] = useState('');
+  const contentRead = useRef<AbortController | null>(null);
+  useEffect(() => () => contentRead.current?.abort(), []);
 
   async function load() {
     const fetchCommands=async()=>{
       const items:Command[]=[];
       for(let start=0;;start+=500){
-        const {data,error}=await supabase.from('commands').select('*')
+        const {data,error}=await supabase.from('commands').select('id,owner_id,work_id,name,description,is_published,copied_from_id,created_at,updated_at')
           .order('updated_at',{ascending:false}).order('id',{ascending:false})
           .range(start,start+499);
         if(error)throw error;
@@ -63,7 +66,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
     if(workIds.length){const {data:works}=await supabase.from('works').select('id,title').in('id',workIds);setWorkNames(Object.fromEntries((works??[]).map(w=>[w.id,w.title])));}
     const ids = [...new Set(next.map((item) => item.owner_id))];
     if (ids.length) {
-      const { data: profiles } = await supabase.from('profiles').select('id,display_name').in('id', ids);
+      const { data: profiles } = await supabase.from('public_profiles').select('id,display_name').in('id', ids);
       setAuthors(Object.fromEntries((profiles ?? []).map((profile) => [profile.id, profile.display_name || '이름 없음'])));
     }
   }
@@ -84,6 +87,29 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
             : favoriteIds.has(command.id);
     return relevant && inTab && (!searchTerm || `${command.name} ${command.description} ${authors[command.owner_id] ?? ''}`.toLocaleLowerCase().includes(searchTerm));
   }), [authors, commands, favoriteIds, searchTerm, tab, userId, workId]);
+
+  async function readContent(item: Command): Promise<Command | null> {
+    contentRead.current?.abort();
+    const controller = new AbortController();
+    contentRead.current = controller;
+    try {
+      const { data, error } = await supabase.from('commands').select('*').eq('id', item.id).abortSignal(controller.signal).single();
+      if (controller.signal.aborted) return null;
+      if (error || !data) throw error ?? new Error('본문에 접근할 수 없습니다.');
+      return data as Command;
+    } catch (error) {
+      if (!controller.signal.aborted) showToast('본문 조회 실패: ' + (error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error)));
+      return null;
+    }
+  }
+
+  async function chooseItem(item: Command) {
+    if (embedded && viewing === item.id) { setViewing(null); return; }
+    const full = await readContent(item);
+    if (!full) return;
+    if (embedded) { setPreviewText(full.prompt); setViewing(full.id); }
+    else { onSelect?.(full); onClose?.(); }
+  }
 
   async function toggleFavorite(command: Command) {
     if (command.work_id) return;
@@ -109,7 +135,12 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
     showToast(wasFavorite ? '즐겨찾기에서 삭제했습니다.' : '즐겨찾기에 추가했습니다.');
   }
 
-  function beginEdit(command?: Command) {
+  async function beginEdit(command?: Command) {
+    if (command) {
+      const full = await readContent(command);
+      if (!full) return;
+      command = full;
+    }
     setEditing(command ?? 'new');
     setDraft(command ? { name: command.name, description: command.description, prompt: command.prompt } : emptyDraft);
     setOpenMenu(null);
@@ -139,6 +170,9 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
   }
 
   async function copy(command: Command) {
+    const full = await readContent(command);
+    if (!full) return;
+    command = full;
     if (command.work_id) return;
     setOpenMenu(null);
     const base = command.name;
@@ -199,7 +233,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
           {visible.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">{searchTerm ? `${tabLabels[tab]}에 검색 결과가 없습니다.` : '표시할 명령어가 없습니다.'}</p> : visible.map((command) => {
             const mine = command.work_id ? allowWorkCreate && command.work_id === workId : command.owner_id === userId;
             return <div key={command.id} className={`relative flex gap-3 border-b border-surface2/70 px-4 py-3 ${embedded ? 'flex-wrap' : ''}`}>
-              <button onClick={() => { if (embedded) setViewing(viewing === command.id ? null : command.id); else { onSelect?.(command); onClose?.(); } }} className="min-w-0 flex-1 text-left">
+              <button onClick={() => void chooseItem(command)} className="min-w-0 flex-1 text-left">
                 <p className="truncate font-semibold text-white"><span className="text-brand">/</span>{command.name} {command.work_id && <span className="ml-1 rounded bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand">작품 전용</span>} {mine && <span className="ml-1 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-400">나</span>} {command.is_published && <span className="ml-1 rounded bg-blue-400/15 px-1.5 py-0.5 text-[10px] text-blue-400">허브</span>}</p>
                 <p className="mt-1 truncate text-xs text-slate-400">{command.description || '설명 없음'}</p>
                 {command.work_id && <p className="mt-1 text-[11px] text-slate-500">작품 · {workNames[command.work_id]??'접근 가능한 작품'}</p>}
@@ -207,7 +241,7 @@ export default function CommandMenu({ userId, onClose, onSelect, embedded = fals
               </button>
               {embedded && viewing === command.id && <div className="order-last w-full rounded-lg bg-surface p-3">
                 <p className="mb-2 text-xs font-semibold text-slate-400">프롬프트 본문</p>
-                <pre className="whitespace-pre-wrap break-words text-sm text-slate-200">{command.prompt}</pre>
+                <pre className="whitespace-pre-wrap break-words text-sm text-slate-200">{previewText}</pre>
               </div>}
               <button disabled={!!command.work_id} aria-label={`/${command.name} ${favoriteIds.has(command.id) ? '즐겨찾기 해제' : '즐겨찾기 추가'}`} aria-pressed={favoriteIds.has(command.id)} onClick={() => void toggleFavorite(command)} className={`self-start px-1 text-2xl leading-none ${favoriteIds.has(command.id) ? 'text-amber-400' : 'text-slate-500'}`}><InterfaceIcon name="star" filled={favoriteIds.has(command.id)} /></button>
               <button aria-label="명령어 메뉴" onClick={() => setOpenMenu(openMenu === command.id ? null : command.id)} className="self-start px-1 text-xl text-slate-500"><InterfaceIcon name="more" /></button>

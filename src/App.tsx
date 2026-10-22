@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { isSupabaseConfigured } from './lib/supabase';
 import Layout from './components/Layout';
@@ -25,6 +25,12 @@ const UserPage = lazy(() => import('./pages/UserPage'));
 const MultichatCreatePage = lazy(() => import('./pages/MultichatCreatePage'));
 const MultichatPage = lazy(() => import('./pages/MultichatPage'));
 
+function ChatRoute() {
+  const { sessionId } = useParams();
+  const { user } = useAuth();
+  return <ChatPage key={`${user?.id}:${sessionId}`} />;
+}
+
 export default function App() {
   const { user, loading } = useAuth();
   const location = useLocation();
@@ -44,15 +50,15 @@ export default function App() {
     <AppToast />
     <AppConfirmDialog />
     <ThemeManager />
-    <PageLoadBoundary resetKey={location.pathname}>
+    <PageLoadBoundary resetKey={`${user.id}:${location.pathname}`}>
     <Suspense fallback={fallback}>
-    <InterfaceFrame>
+    <InterfaceFrame key={user.id}>
     <Routes>
       {/* 로그인 화면 (CreatePage에서 로그인 유도 시 이동) */}
       <Route path="/login" element={<LoginPage />} />
 
       {/* 전체화면 (탭바 없음) */}
-      <Route path="/chat/:sessionId" element={<ChatPage />} />
+      <Route path="/chat/:sessionId" element={<ChatRoute />} />
       <Route path="/search" element={<SearchPage />} />
       <Route path="/multichat/new" element={<MultichatCreatePage />} />
       <Route path="/multichat/:roomId" element={<MultichatPage />} />

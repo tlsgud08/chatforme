@@ -5,6 +5,9 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
+import { createDraftWriter } from '@/lib/draftWriter';
+import { registerAccountTask } from '@/lib/accountTasks';
+import { generationContext, selectResponse } from '@/lib/sessionData';
 import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '@/lib/llm/types';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
@@ -26,35 +29,17 @@ import InterfaceIcon from '@/components/InterfaceIcon';
 import './ChatPage.css';
 
 const GENERATION_TIMEOUT_MS = 8 * 60_000;
-const DRAFT_SAVE_INTERVAL_MS = 500;
-const MESSAGE_TURN_PAGE_SIZE = 5;
+const DRAFT_SAVE_INTERVAL_MS = 1000;
 const MESSAGE_FETCH_BATCH_SIZE = 500;
-interface MessagePage { messages: Message[]; hasOlder: boolean; oldestCreatedAt: string | null; }
+interface MessagePage { messages: Message[]; hasOlder: boolean; oldestTurn: number | null; totalUserTurns: number; }
 
-async function fetchMessagePage(sessionId: string, before?: string): Promise<MessagePage> {
-  let userTurnsQuery = supabase.from('messages')
-    .select('created_at')
-    .eq('session_id', sessionId)
-    .eq('role', 'user')
-    .eq('is_hidden', false)
-    .eq('is_active_variant', true)
-    .order('created_at', { ascending: false })
-    .limit(MESSAGE_TURN_PAGE_SIZE + 1);
-  if (before) userTurnsQuery = userTurnsQuery.lt('created_at', before);
-  const { data: userTurns, error: userTurnsError } = await userTurnsQuery;
-  if (userTurnsError) throw userTurnsError;
-
-  const turns = userTurns ?? [];
-  const hasOlder = turns.length > MESSAGE_TURN_PAGE_SIZE;
-  const pageTurns = turns.slice(0, MESSAGE_TURN_PAGE_SIZE);
-  const cutoff = hasOlder ? pageTurns.at(-1)?.created_at : undefined;
-  let messagesQuery = supabase.from('messages').select('*').eq('session_id', sessionId).order('created_at', { ascending: true });
-  if (cutoff) messagesQuery = messagesQuery.gte('created_at', cutoff);
-  if (before) messagesQuery = messagesQuery.lt('created_at', before);
-  const { data, error } = await messagesQuery;
+async function fetchMessagePage(sessionId: string, before?: number): Promise<MessagePage> {
+  const { data, error } = await supabase.rpc('session_message_page', {
+    target_session: sessionId, before_turn: before ?? null,
+  });
   if (error) throw error;
-  const pageMessages = (data as Message[] | null) ?? [];
-  return { messages: pageMessages, hasOlder, oldestCreatedAt: pageMessages[0]?.created_at ?? null };
+  if (!data || !Array.isArray(data.messages)) throw new Error('메시지 목록을 불러오지 못했습니다.');
+  return data as MessagePage;
 }
 
 async function fetchAllSessionMessages(sessionId: string): Promise<Message[]> {
@@ -63,13 +48,14 @@ async function fetchAllSessionMessages(sessionId: string): Promise<Message[]> {
     const { data, error } = await supabase.from('messages')
       .select('*')
       .eq('session_id', sessionId)
+      .order('turn_index', { ascending: true })
       .order('created_at', { ascending: true })
       .order('id', { ascending: true })
       .range(from, from + MESSAGE_FETCH_BATCH_SIZE - 1);
     if (error) throw error;
     const batch = (data as Message[] | null) ?? [];
     messages.push(...batch);
-    if (batch.length < MESSAGE_FETCH_BATCH_SIZE) return messages;
+    if (batch.length < MESSAGE_FETCH_BATCH_SIZE) return orderMessagesByTurn(messages);
   }
 }
 
@@ -125,6 +111,7 @@ interface ActiveGeneration {
 const activeGenerations = new Map<string, ActiveGeneration>();
 
 interface ActiveSummaryGeneration {
+  controller: AbortController;
   listeners: Set<() => void>;
 }
 const activeSummaryGenerations = new Map<string, ActiveSummaryGeneration>();
@@ -220,6 +207,7 @@ export default function ChatPage() {
   const { user } = useAuth();
 
   const [session, setSession] = useState<Session | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [work, setWork] = useState<Work | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [persona, setPersona] = useState<Persona | null>(null);
@@ -262,7 +250,7 @@ export default function ChatPage() {
   const [storyNotes, setStoryNotes] = useState<StoryNote[]>([]);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [hasOlderServerMessages, setHasOlderServerMessages] = useState(false);
-  const [oldestLoadedAt, setOldestLoadedAt] = useState<string | null>(null);
+  const [oldestLoadedAt, setOldestLoadedAt] = useState<number | null>(null);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [totalUserTurnCount, setTotalUserTurnCount] = useState(0);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
@@ -300,15 +288,11 @@ export default function ChatPage() {
 
   const loadLatestMessages = useCallback(async () => {
     if (!sessionId) return;
-    const [page, { count, error }] = await Promise.all([
-      fetchMessagePage(sessionId),
-      supabase.from('messages').select('id', { count: 'exact', head: true }).eq('session_id', sessionId).eq('role', 'user').eq('is_hidden', false).eq('is_active_variant', true),
-    ]);
-    if (error) throw error;
+    const page = await fetchMessagePage(sessionId);
     setMessages(page.messages);
     setHasOlderServerMessages(page.hasOlder);
-    setOldestLoadedAt(page.oldestCreatedAt);
-    setTotalUserTurnCount(count ?? 0);
+    setOldestLoadedAt(page.oldestTurn);
+    setTotalUserTurnCount(page.totalUserTurns);
   }, [sessionId]);
 
   const loadOlderMessages = useCallback(async () => {
@@ -323,7 +307,7 @@ export default function ChatPage() {
         return [...page.messages.filter((message) => !loadedIds.has(message.id)), ...current];
       });
       setHasOlderServerMessages(page.hasOlder);
-      setOldestLoadedAt(page.oldestCreatedAt);
+      setOldestLoadedAt(page.oldestTurn);
     } catch (error) {
       addError(`이전 대화 불러오기 실패: ${describeUnknownError(error)}`);
       prependScrollHeightRef.current = null;
@@ -395,53 +379,49 @@ export default function ChatPage() {
 
   useEffect(() => {
     let cancelled = false;
-
-    (async () => {
-      const { data: s } = await supabase.from('sessions').select('*').eq('id', sessionId).single();
-      if (!s || cancelled) return;
+    setPersona(null);
+    setStartConfig(null);
+    setLoadError('');
+    void (async () => {
+      const { data: s, error: sessionError } = await supabase.from('sessions').select('*').eq('id', sessionId).single();
+      if (sessionError || !s) throw sessionError ?? new Error('채팅방에 접근할 수 없습니다.');
+      if (cancelled) return;
       const sess = s as Session;
-      setSession(sess);
-      settingsSessionIdRef.current = null;
-
-      const [{ data: w }, { data: p }, { data: cfg }, messagePage, { count: userTurnCount }, { data: kbs }, { data: notes }] = await Promise.all([
+      const [workResult, profileResult, configResult, page, booksResult, notesResult, personaResult, startResult] = await Promise.all([
         supabase.from('works').select('*').eq('id', sess.work_id).single(),
         supabase.from('profiles').select('*').eq('id', user!.id).single(),
         supabase.from('platform_config').select('system_prompt,theme_prompt').eq('id', 1).single(),
-        fetchMessagePage(sessionId!),
-        supabase.from('messages').select('id', { count: 'exact', head: true }).eq('session_id', sessionId).eq('role', 'user').eq('is_hidden', false).eq('is_active_variant', true),
+        fetchMessagePage(sess.id),
         supabase.from('keyword_books').select('*').eq('work_id', sess.work_id).order('sort_order'),
         supabase.from('story_notes').select('*').eq('session_id', sess.id).order('created_at'),
+        sess.persona_id ? supabase.from('personas').select('*').eq('id', sess.persona_id).single() : Promise.resolve({ data: null, error: null }),
+        sess.start_config_id ? supabase.from('start_configs').select('*').eq('id', sess.start_config_id).single() : Promise.resolve({ data: null, error: null }),
       ]);
       if (cancelled) return;
-      setWork(w as Work);
-      setProfile(p as Profile);
-      const savedSettings = loadSessionSettings(sess, p as Profile);
-      setSessionModel(savedSettings.model);
-      setSessionReasoning(savedSettings.reasoning);
+      for (const result of [workResult, profileResult, configResult, booksResult, notesResult, personaResult, startResult]) {
+        if (result.error) throw result.error;
+      }
+      if (!workResult.data || !profileResult.data) throw new Error('작품 또는 계정 설정을 불러오지 못했습니다.');
+      setSession(sess);
+      setWork(workResult.data as Work);
+      setProfile(profileResult.data as Profile);
+      setPersona(personaResult.data as Persona | null);
+      setStartConfig(startResult.data as StartConfig | null);
+      const settings = loadSessionSettings(sess, profileResult.data as Profile);
+      setSessionModel(settings.model);
+      setSessionReasoning(settings.reasoning);
       settingsSessionIdRef.current = sess.id;
-      setThemePrompt((cfg as {theme_prompt?:string}|null)?.theme_prompt??'');
-      setSystemPrompt((cfg as { system_prompt: string } | null)?.system_prompt ?? '');
-      const loadedMessages = messagePage.messages;
-      // A missing in-memory controller does not prove that generation stopped:
-      // another tab may still own it. P1 heartbeat handling will decide staleness.
-      setMessages(loadedMessages);
-      setHasOlderServerMessages(messagePage.hasOlder);
-      setOldestLoadedAt(messagePage.oldestCreatedAt);
-      setTotalUserTurnCount(userTurnCount ?? 0);
-      setKeywordBooks((kbs as KeywordBook[]) ?? []);
-      setStoryNotes((notes as StoryNote[]) ?? []);
-
-      if (sess.persona_id) {
-        const { data: pn } = await supabase.from('personas').select('*').eq('id', sess.persona_id).single();
-        if (pn && !cancelled) setPersona(pn as Persona);
-      }
-      if (sess.start_config_id) {
-        const { data: sc } = await supabase.from('start_configs').select('*').eq('id', sess.start_config_id).single();
-        if (sc && !cancelled) setStartConfig(sc as StartConfig);
-      }
-    })();
+      setThemePrompt(configResult.data?.theme_prompt ?? '');
+      setSystemPrompt(configResult.data?.system_prompt ?? '');
+      setMessages(page.messages);
+      setHasOlderServerMessages(page.hasOlder);
+      setOldestLoadedAt(page.oldestTurn);
+      setTotalUserTurnCount(page.totalUserTurns);
+      setKeywordBooks((booksResult.data as KeywordBook[]) ?? []);
+      setStoryNotes((notesResult.data as StoryNote[]) ?? []);
+    })().catch(error => { if (!cancelled) setLoadError(describeUnknownError(error)); });
     return () => { cancelled = true; };
-  }, [sessionId, user]);
+  }, [sessionId, user?.id]);
 
   useEffect(() => {
     if (!sessionId || !sessionModel || settingsSessionIdRef.current !== sessionId) return;
@@ -580,28 +560,28 @@ export default function ChatPage() {
     });
   }
 
-  async function generateSummary(sourceMessages = messages, archivesToMerge: string[] = [], requestedThroughTurn?: number) {
-    if (!session || !profile || summaryGenerating || activeSummaryGenerations.has(session.id)) return;
+  async function generateSummary(archivesToMerge: SummaryVersion[] = [], requestedThroughTurn?: number) {
+    if (!session || !profile || sendInFlightRef.current || activeGenerations.has(session.id) || summaryGenerating || activeSummaryGenerations.has(session.id)) return;
     const apiKey = getApiKey('openrouter');
     if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return; }
     const summarySessionId = session.id;
-    activeSummaryGenerations.set(summarySessionId, { listeners: new Set() });
+    const summaryController = new AbortController();
+    const unregisterTask = registerAccountTask(summaryController);
+    activeSummaryGenerations.set(summarySessionId, { controller: summaryController, listeners: new Set() });
     setSummaryGenerating(true);
     try {
       const liveTheme=await readLiveThemeContext();
       // Include the hidden initial context in the first archive so important
       // scenario setup is not lost after its short keep_turns window expires.
       const sourceMode = session.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
-      let completeSourceMessages = sourceMessages;
-      if (archivesToMerge.length === 0) {
-        completeSourceMessages = await fetchAllSessionMessages(session.id);
-      }
+      const completeSourceMessages = await fetchAllSessionMessages(session.id);
       const allActiveMessages = completeSourceMessages.filter((message) => message.is_active_variant !== false);
+      if (allActiveMessages.some(message => message.generation_status === 'streaming')) throw new Error('응답 생성이 끝난 뒤 요약해 주세요.');
       const latestTurn = allActiveMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
       const throughTurn = Math.max(0, Math.min(requestedThroughTurn ?? latestTurn, latestTurn));
       const activeSourceMessages = messagesThroughTurn(allActiveMessages, throughTurn);
       let previous = archivesToMerge.length > 0
-        ? archivesToMerge.join('\n\n--- Summary to Merge ---\n\n')
+        ? archivesToMerge.map(version => version.content).join('\n\n--- Summary to Merge ---\n\n')
         : '';
       let previousTurn = 0;
       if (archivesToMerge.length === 0 && sourceMode === 'incremental' && throughTurn > 0) {
@@ -632,51 +612,37 @@ export default function ChatPage() {
       const parameterBlock = parametersEnabled ? `[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = ${summaryLevel}\nALLOW_OMISSION = ${allowOmission ? 'ON' : 'OFF'}` : '';
       const extraNote = profile.summary_extra_note?.trim() ? `[ADDITIONAL NOTE]\n${profile.summary_extra_note.trim()}` : '';
       const summaryCore = [profile.summary_prompt?.trim() || DEFAULT_SUMMARY_PROMPT, parameterBlock, extraNote].filter(Boolean).join('\n\n');
+      if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
       const result = await generate('openrouter', {
         apiKey,
         sessionId: `${session.id}:summary`,
+        signal: summaryController.signal,
         model: session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
         reasoning: normalizeReasoning(session.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
         systemParts: { core: summaryCore, persona: '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user', content: input }],
         maxOutputTokens: 4096,
       });
+      if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
       if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
       const ids = candidates.map((message) => message.id);
-      const { error: deactivateError } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id).eq('is_active', true);
-      const versionsUnavailableAtUpdate = deactivateError?.code === 'PGRST205' || deactivateError?.message?.includes('summary_versions');
-      if (deactivateError && !versionsUnavailableAtUpdate) throw deactivateError;
-      // Regeneration in the same turn replaces that turn's version instead of
-      // leaving multiple, ambiguous checkpoints behind.
-      if (!versionsUnavailableAtUpdate) {
-        const { error: duplicateError } = await supabase.from('summary_versions').delete().eq('session_id', session.id).eq('summarized_through_turn', throughTurn);
-        if (duplicateError) throw duplicateError;
-      }
-      const { error: versionError } = await supabase.from('summary_versions').insert({
-        session_id: session.id, content: result.text, summarized_through_turn: throughTurn,
-        input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
+      const { data: updated, error } = await supabase.rpc('save_generated_summary', {
+        target_session: session.id, summary_text: result.text, through_turn: throughTurn,
+        source_versions: [
+          ...candidates.map(message => ({ id: message.id, version: message.content_version ?? 0 })),
+          ...archivesToMerge.map(version => ({ kind: 'summary', id: version.id, content: version.content,
+            summarized_through_turn: version.summarized_through_turn })),
+        ],
+        previous_summary: session.summary, previous_summary_turn: session.summary_last_turn,
+        in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost,
       });
-      const versionsUnavailable = versionsUnavailableAtUpdate || versionError?.code === 'PGRST205' || versionError?.message?.includes('summary_versions');
-      if (versionError && !versionsUnavailable) throw versionError;
-      const { error: markError } = await supabase.from('messages').update({ is_summarized: true }).in('id', ids);
-      if (markError) throw markError;
-      const { data: fresh } = await supabase.from('sessions').select('total_input_tokens,total_output_tokens,total_cost').eq('id', session.id).single();
-      const totals = fresh as Pick<Session, 'total_input_tokens' | 'total_output_tokens' | 'total_cost'> | null;
-      const patch = {
-        summary: result.text,
-        summary_last_turn: throughTurn,
-        total_input_tokens: (totals?.total_input_tokens ?? session.total_input_tokens) + result.usage.inputTokens,
-        total_output_tokens: (totals?.total_output_tokens ?? session.total_output_tokens) + result.usage.outputTokens,
-        total_cost: (totals?.total_cost ?? session.total_cost) + result.usage.cost,
-      };
-      const { error: sessionError } = await supabase.from('sessions').update(patch).eq('id', session.id);
-      if (sessionError) throw sessionError;
-      setMessages((current) => current.map((message) => ids.includes(message.id) ? { ...message, is_summarized: true } : message));
-      setSession((current) => current ? { ...current, ...patch } : current);
-      if (versionsUnavailable) addError('요약은 생성되어 채팅에 반영됐지만 요약 기록 테이블이 아직 배포되지 않아 버전 기록은 저장하지 못했습니다. Supabase 마이그레이션 0013~0016을 적용해 주세요.');
+      if (error || !updated) throw error ?? new Error('요약을 저장하지 못했습니다.');
+      setMessages(current => current.map(message => ids.includes(message.id) ? { ...message, is_summarized: true } : message));
+      setSession(current => current?.id === session.id ? { ...current, ...updated } : current);
     } catch (error) {
       addError(`요약 생성 실패: ${describeUnknownError(error)}`);
     } finally {
+      unregisterTask();
       setSummaryGenerating(false);
       finishSummaryGeneration(summarySessionId);
     }
@@ -684,7 +650,7 @@ export default function ChatPage() {
 
   async function send(options?: { reroll?: boolean }) {
     if (workCombinationSavingRef.current) { showToast('작품 결합 설정을 저장한 뒤 전송해 주세요.'); return; }
-    if (!work || sendInFlightRef.current || (sessionId && activeGenerations.has(sessionId))) return;
+    if (!work || !session || sendInFlightRef.current || (sessionId && (activeGenerations.has(sessionId) || activeSummaryGenerations.has(sessionId)))) return;
 
     const provider: Provider = 'openrouter';
     const model = (sessionModel || modelsFor(provider)[0]);
@@ -704,10 +670,20 @@ export default function ChatPage() {
     sendInFlightRef.current = true;
     const submittedInput = input.trim();
     const submittedCommand = selectedCommand;
+    const restoreSubmitted = () => {
+      if (options?.reroll) return;
+      setInput(current => current ? `${submittedInput}${submittedInput ? '\n\n' : ''}${current}` : submittedInput);
+      setSelectedCommand(current => current ?? submittedCommand);
+    };
     if (!options?.reroll) { setInput(''); setSelectedCommand(null); }
     setSending(true);
     setStreamingContent('');
+    const controller = new AbortController();
+    const unregisterTask = registerAccountTask(controller);
+    abortControllerRef.current = controller;
+    if (sessionId) activeGenerations.set(sessionId, { controller, content: '', listeners: new Set() });
     const releaseSend = () => {
+      unregisterTask();
       sendInFlightRef.current = false;
       setSending(false);
       setStreamingContent('');
@@ -716,12 +692,18 @@ export default function ChatPage() {
     };
 
     let completeMessages = messages;
+    let contextSummary = session.summary;
+    let contextSummaryTurn = session.summary_last_turn;
     if (sessionId) {
       try {
-        completeMessages = await fetchAllSessionMessages(sessionId);
+        const context = await generationContext(session, Math.max(0, ...keywordBooks.map(book => book.activation_turns)), options?.reroll === true, controller.signal);
+        if (controller.signal.aborted) throw new Error('응답 생성을 중단했습니다.');
+        completeMessages = context.messages;
+        contextSummary = context.summary;
+        contextSummaryTurn = context.summaryLastTurn;
       } catch (error) {
         addError(`대화 문맥 불러오기 실패: ${describeUnknownError(error)}`);
-        if (!options?.reroll) { setInput(submittedInput); setSelectedCommand(submittedCommand); }
+        restoreSubmitted();
         releaseSend();
         return;
       }
@@ -729,8 +711,8 @@ export default function ChatPage() {
     const activeMessages = completeMessages.filter((message) => message.is_active_variant !== false);
     const rerollTarget = options?.reroll ? [...activeMessages].reverse().find((message) => message.role === 'assistant' && !message.is_hidden) ?? null : null;
     const baseMessages = rerollTarget ? activeMessages.filter((message) => message.id !== rerollTarget.id) : activeMessages;
-    let effectiveSummary = session?.summary ?? '';
-    let effectiveSummaryTurn = session?.summary_last_turn ?? 0;
+    let effectiveSummary = contextSummary;
+    let effectiveSummaryTurn = contextSummaryTurn;
     let rerollVersionIds: string[] | null = null;
     let rerollIndex = 1;
     let rerollGroupId: string | null = null;
@@ -761,8 +743,6 @@ export default function ChatPage() {
     const commandName = options?.reroll ? rerollUserMessage?.command_name : submittedCommand?.name;
     const commandPrompt = options?.reroll ? rerollCommandPrompt : submittedCommand?.prompt.trim() ?? '';
     const promptText = commandPrompt ? `${text}${text ? '\n\n' : ''}[Selected Command /${commandName}]\n${commandPrompt}` : text;
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
     let generationTimedOut = false;
     let generationTimeout: ReturnType<typeof setTimeout> | null = null;
     const startGenerationTimeout = () => {
@@ -771,7 +751,6 @@ export default function ChatPage() {
         controller.abort('모델 응답이 8분 안에 완료되지 않아 생성을 중단했습니다.');
       }, GENERATION_TIMEOUT_MS);
     };
-    if (sessionId) activeGenerations.set(sessionId, { controller, content: '', listeners: new Set() });
     // A turn is one user/assistant exchange. Counting every message made the
     // persisted index advance by two and made a branch continue at a seemingly
     // unrelated number. Rerolls must retain the turn they replace; a new user
@@ -782,26 +761,16 @@ export default function ChatPage() {
     let partialText = '';
     let lastPaint = 0;
     let draftMessageId: string | null = null;
-    let lastDraftSave = 0;
-    let draftSaveQueue = Promise.resolve();
+    const draftWriter = createDraftWriter(async text => {
+      if (!draftMessageId) return;
+      const { error } = await supabase.from('messages').update({ content: text }).eq('id', draftMessageId);
+      if (error) throw error;
+    }, DRAFT_SAVE_INTERVAL_MS);
     const commitRerollVariant = async (newMessageId: string) => {
-      if (!rerollTarget || !rerollGroupId) return;
-      const previousVariantIds = completeMessages
-        .filter((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === rerollGroupId && message.id !== newMessageId)
-        .map((message) => message.id);
-      if (!previousVariantIds.length) return;
-      const { error } = await supabase.from('messages')
-        .update({ is_active_variant: false, reroll_group_id: rerollGroupId })
-        .in('id', previousVariantIds);
-      if (!error) return;
-
-      // Never leave the newly generated answer active alongside the answer it
-      // was meant to replace. Prefer removing the new row; if that fails, make
-      // one final attempt to mark it inactive before reporting the failure.
-      const { error: cleanupError } = await supabase.from('messages').delete().eq('id', newMessageId);
-      if (cleanupError) await supabase.from('messages').update({ is_active_variant: false }).eq('id', newMessageId);
-      draftMessageId = null;
-      throw new Error(`리롤 답변 전환 실패: ${error.message}`);
+      if (rerollTarget && rerollGroupId) {
+        const updated = await selectResponse(session!.id, rerollGroupId, newMessageId, rerollTarget.id);
+        if (updated) setSession(current => current?.id === updated.id ? { ...current, ...updated } : current);
+      }
     };
     const applyGeneratedMessage = (generatedMessage: Message) => {
       setMessages((current) => {
@@ -820,30 +789,20 @@ export default function ChatPage() {
       if (sessionId) publishGeneration(sessionId, t);
       const nowMs = performance.now();
       if (nowMs - lastPaint >= 50) { lastPaint = nowMs; setStreamingContent(t); }
-      if (draftMessageId && nowMs - lastDraftSave >= DRAFT_SAVE_INTERVAL_MS) {
-        lastDraftSave = nowMs;
-        const id = draftMessageId;
-        draftSaveQueue = draftSaveQueue.catch(() => {}).then(async () => {
-          const { error } = await supabase.from('messages').update({ content: t }).eq('id', id);
-          if (error) throw error;
-        });
-      }
+      if (draftMessageId) draftWriter.push(t);
     };
 
     if (!session || !profile) { releaseSend(); return; }
     let liveTheme;
     try{liveTheme=await readLiveThemeContext();}
-    catch(error){addError('테마 설정 조회 실패: '+describeUnknownError(error));releaseSend();return;}
+    catch(error){addError('테마 설정 조회 실패: '+describeUnknownError(error));restoreSubmitted();releaseSend();return;}
     let workCombination;
     try {
       workCombination = await loadWorkCombination(liveTheme.session, work, controller.signal);
       if (controller.signal.aborted) throw new Error('응답 생성을 중단했습니다.');
     } catch (error) {
       addError('작품 결합 확인 실패: ' + describeUnknownError(error));
-      if (!options?.reroll) {
-        setInput(current => current ? `${submittedInput}${submittedInput ? '\n\n' : ''}${current}` : submittedInput);
-        setSelectedCommand(current => current ?? submittedCommand);
-      }
+      restoreSubmitted();
       releaseSend();
       return;
     }
@@ -857,7 +816,6 @@ export default function ChatPage() {
     const promptCache = resolvePromptCache(session.prompt_cache_enabled ?? false, model,
       session.prompt_cache_message_id ?? null, historyMsgs, session.prompt_cache_auto_latest ?? false);
     if (promptCache.unavailable) showToast('선택한 캐시 기준 답변이 이번 문맥에 없어 명시적 캐시 없이 전송합니다.');
-    let currentMessages = [...baseMessages];
     if (!options?.reroll && (text || commandPrompt)) {
       const { data: userMsg, error: userMessageError } = await supabase
         .from('messages')
@@ -870,39 +828,38 @@ export default function ChatPage() {
       if (userMessageError) {
         if (isUniqueViolation(userMessageError)) {
           addError('이미 같은 턴의 메시지가 전송되었습니다. 대화를 새로고침했습니다.');
+          restoreSubmitted();
           await loadLatestMessages().catch((error) => addError(`메시지 새로고침 실패: ${describeUnknownError(error)}`));
           releaseSend();
           return;
         }
         addError(userMessageError.message);
-        setInput(submittedInput);
-        setSelectedCommand(submittedCommand);
+        restoreSubmitted();
         releaseSend();
         return;
       }
       if (userMsg) {
-        currentMessages = [...baseMessages, userMsg as Message];
         setMessages((current) => [...current, userMsg as Message]);
         setTotalUserTurnCount((current) => current + 1);
       }
     }
 
+    try {
     const assembled = assemblePrompt({
       autoThemeEnabled:liveTheme.session.theme_override==null,dayNightThemeNames:liveTheme.names,themePrompt,themeCatalog:themeCatalogPrompt(workThemes,liveTheme.dayNight),
       systemPrompt, mainPrompt: work.main_prompt, workCombination, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
       plugins: session.active_plugins,
-      keywordBookContents: getActiveKeywordContents(currentMessages, promptText),
+      keywordBookContents: getActiveKeywordContents(baseMessages.filter(message => message.id !== rerollUserMessage?.id), promptText),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content,
         ...(m.id === promptCache.messageId && { cacheBreakpoint: true }) })),
       latestUserMessage: promptText,
     });
     const maxOutputTokens = session.output_settings_override_enabled ? session.output_tokens_override : profile.default_output_tokens;
-    try {
       const { data: draft, error: draftError } = await supabase.from('messages').insert({
         session_id: session.id, role: 'assistant', content: '', turn_index: turnIndex,
         input_tokens: 0, output_tokens: 0, cost: 0, reroll_group_id: rerollGroupId,
-        reroll_index: rerollIndex, is_active_variant: true, generation_status: 'streaming',
+        reroll_index: rerollIndex, is_active_variant: !rerollTarget, generation_status: 'streaming',
       }).select('id').single();
       if (draftError || !draft) {
         if (isUniqueViolation(draftError)) {
@@ -915,44 +872,33 @@ export default function ChatPage() {
       draftMessageId = draft.id;
       startGenerationTimeout();
       const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: assembled.systemParts, messages: assembled.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, signal: controller.signal });
-      await draftSaveQueue;
-      const { data: aiMsg, error: finalMessageError } = await supabase
-        .from('messages')
-        .update({
-          content: result.text,
-          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
-          cache_read_tokens: result.usage.cacheReadTokens, cache_write_tokens: result.usage.cacheCreationTokens,
-          generation_status: 'complete',
-        })
-        .eq('id', draftMessageId).select('*').single();
-      if (finalMessageError || !aiMsg) throw finalMessageError ?? new Error('최종 응답을 저장하지 못했습니다.');
-      if (aiMsg) {
-        setCacheDiagnostics((current) => ({ ...current, [aiMsg.id]: result.cacheDiagnostic }));
-        await commitRerollVariant(aiMsg.id);
-        if (rerollVersionIds) {
-          const { error: deactivateSummaryError } = await supabase.from('summary_versions').update({ is_active: false }).eq('session_id', session.id);
-          if (deactivateSummaryError) throw deactivateSummaryError;
-          if (rerollVersionIds.length) {
-            const { error: activateSummaryError } = await supabase.from('summary_versions').update({ is_active: true }).in('id', rerollVersionIds);
-            if (activateSummaryError) throw activateSummaryError;
-          }
-        }
-        applyGeneratedMessage(aiMsg as Message);
+      await draftWriter.stop();
+      let { data: committed, error: finalMessageError } = await supabase.rpc('finish_session_response', {
+        target_session: session.id, target_message: draftMessageId, response_text: result.text,
+        in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost,
+        read_tokens: result.usage.cacheReadTokens, write_tokens: result.usage.cacheCreationTokens,
+        target_group: rerollGroupId, previous_message: rerollTarget?.id ?? null,
+        previous_summary: contextSummary, previous_summary_turn: contextSummaryTurn,
+        restored_summary: rerollVersionIds ? effectiveSummary : null,
+        restored_summary_turn: rerollVersionIds ? effectiveSummaryTurn : null,
+        restored_versions: rerollVersionIds,
+      });
+      if (finalMessageError || !committed?.message) {
+        const { data: recovered } = await supabase.from('messages').select('*').eq('id', draftMessageId).maybeSingle();
+        if (recovered?.generation_status === 'complete' && recovered?.usage_accounted) {
+          const { data: freshSession } = await supabase.from('sessions').select('*').eq('id', session.id).single();
+          committed = { message: recovered, session: freshSession ?? {} };
+        } else throw finalMessageError ?? new Error('최종 응답을 저장하지 못했습니다.');
       }
-
-      const newIn = session.total_input_tokens + result.usage.inputTokens;
-      const newOut = session.total_output_tokens + result.usage.outputTokens;
-      const newCost = session.total_cost + result.usage.cost;
-      const { error: totalsError } = await supabase.from('sessions')
-        .update({ total_input_tokens: newIn, total_output_tokens: newOut, total_cost: newCost, summary: effectiveSummary, summary_last_turn: effectiveSummaryTurn, updated_at: new Date().toISOString() })
-        .eq('id', session.id);
-      if (totalsError) throw totalsError;
-      setSession(current=>current?.id===session.id?{...current,total_input_tokens:newIn,total_output_tokens:newOut,total_cost:newCost,summary:effectiveSummary,summary_last_turn:effectiveSummaryTurn}:current);
+      const aiMsg = committed.message as Message;
+      setCacheDiagnostics(current => ({ ...current, [aiMsg.id]: result.cacheDiagnostic }));
+      applyGeneratedMessage(aiMsg);
+      setSession(current => current?.id === session.id ? { ...current, ...committed.session } : current);
     } catch (err) {
       const isAbort = controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError');
       if (partialText) {
-        await draftSaveQueue.catch(() => {});
-        const { data: aiMsg } = draftMessageId ? await supabase.from('messages').update({ content: partialText, generation_status: 'interrupted' }).eq('id', draftMessageId).select('*').single() : { data: null };
+        await draftWriter.stop();
+        const { data: aiMsg } = draftMessageId ? await supabase.from('messages').update({ content: partialText, generation_status: 'interrupted' }).eq('id', draftMessageId).eq('generation_status', 'streaming').select('*').single() : { data: null };
         if (aiMsg && rerollTarget) {
           try {
             await commitRerollVariant(aiMsg.id);
@@ -966,7 +912,7 @@ export default function ChatPage() {
         else if (!isAbort) addError(`응답 연결이 중단되어 수신한 내용까지만 저장했습니다: ${describeUnknownError(err)}`);
       } else {
         const { data: interrupted } = draftMessageId
-          ? await supabase.from('messages').update({ generation_status: 'interrupted' }).eq('id', draftMessageId).select('*').single()
+          ? await supabase.from('messages').update({ generation_status: 'interrupted' }).eq('id', draftMessageId).eq('generation_status', 'streaming').select('*').single()
           : { data: null };
         if (interrupted && rerollTarget) {
           try {
@@ -981,6 +927,7 @@ export default function ChatPage() {
         else if (!isAbort) addError(err instanceof Error ? err.message : 'AI 응답 생성에 실패했습니다.');
       }
     } finally {
+      await draftWriter.stop();
       if (generationTimeout) clearTimeout(generationTimeout);
       releaseSend();
     }
@@ -1179,9 +1126,10 @@ export default function ChatPage() {
     // with contiguous conversation turns, so its last turn and session-list
     // conversation count stay identical and subsequent sends continue at N+1.
     let copiedTurnIndex = 0;
+    let copiedAssistantIndex = 0;
     const copiedMessages = branchMessages.map(({ role, content, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at }) => {
-      if (role === 'user' && !is_hidden) copiedTurnIndex += 1;
-      return { session_id: newSession.id, role, content, turn_index: copiedTurnIndex, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at };
+      if (role === 'user' && !is_hidden) { copiedTurnIndex += 1; copiedAssistantIndex = 0; }
+      return { session_id: newSession.id, role, content, turn_index: copiedTurnIndex, reroll_index: role === 'assistant' ? ++copiedAssistantIndex : 1, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at };
     });
     const { error: messagesError } = copiedMessages.length ? await supabase.from('messages').insert(copiedMessages) : { error: null };
     const { error: summariesError } = !messagesError && versions.length ? await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost, created_at: version.created_at }))) : { error: null };
@@ -1211,10 +1159,10 @@ export default function ChatPage() {
     }
     const groupIds = group.map((item) => item.id);
     if (!groupIds.includes(id)) { addError('선택할 응답 버전을 찾을 수 없습니다.'); return; }
-    const { error: deactivateError } = await supabase.from('messages').update({ is_active_variant: false }).in('id', groupIds);
-    if (deactivateError) { addError(`응답 버전 변경 실패: ${deactivateError.message}`); return; }
-    const { error: activateError } = await supabase.from('messages').update({ is_active_variant: true }).eq('id', id);
-    if (activateError) { addError(`응답 버전 변경 실패: ${activateError.message}`); return; }
+    try {
+      const updated = await selectResponse(session!.id, groupId, id, group.find(item => item.is_active_variant)?.id);
+      if (updated) setSession(current => current?.id === updated.id ? { ...current, ...updated } : current);
+    } catch (error) { addError(`응답 버전 변경 실패: ${describeUnknownError(error)}`); return; }
     setMessages((current) => current.map((item) => groupIds.includes(item.id) ? { ...item, is_active_variant: item.id === id } : item));
   }
 
@@ -1263,6 +1211,8 @@ export default function ChatPage() {
     if (message.role === 'assistant') assistantTurnNumbers.set(message.id, countedUserTurns);
   }
   const sessionTurnCount = totalUserTurnCount;
+
+  if (loadError) return <div role="alert" className="p-6 text-amber-400">채팅방을 불러오지 못했습니다: {loadError}<button className="ml-3 underline" onClick={() => navigate('/sessions')}>채팅방 목록</button></div>;
 
   if (!currentSession || !work) {
     return <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>;
@@ -1352,7 +1302,7 @@ export default function ChatPage() {
                       {m.role === 'assistant' && <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
                         {showCost && <span className="text-right text-[10px] text-slate-500"><span className={isTurnPriceWarning(m.cost, turnPriceWarning, exchange.rate) ? 'text-yellow-400' : undefined}>{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`}</span> {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
                         {showCacheTokens && <span className="text-right text-[10px] text-slate-500">캐시 읽기 {m.cache_read_tokens == null ? '미보고' : m.cache_read_tokens.toLocaleString()} · 쓰기 {m.cache_write_tokens == null ? '미보고' : m.cache_write_tokens.toLocaleString()}</span>}
-                        {variantsFor(m).length > 1 && <select aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
+                        {variantsFor(m).length > 1 && <select disabled={sending || summaryGenerating} aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
                         <span className="text-[10px] font-medium text-slate-500">{assistantTurnNumbers.get(m.id) ?? 0}턴</span>
                         {m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성"><InterfaceIcon name="reroll" /></button>}
                       </div>}
@@ -1448,8 +1398,8 @@ export default function ChatPage() {
           onClearErrors={() => setErrorLog([])}
           onExportConversation={exportConversation}
           exportingConversation={exportingConversation}
-          onGenerateSummary={(throughTurn) => generateSummary(messages, [], throughTurn)}
-          onMergeSummaries={(contents) => generateSummary(messages, contents)}
+          onGenerateSummary={(throughTurn) => generateSummary([], throughTurn)}
+          onMergeSummaries={(versions) => generateSummary(versions, Math.max(0, ...versions.map(version => version.summarized_through_turn)))}
           summaryGenerating={summaryGenerating}
           storyNotes={storyNotes}
           onStoryNotesChange={setStoryNotes}

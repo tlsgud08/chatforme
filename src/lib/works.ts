@@ -14,7 +14,7 @@ export async function fetchWorks(includePrivate = false): Promise<WorkCard[]> {
   const list = (data as WorkListItem[]) ?? [];
   if (!list.length) return [];
   const creatorIds = [...new Set(list.map(work => work.creator_id))];
-  const { data: profiles } = await supabase.from('profiles')
+  const { data: profiles } = await supabase.from('public_profiles')
     .select('id,display_name').in('id', creatorIds);
   // Author metadata is optional; keep successfully loaded works visible.
   const names = new Map((profiles ?? []).map(profile => [profile.id, profile.display_name || '알 수 없음']));

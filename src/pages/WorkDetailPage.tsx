@@ -1,11 +1,11 @@
 import InterfaceIcon from '@/components/InterfaceIcon';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { formatCount } from '@/lib/works';
-import type { Persona, Profile, StartConfig, Work } from '@/types/db';
+import type { Persona, StartConfig, Work } from '@/types/db';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { showToast } from '@/lib/toast';
 
@@ -14,6 +14,7 @@ export default function WorkDetailPage() {
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
   const queryClient = useQueryClient();
+  const favoriteLock = useRef(false);
   const [starting, setStarting] = useState(false);
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>('');
   const [selectedConfigId, setSelectedConfigId] = useState<string>('');
@@ -95,64 +96,31 @@ export default function WorkDetailPage() {
   }, [startConfigs]);
 
   async function toggleFavorite() {
-    if (!user) return;
-    const newState = !isFavorited;
-    queryClient.setQueryData(['work-fav-me', workId, user.id], newState);
-    queryClient.setQueryData(['work-fav-count', workId], (old: number) => Math.max(0, old + (newState ? 1 : -1)));
-    if (newState) {
-      await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
-    } else {
-      await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId!);
-    }
-    queryClient.invalidateQueries({ queryKey: ['user-favorites', user.id] });
+    if (!user || favoriteLock.current) return;
+    favoriteLock.current = true;
+    try {
+      const { error } = isFavorited
+        ? await supabase.from('work_favorites').delete().eq('user_id', user.id).eq('work_id', workId!)
+        : await supabase.from('work_favorites').insert({ user_id: user.id, work_id: workId });
+      if (error) throw error;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['user-favorites', user.id] }),
+        queryClient.invalidateQueries({ queryKey: ['work-fav-me', workId] }),
+        queryClient.invalidateQueries({ queryKey: ['work-fav-count', workId] }),
+      ]);
+    } catch (error) { showToast('하트 변경 실패: ' + (error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error))); }
+    finally { favoriteLock.current = false; }
   }
 
   async function startChat() {
     if (!work) return;
     setStarting(true);
 
-    const selectedConfig = startConfigs.find((c) => c.id === selectedConfigId) ?? null;
-
     if (!user) { setStarting(false); return; }
-
-    const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-    const profile = profileData as Profile | null;
-
-    const { data, error } = await supabase
-      .from('sessions')
-      .insert({
-        user_id: user.id,
-        work_id: work.id,
-        title: work.title,
-        persona_id: selectedPersonaId || null,
-        start_config_id: selectedConfigId || null,
-        summary_model_override: profile?.summary_model || profile?.default_model || null,
-        summary_reasoning_override: profile?.summary_reasoning ?? null,
-        summary_level_override: profile?.summary_level ?? 5,
-        summary_allow_omission_override: profile?.summary_allow_omission ?? true,
-        summary_parameters_enabled_override: profile?.summary_parameters_enabled ?? true,
-        summary_source_mode_override: profile?.summary_source_mode ?? 'incremental',
-      })
-      .select('id').single();
-
-    if (error) { showToast('채팅 시작에 실패했습니다: ' + error.message); setStarting(false); return; }
-
-    const sessionId = data.id;
-
-    if (selectedConfig?.initial_context.trim()) {
-      await supabase.from('messages').insert({
-        session_id: sessionId, role: 'user',
-        content: `[시작 설정: 아래 내용을 참고해 첫 장면을 시작하세요]\n\n${selectedConfig.initial_context}`,
-        turn_index: 0, is_hidden: true,
-      });
-    }
-    if (selectedConfig?.initial_message.trim()) {
-      await supabase.from('messages').insert({
-        session_id: sessionId, role: 'assistant',
-        content: selectedConfig.initial_message,
-        turn_index: 0, is_hidden: false,
-      });
-    }
+    const { data: sessionId, error } = await supabase.rpc('create_session_with_start', {
+      target_work: work.id, target_persona: selectedPersonaId || null, target_config: selectedConfigId || null,
+    });
+    if (error || !sessionId) { showToast('채팅 시작에 실패했습니다: ' + (error?.message ?? '저장 결과가 없습니다.')); setStarting(false); return; }
 
     setStarting(false);
     navigate(`/chat/${sessionId}`);

@@ -57,7 +57,7 @@ export default function SearchPage() {
     if (!worksData?.length) return [];
 
     const creatorIds = [...new Set((worksData as WorkListItem[]).map((w) => w.creator_id))];
-    const { data: profiles } = await supabase.from('profiles').select('id, display_name').in('id', creatorIds).abortSignal(signal);
+    const { data: profiles } = await supabase.from('public_profiles').select('id, display_name').in('id', creatorIds).abortSignal(signal);
     const nameMap: Record<string, string> = {};
     for (const p of profiles ?? []) nameMap[p.id] = p.display_name || '알 수 없음';
     return (worksData as WorkListItem[]).map((w) => ({ ...w, creator_name: nameMap[w.creator_id] ?? '알 수 없음' }));
@@ -65,7 +65,7 @@ export default function SearchPage() {
 
   async function searchUsers(term: string, signal: AbortSignal) {
     const { data: profilesData, error } = await supabase
-      .from('profiles')
+      .from('public_profiles')
       .select('id,display_name,avatar_url')
       .ilike('display_name', `%${term}%`)
       .limit(30).abortSignal(signal);

@@ -23,7 +23,7 @@ export default function UserPage() {
     let active = true;
     setLoading(true);
     Promise.all([
-      supabase.from('profiles').select('id,display_name,avatar_url,bio').eq('id', userId).single(),
+      supabase.from('public_profiles').select('id,display_name,avatar_url,bio').eq('id', userId).single(),
       supabase.from('works').select(WORK_LIST_COLUMNS).eq('creator_id', userId).eq('visibility', 'public').order('created_at', { ascending: false }),
     ]).then(([profileRes, worksRes]) => {
       if (!active) return;
