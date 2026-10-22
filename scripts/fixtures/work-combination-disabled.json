@@ -1,0 +1,214 @@
+[
+  {
+    "name": "full-context-manual-cache",
+    "input": {
+      "systemPrompt": "  플랫폼 공통 지침  ",
+      "mainPrompt": "\n 메인 작품 원문 \n두 번째 줄\n",
+      "persona": {
+        "name": "인물",
+        "description": "페르소나"
+      },
+      "userNote": "  노트  ",
+      "plugins": [
+        {
+          "id": "p",
+          "name": "플러그인",
+          "prompt": "지속 지침",
+          "description": ""
+        }
+      ],
+      "summary": "이전 요약",
+      "storyNotes": [
+        "기록1",
+        "기록2"
+      ],
+      "keywordBookContents": [
+        "키워드 내용"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "지난 입력"
+        },
+        {
+          "role": "assistant",
+          "content": "지난 응답",
+          "cacheBreakpoint": true
+        }
+      ],
+      "latestUserMessage": "새 입력\n\n[Selected Command /명령]\n명령 지침"
+    },
+    "options": {
+      "model": "google/gemini-2.5-flash",
+      "maxOutputTokens": 2048,
+      "reasoning": {
+        "send": false
+      },
+      "sampling": {
+        "temperature": 0.8,
+        "temperatureSend": true,
+        "frequencyPenalty": 0.2,
+        "frequencyPenaltySend": true
+      }
+    },
+    "expectedBody": "{\"model\":\"google/gemini-2.5-flash\",\"session_id\":\"fixture-room\",\"stream\":false,\"usage\":{\"include\":true},\"max_tokens\":2048,\"temperature\":0.8,\"frequency_penalty\":0.2,\"messages\":[{\"role\":\"system\",\"content\":\"플랫폼 공통 지침\\n\\n# Main Prompt\\n메인 작품 원문 \\n두 번째 줄\\n\\n# {PC} Information\\n{PC} = 인물\\n{PC} Name: 인물\\n{PC} Description: 페르소나\\n\\n# User Notes\\n노트\\n\\n# session prompts\\n# 플러그인\\n지속 지침\\n\\n# Previous Story Summary\\n이전 요약\\n\\n# Story Notes\\n기록1\\n\\n기록2\"},{\"role\":\"user\",\"content\":\"지난 입력\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"지난 응답\",\"cache_control\":{\"type\":\"ephemeral\"}}]},{\"role\":\"user\",\"content\":\"# Active Keywords\\n키워드 내용\\n\\n새 입력\\n\\n[Selected Command /명령]\\n명령 지침\"}]}"
+  },
+  {
+    "name": "automatic-theme-system-cache",
+    "input": {
+      "systemPrompt": "  플랫폼 공통 지침  ",
+      "mainPrompt": "\n 메인 작품 원문 \n두 번째 줄\n",
+      "persona": {
+        "name": "인물",
+        "description": "페르소나"
+      },
+      "userNote": "  노트  ",
+      "plugins": [
+        {
+          "id": "p",
+          "name": "플러그인",
+          "prompt": "지속 지침",
+          "description": ""
+        }
+      ],
+      "summary": "이전 요약",
+      "storyNotes": [
+        "기록1",
+        "기록2"
+      ],
+      "keywordBookContents": [
+        "키워드 내용"
+      ],
+      "history": [
+        {
+          "role": "assistant",
+          "content": "출력 {{theme::도시:낮}}"
+        }
+      ],
+      "latestUserMessage": "다음",
+      "autoThemeEnabled": true,
+      "dayNightThemeNames": [
+        "도시"
+      ],
+      "themePrompt": "테마 규칙",
+      "themeCatalog": "도시:낮, 도시:밤"
+    },
+    "options": {
+      "model": "anthropic/claude-sonnet-4",
+      "maxOutputTokens": null,
+      "reasoning": {
+        "send": false
+      },
+      "cacheSystemOnly": true
+    },
+    "expectedBody": "{\"model\":\"anthropic/claude-sonnet-4\",\"session_id\":\"fixture-room\",\"stream\":false,\"usage\":{\"include\":true},\"messages\":[{\"role\":\"system\",\"content\":[{\"type\":\"text\",\"text\":\"플랫폼 공통 지침\\n\\n# Main Prompt\\n메인 작품 원문 \\n두 번째 줄\\n\\n# Theme Change Rules\\n테마 규칙\\n\\n# Available Work Themes\\n도시:낮, 도시:밤\\n\\n# {PC} Information\\n{PC} = 인물\\n{PC} Name: 인물\\n{PC} Description: 페르소나\\n\\n# User Notes\\n노트\\n\\n# session prompts\\n# 플러그인\\n지속 지침\\n\\n# Previous Story Summary\\n이전 요약\\n\\n# Story Notes\\n기록1\\n\\n기록2\",\"cache_control\":{\"type\":\"ephemeral\"}}]},{\"role\":\"user\",\"content\":\"(Continue)\"},{\"role\":\"assistant\",\"content\":\"출력 {{theme::도시:낮}}\"},{\"role\":\"user\",\"content\":\"# Active Keywords\\n키워드 내용\\n\\n다음\"}]}"
+  },
+  {
+    "name": "disabled-theme-directives",
+    "input": {
+      "systemPrompt": "  플랫폼 공통 지침  ",
+      "mainPrompt": "원문 {{theme::도시:낮}}",
+      "persona": {
+        "name": "인물",
+        "description": "페르소나"
+      },
+      "userNote": "  노트  ",
+      "plugins": [
+        {
+          "id": "p",
+          "name": "플러그인",
+          "prompt": "지속 지침",
+          "description": ""
+        }
+      ],
+      "summary": "이전 요약",
+      "storyNotes": [
+        "기록1",
+        "기록2"
+      ],
+      "keywordBookContents": [
+        "키워드 내용"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "이전 {{theme::도시}}"
+        },
+        {
+          "role": "assistant",
+          "content": "응답 {{theme::keep}}"
+        }
+      ],
+      "latestUserMessage": "새 입력\n\n[Selected Command /명령]\n명령 지침",
+      "autoThemeEnabled": false
+    },
+    "options": {
+      "model": "google/gemini-2.5-flash",
+      "maxOutputTokens": null,
+      "reasoning": {
+        "send": false
+      }
+    },
+    "expectedBody": "{\"model\":\"google/gemini-2.5-flash\",\"session_id\":\"fixture-room\",\"stream\":false,\"usage\":{\"include\":true},\"messages\":[{\"role\":\"system\",\"content\":\"플랫폼 공통 지침\\n\\n# Main Prompt\\n원문 \\n\\n# {PC} Information\\n{PC} = 인물\\n{PC} Name: 인물\\n{PC} Description: 페르소나\\n\\n# User Notes\\n노트\\n\\n# session prompts\\n# 플러그인\\n지속 지침\\n\\n# Previous Story Summary\\n이전 요약\\n\\n# Story Notes\\n기록1\\n\\n기록2\"},{\"role\":\"user\",\"content\":\"이전 \"},{\"role\":\"assistant\",\"content\":\"응답 \"},{\"role\":\"system\",\"content\":\"# Active Keywords\\n키워드 내용\"},{\"role\":\"user\",\"content\":\"새 입력\\n\\n[Selected Command /명령]\\n명령 지침\"}]}"
+  },
+  {
+    "name": "empty-main-and-platform",
+    "input": {
+      "systemPrompt": " ",
+      "mainPrompt": "\n",
+      "history": [],
+      "latestUserMessage": "안녕"
+    },
+    "options": {
+      "model": "openai/gpt-4.1",
+      "maxOutputTokens": 1024,
+      "reasoning": {
+        "send": false
+      }
+    },
+    "expectedBody": "{\"model\":\"openai/gpt-4.1\",\"session_id\":\"fixture-room\",\"stream\":false,\"usage\":{\"include\":true},\"max_tokens\":1024,\"messages\":[{\"role\":\"user\",\"content\":\"안녕\"}]}"
+  },
+  {
+    "name": "reroll-with-summary",
+    "input": {
+      "systemPrompt": "  플랫폼 공통 지침  ",
+      "mainPrompt": "\n 메인 작품 원문 \n두 번째 줄\n",
+      "persona": {
+        "name": "인물",
+        "description": "페르소나"
+      },
+      "userNote": "  노트  ",
+      "plugins": [
+        {
+          "id": "p",
+          "name": "플러그인",
+          "prompt": "지속 지침",
+          "description": ""
+        }
+      ],
+      "summary": "분기 전 요약",
+      "storyNotes": [
+        "기록1",
+        "기록2"
+      ],
+      "keywordBookContents": [
+        "키워드 내용"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "원래 입력"
+        }
+      ],
+      "latestUserMessage": ""
+    },
+    "options": {
+      "model": "openai/gpt-4.1",
+      "maxOutputTokens": 1024,
+      "reasoning": {
+        "send": false
+      }
+    },
+    "expectedBody": "{\"model\":\"openai/gpt-4.1\",\"session_id\":\"fixture-room\",\"stream\":false,\"usage\":{\"include\":true},\"max_tokens\":1024,\"messages\":[{\"role\":\"system\",\"content\":\"플랫폼 공통 지침\\n\\n# Main Prompt\\n메인 작품 원문 \\n두 번째 줄\\n\\n# {PC} Information\\n{PC} = 인물\\n{PC} Name: 인물\\n{PC} Description: 페르소나\\n\\n# User Notes\\n노트\\n\\n# session prompts\\n# 플러그인\\n지속 지침\\n\\n# Previous Story Summary\\n분기 전 요약\\n\\n# Story Notes\\n기록1\\n\\n기록2\"},{\"role\":\"system\",\"content\":\"# Active Keywords\\n키워드 내용\"},{\"role\":\"user\",\"content\":\"원래 입력\"}]}"
+  }
+]

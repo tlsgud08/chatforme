@@ -14,6 +14,7 @@ import { normalizeOutputTokens } from './OutputTokenSelector';
 import OutputSettingsEditor, { type OutputSettingsValue } from './OutputSettingsEditor';
 import PromptCacheSettings from './PromptCacheSettings';
 import SessionPluginSettings from './SessionPluginSettings';
+import SessionWorkCombinationSettings from './SessionWorkCombinationSettings';
 import SessionThemeSettings from './SessionThemeSettings';
 import Toggle from './Toggle';
 
@@ -55,6 +56,7 @@ interface Props {
   onStoryNotesChange: (notes: StoryNote[]) => void;
   sessionTurnCount: number;
   sending: boolean;
+  onWorkCombinationSavingChange: (saving: boolean) => boolean;
 }
 
 export default function SessionMenu({
@@ -64,7 +66,7 @@ export default function SessionMenu({
   showImages, onShowImagesToggle,
   sessionModel, onModelChange, sessionReasoning, onReasoningChange,
   errorLog, onClearErrors, onExportConversation, exportingConversation,
-  onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange, sessionTurnCount, sending,
+  onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange, sessionTurnCount, sending, onWorkCombinationSavingChange,
 }: Props) {
   const { user } = useAuth();
   const [note, setNote] = useState(session.user_note);
@@ -320,6 +322,7 @@ export default function SessionMenu({
           <div className="inu-note-footer"><span className="inu-help">{note !== session.user_note ? '저장하지 않은 변경사항' : '이 채팅방에만 전달됩니다.'}</span><button type="button" className="inu-button inu-primary" onClick={() => void saveNote()} disabled={noteSaving}>{noteSaving ? '저장 중…' : '노트 저장'}</button></div>
         </section>
         {user && <SessionPluginSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
+        {user && <SessionWorkCombinationSettings key={session.id} session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} onSavingChange={onWorkCombinationSavingChange} />}
       </div>
 
       <div className="inu-content" id="session-panel-ai" role="tabpanel" aria-labelledby="session-tab-ai" hidden={activeTab !== 'ai'}>

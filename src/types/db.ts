@@ -42,6 +42,7 @@ export interface PlatformConfig {
   system_prompt: string;
   multichat_system_prompt: string;
   theme_prompt: string;
+  work_combination_prompt?: string;
   updated_at: string;
 }
 
@@ -123,6 +124,9 @@ export interface ActivePlugin {
 export type Plugin = Command;
 
 export interface Session {
+  work_combination_enabled?: boolean;
+  /** Ordered work IDs only. Index 0 is the highest additional-work priority. */
+  combined_work_ids?: string[];
   theme_day_night_enabled?: boolean;
   theme_period?: 'day' | 'night' | null;
   auto_theme_enabled?: boolean; // Legacy compatibility only; automation follows theme_override == null.
