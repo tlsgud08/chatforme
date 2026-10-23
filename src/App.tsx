@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { isSupabaseConfigured } from './lib/supabase';
@@ -25,6 +25,16 @@ const UserPage = lazy(() => import('./pages/UserPage'));
 const MultichatCreatePage = lazy(() => import('./pages/MultichatCreatePage'));
 const MultichatPage = lazy(() => import('./pages/MultichatPage'));
 
+function RouteContent({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const { pathname } = useLocation();
+  return <PageLoadBoundary resetKey={`${user?.id}:${pathname}`}>
+    <Suspense fallback={<div className="flex h-full items-center justify-center text-slate-400" role="status">불러오는 중…</div>}>
+      {children}
+    </Suspense>
+  </PageLoadBoundary>;
+}
+
 function ChatRoute() {
   const { sessionId } = useParams();
   const { user } = useAuth();
@@ -33,8 +43,6 @@ function ChatRoute() {
 
 export default function App() {
   const { user, loading } = useAuth();
-  const location = useLocation();
-  const fallback = <div className="flex h-full items-center justify-center text-slate-400" role="status">불러오는 중…</div>;
 
   if (!isSupabaseConfigured) return <SetupNotice />;
 
@@ -44,42 +52,38 @@ export default function App() {
     );
   }
 
-  if (!user) return <PageLoadBoundary resetKey={location.pathname}><Suspense fallback={fallback}><LoginPage /></Suspense></PageLoadBoundary>;
+  if (!user) return <RouteContent><LoginPage /></RouteContent>;
 
   return (<>
     <AppToast />
     <AppConfirmDialog />
     <ThemeManager />
-    <PageLoadBoundary resetKey={`${user.id}:${location.pathname}`}>
-    <Suspense fallback={fallback}>
     <InterfaceFrame key={user.id}>
     <Routes>
       {/* 로그인 화면 (CreatePage에서 로그인 유도 시 이동) */}
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login" element={<RouteContent><LoginPage /></RouteContent>} />
 
       {/* 전체화면 (탭바 없음) */}
-      <Route path="/chat/:sessionId" element={<ChatRoute />} />
-      <Route path="/search" element={<SearchPage />} />
-      <Route path="/multichat/new" element={<MultichatCreatePage />} />
-      <Route path="/multichat/:roomId" element={<MultichatPage />} />
+      <Route path="/chat/:sessionId" element={<RouteContent><ChatRoute /></RouteContent>} />
+      <Route path="/search" element={<RouteContent><SearchPage /></RouteContent>} />
+      <Route path="/multichat/new" element={<RouteContent><MultichatCreatePage /></RouteContent>} />
+      <Route path="/multichat/:roomId" element={<RouteContent><MultichatPage /></RouteContent>} />
 
       {/* 나머지는 탭바 레이아웃 */}
       <Route element={<Layout />}>
         <Route path="/" element={<Navigate to="/works" replace />} />
-        <Route path="/works" element={<WorksPage />} />
-        <Route path="/works/:workId" element={<WorkDetailPage />} />
-        <Route path="/sessions" element={<SessionsPage />} />
-        <Route path="/create" element={<CreatePage />} />
-        <Route path="/create/:workId" element={<WorkEditorPage />} />
-        <Route path="/my" element={<MyPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/favorites" element={<FavoritesPage />} />
-        <Route path="/users/:userId" element={<UserPage />} />
+        <Route path="/works" element={<RouteContent><WorksPage /></RouteContent>} />
+        <Route path="/works/:workId" element={<RouteContent><WorkDetailPage /></RouteContent>} />
+        <Route path="/sessions" element={<RouteContent><SessionsPage /></RouteContent>} />
+        <Route path="/create" element={<RouteContent><CreatePage /></RouteContent>} />
+        <Route path="/create/:workId" element={<RouteContent><WorkEditorPage /></RouteContent>} />
+        <Route path="/my" element={<RouteContent><MyPage /></RouteContent>} />
+        <Route path="/settings" element={<RouteContent><SettingsPage /></RouteContent>} />
+        <Route path="/favorites" element={<RouteContent><FavoritesPage /></RouteContent>} />
+        <Route path="/users/:userId" element={<RouteContent><UserPage /></RouteContent>} />
         <Route path="*" element={<Navigate to="/works" replace />} />
       </Route>
     </Routes>
     </InterfaceFrame>
-    </Suspense>
-    </PageLoadBoundary>
   </>);
 }

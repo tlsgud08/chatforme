@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { formatCount } from '@/lib/works';
+import { formatCount, WORK_LIST_COLUMNS, type WorkListItem } from '@/lib/works';
 import type { Persona, StartConfig, Work } from '@/types/db';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { showToast } from '@/lib/toast';
@@ -30,11 +30,13 @@ export default function WorkDetailPage() {
 
   const { data: work, isLoading } = useQuery({
     queryKey: ['work', workId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('works').select('*').eq('id', workId).single();
+    queryFn: async ({ signal }) => {
+      const { data, error } = await supabase.from('works').select(WORK_LIST_COLUMNS).eq('id', workId).abortSignal(signal).single();
       if (error) throw error;
-      return data as Work;
+      return data as WorkListItem;
     },
+    enabled: !!workId,
+    staleTime: 30_000,
   });
 
   const { data: startConfigs = [] } = useQuery({
@@ -123,6 +125,7 @@ export default function WorkDetailPage() {
     if (error || !sessionId) { showToast('채팅 시작에 실패했습니다: ' + (error?.message ?? '저장 결과가 없습니다.')); setStarting(false); return; }
 
     setStarting(false);
+    void queryClient.invalidateQueries({ queryKey: ['sessions', user.id] });
     navigate(`/chat/${sessionId}`);
   }
 

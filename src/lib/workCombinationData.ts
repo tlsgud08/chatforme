@@ -23,14 +23,16 @@ export async function fetchCombinationWorkInfo(ids: string[], signal?: AbortSign
   return fetchWorkRows<CombinationWorkInfo>(ids, 'id,title,description', signal);
 }
 
-export async function searchCombinationWorks(search: string, mainWorkId: string, userId: string, page: number, signal?: AbortSignal): Promise<CombinationWorkInfo[]> {
+export async function searchCombinationWorks(search: string, mainWorkId: string, userId: string, page: number, signal?: AbortSignal, includeUnlisted = false): Promise<CombinationWorkInfo[]> {
   const text = search.trim();
   if (!text) return [];
   // Filter text is passed as a value, never interpolated into the PostgREST expression.
   const escaped = text.replace(/[\\%_]/g, '\\$&');
-  let query = supabase.from('works').select('id,title,description').neq('id', mainWorkId)
-    .or(`visibility.neq.unlisted,creator_id.eq.${userId}`)
-    .ilike('title', `%${escaped}%`).order('title').order('id')
+  let query = supabase.from('works').select('id,title,description').neq('id', mainWorkId);
+  // Administrators can already open/edit these works. Do not hide them from
+  // their combination picker; RLS still enforces database access in both modes.
+  if (!includeUnlisted) query = query.or(`visibility.neq.unlisted,creator_id.eq.${userId}`);
+  query = query.ilike('title', `%${escaped}%`).order('title').order('id')
     .range(page * COMBINATION_SEARCH_PAGE_SIZE, (page + 1) * COMBINATION_SEARCH_PAGE_SIZE - 1);
   if (signal) query = query.abortSignal(signal);
   const { data, error } = await query;

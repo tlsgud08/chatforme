@@ -36,24 +36,27 @@ export default function SessionsPage() {
     return () => document.removeEventListener('pointerdown', close);
   }, [menuId]);
 
-  const { data, isLoading } = useQuery({
+  const { data: list = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['sessions', user?.id, viewTab],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const { data, error } = await supabase
         .from('sessions')
         .select('id,title,works(title,thumbnail_url)')
+        .eq('user_id', user!.id)
         .eq('is_archived', viewTab === 'archived')
-        .order('updated_at', { ascending: false });
+        .order('updated_at', { ascending: false }).abortSignal(signal);
       if (error) throw error;
 
-      const sessions = (data as unknown as SessionRow[]) ?? [];
-      if (sessions.length === 0) return { sessions, aiCountMap: {} as Record<string, number> };
-
-      const aiCountMap = await fetchSessionConversationCounts(sessions.map(session => session.id));
-
-      return { sessions, aiCountMap };
+      return (data as unknown as SessionRow[]) ?? [];
     },
-    enabled: viewTab !== 'multichat',
+    enabled: !!user && viewTab !== 'multichat',
+    staleTime: 30_000,
+  });
+
+  const { data: aiCountMap = {}, isError: countsError, refetch: refetchCounts } = useQuery({
+    queryKey: ['session-counts', user?.id, viewTab, list.map(session => session.id)],
+    queryFn: ({ signal }) => fetchSessionConversationCounts(list.map(session => session.id), signal),
+    enabled: !!user && viewTab !== 'multichat' && list.length > 0,
   });
 
   const { data: multichats, isLoading: multichatsLoading } = useQuery({
@@ -101,7 +104,7 @@ export default function SessionsPage() {
   }
 
   function toggleAll() {
-    const ids = (data?.sessions ?? []).map((s) => s.id);
+    const ids = list.map((s) => s.id);
     if (selected.size === ids.length) setSelected(new Set());
     else setSelected(new Set(ids));
   }
@@ -202,8 +205,6 @@ export default function SessionsPage() {
     );
   }
 
-  const list = data?.sessions ?? [];
-  const aiCountMap = data?.aiCountMap ?? {};
   const allSelected = list.length > 0 && selected.size === list.length;
 
   return (
@@ -285,7 +286,9 @@ export default function SessionsPage() {
         </div>}
         {viewTab !== 'multichat' && <>
         {isLoading && <p className="p-6 text-slate-400">불러오는 중…</p>}
-        {!isLoading && list.length === 0 && (
+        {isError && <p role="alert" className="p-6 text-amber-400">채팅방 목록을 불러오지 못했습니다. <button type="button" onClick={() => void refetch()} className="underline">다시 불러오기</button></p>}
+        {countsError && list.length > 0 && <p className="px-4 py-2 text-xs text-slate-400">대화 수를 불러오지 못했습니다. <button type="button" onClick={() => void refetchCounts()} className="underline">다시 불러오기</button></p>}
+        {!isLoading && !isError && list.length === 0 && (
           <p className="p-6 text-slate-400">
             {viewTab === 'archived' ? '보관된 채팅방이 없습니다.' : '아직 플레이한 채팅방이 없습니다.'}
           </p>
@@ -322,7 +325,7 @@ export default function SessionsPage() {
                     {s.title || s.works?.title || '채팅방'}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {aiCountMap[s.id] ?? 0} 대화
+                    {aiCountMap[s.id] ?? (countsError ? '—' : '…')} 대화
                   </p>
                 </div>
               </Link>

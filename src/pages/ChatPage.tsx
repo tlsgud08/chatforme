@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import MessageContent from '@/components/MessageContent';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useChatScroll } from '@/hooks/useChatScroll';
 import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
 import { createDraftWriter } from '@/lib/draftWriter';
@@ -165,8 +167,8 @@ function isUniqueViolation(error: unknown): boolean {
   return !!error && typeof error === 'object' && 'code' in error && error.code === '23505';
 }
 
-function isNearScrollBottom(element: HTMLDivElement): boolean {
-  return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+function focusEditor(element: HTMLTextAreaElement | null) {
+  element?.focus({ preventScroll: true });
 }
 
 function shouldSubmitOnEnter() {
@@ -207,6 +209,7 @@ export default function ChatPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const [session, setSession] = useState<Session | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -262,11 +265,10 @@ export default function ChatPage() {
 
   const [streamingContent, setStreamingContent] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const { scrollRef, rememberScroll } = useChatScroll(sessionId, !!session && !!work);
   const olderMessagesSentinelRef = useRef<HTMLDivElement>(null);
+  const olderMessagesInFlightRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const shouldAutoScrollRef = useRef(true);
-  const prependScrollHeightRef = useRef<number | null>(null);
   const sendInFlightRef = useRef(false);
   const editInFlightRef = useRef(false);
   const deleteInFlightRef = useRef(false);
@@ -275,34 +277,23 @@ export default function ChatPage() {
   const settingsSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    prependScrollHeightRef.current = null;
-    shouldAutoScrollRef.current = true;
     setHasOlderServerMessages(false);
     setOldestLoadedAt(null);
     setTotalUserTurnCount(0);
   }, [sessionId]);
 
-  useLayoutEffect(() => {
-    const previousScrollHeight = prependScrollHeightRef.current;
-    const element = scrollRef.current;
-    if (previousScrollHeight === null || !element) return;
-    element.scrollTop += element.scrollHeight - previousScrollHeight;
-    prependScrollHeightRef.current = null;
-  }, [messages.length, oldestLoadedAt]);
-
   const loadLatestMessages = useCallback(async () => {
     if (!sessionId) return;
     const page = await fetchMessagePage(sessionId);
-    setMessages(page.messages);
-    setHasOlderServerMessages(page.hasOlder);
-    setOldestLoadedAt(page.oldestTurn);
+    // A background completion must not discard older turns the reader opened.
+    setMessages(current => [...current.filter(message => page.oldestTurn !== null && message.turn_index < page.oldestTurn), ...page.messages]);
+    setOldestLoadedAt(current => current !== null && page.oldestTurn !== null ? Math.min(current, page.oldestTurn) : page.oldestTurn);
     setTotalUserTurnCount(page.totalUserTurns);
   }, [sessionId]);
 
   const loadOlderMessages = useCallback(async () => {
-    if (!sessionId || !oldestLoadedAt || !hasOlderServerMessages || loadingOlderMessages) return;
-    const element = scrollRef.current;
-    if (element) prependScrollHeightRef.current = element.scrollHeight;
+    if (!sessionId || !oldestLoadedAt || !hasOlderServerMessages || olderMessagesInFlightRef.current) return;
+    olderMessagesInFlightRef.current = true;
     setLoadingOlderMessages(true);
     try {
       const page = await fetchMessagePage(sessionId, oldestLoadedAt);
@@ -314,17 +305,17 @@ export default function ChatPage() {
       setOldestLoadedAt(page.oldestTurn);
     } catch (error) {
       addError(`이전 대화 불러오기 실패: ${describeUnknownError(error)}`);
-      prependScrollHeightRef.current = null;
     } finally {
+      olderMessagesInFlightRef.current = false;
       setLoadingOlderMessages(false);
     }
-  }, [hasOlderServerMessages, loadingOlderMessages, oldestLoadedAt, sessionId]);
+  }, [hasOlderServerMessages, oldestLoadedAt, sessionId]);
 
   const hasOlderMessagesToReveal = hasOlderServerMessages;
 
   const revealOlderMessages = useCallback(() => {
     const element = scrollRef.current;
-    if (!element || !hasOlderMessagesToReveal || prependScrollHeightRef.current !== null) return;
+    if (!element || !hasOlderMessagesToReveal || olderMessagesInFlightRef.current) return;
 
     void loadOlderMessages();
   }, [hasOlderMessagesToReveal, loadOlderMessages]);
@@ -444,11 +435,6 @@ export default function ChatPage() {
     }, 200);
     return () => window.clearTimeout(timer);
   }, [sessionId, sessionModel, sessionReasoning]);
-
-  useEffect(() => {
-    if (!shouldAutoScrollRef.current) return;
-    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
-  }, [messages, sending]);
 
   // Stable ordering keeps the theme catalog cacheable in the system core.
   useEffect(()=>{
@@ -917,6 +903,8 @@ export default function ChatPage() {
       setCacheDiagnostics(current => ({ ...current, [aiMsg.id]: result.cacheDiagnostic }));
       applyGeneratedMessage(aiMsg);
       setSession(current => current?.id === session.id ? { ...current, ...committed.session } : current);
+      void queryClient.invalidateQueries({ queryKey: ['session-counts', user?.id] });
+      void queryClient.invalidateQueries({ queryKey: ['sessions', user?.id, 'sidebar'] });
     } catch (err) {
       const isAbort = controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError');
       if (partialText) {
@@ -1166,6 +1154,7 @@ export default function ChatPage() {
     }
     showToast('새 채팅방으로 분기했습니다.');
     branchInFlightRef.current = false;
+    void queryClient.invalidateQueries({ queryKey: ['sessions', user.id] });
     navigate(`/chat/${newSession.id}`);
   }
 
@@ -1260,7 +1249,7 @@ export default function ChatPage() {
       )}
       <div ref={scrollRef} onScroll={(event) => {
         const element = event.currentTarget;
-        shouldAutoScrollRef.current = isNearScrollBottom(element);
+        rememberScroll();
         if (element.scrollTop <= 80) revealOlderMessages();
       }} className="chat-scroll w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
@@ -1275,7 +1264,7 @@ export default function ChatPage() {
             </div>
           )}
           {visibleMessages.map((m, index) => (
-            <div key={m.id} data-role={m.role} className="chat-message flex w-full min-w-0 flex-col gap-1">
+            <div key={m.id} data-role={m.role} data-scroll-anchor={m.id} className="chat-message flex w-full min-w-0 flex-col gap-1">
               {index > 0 && (
                 <hr className="chat-turn-divider" aria-label="메시지 구분" />
               )}
@@ -1288,7 +1277,7 @@ export default function ChatPage() {
                     value={editingContent}
                     onChange={(e) => setEditingContent(e.target.value)}
                     rows={Math.max(3, editingContent.split('\n').reduce((rows, line) => rows + Math.max(1, Math.ceil(line.length / 36)), 0))}
-                    autoFocus
+                    ref={focusEditor}
                     className={`w-full resize-none overflow-hidden rounded-2xl px-4 py-3 text-sm text-slate-100 outline-none ${editingCommandName ? 'border-2 border-indigo-500 bg-indigo-500/10' : 'bg-surface'}`}
                   />
                   <div className="flex items-center justify-end gap-2">
@@ -1338,7 +1327,7 @@ export default function ChatPage() {
           {sending && (
             <>
             {visibleMessages.length > 0 && <hr className="chat-turn-divider" aria-label="메시지 구분" />}
-            <div className="chat-stream w-full min-w-0 max-w-full px-4 py-2.5 text-sm leading-relaxed text-slate-100">
+            <div data-scroll-anchor="streaming-response" className="chat-stream w-full min-w-0 max-w-full px-4 py-2.5 text-sm leading-relaxed text-slate-100">
               {streamingContent ? (
                 <p className="whitespace-pre-wrap break-words">{stripThemeDirectives(streamingContent,true)}</p>
               ) : (

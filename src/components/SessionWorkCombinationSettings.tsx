@@ -10,13 +10,14 @@ import Toggle from './Toggle';
 interface Props {
   session: Session;
   userId: string;
+  includeUnlisted?: boolean;
   busy: boolean;
   onUpdate: (patch: Partial<Session>) => void;
   /** Synchronous parent lock also prevents sending before React re-renders. */
   onSavingChange: (saving: boolean) => boolean;
 }
 
-export default function SessionWorkCombinationSettings({ session, userId, busy, onUpdate, onSavingChange }: Props) {
+export default function SessionWorkCombinationSettings({ session, userId, includeUnlisted = false, busy, onUpdate, onSavingChange }: Props) {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -64,13 +65,13 @@ export default function SessionWorkCombinationSettings({ session, userId, busy, 
     setSearchLoading(enabled && Boolean(search.trim()));
     if (!enabled || !search.trim()) return () => controller.abort();
     const timer = window.setTimeout(() => {
-      void searchCombinationWorks(search, session.work_id, userId, page, controller.signal)
+      void searchCombinationWorks(search, session.work_id, userId, page, controller.signal, includeUnlisted)
         .then(rows => { if (!controller.signal.aborted) setResults(rows); })
         .catch(failure => { if (!controller.signal.aborted) setSearchError(failure instanceof Error ? failure.message : '작품 검색에 실패했습니다.'); })
         .finally(() => { if (!controller.signal.aborted) setSearchLoading(false); });
     }, 300);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [enabled, search, page, session.work_id, userId, reload]);
+  }, [enabled, search, page, session.work_id, userId, includeUnlisted, reload]);
 
   async function save(nextEnabled: boolean, nextIds: string[]) {
     if (busy || lock.current || !onSavingChange(true)) return;

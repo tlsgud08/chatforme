@@ -1,6 +1,6 @@
-import { useEffect, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { canLeaveCurrentPage } from '@/lib/navigationGuard';
@@ -32,17 +32,19 @@ export default function InterfaceFrame({ children }: { children: ReactNode }) {
     return () => query.removeEventListener('change', changed);
   }, []);
   const { user } = useAuth();
+  const userId = user?.id;
+  const queryClient = useQueryClient();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const focusedView = /^\/(chat|multichat)\/(?!new(?:\/|$))/.test(pathname) ? 'chat'
     : /^\/create\/[^/]+/.test(pathname) ? 'editor' : undefined;
   const showNavigation = !!user && design === 'modern' && pathname !== '/login';
-  const { data: sessions, isError, isLoading, refetch } = useQuery({
-    queryKey: ['sessions', user?.id, 'sidebar'],
-    queryFn: async ({ signal }) => {
+  const sidebarQuery = useMemo(() => ({
+    queryKey: ['sessions', userId, 'sidebar'],
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const { data, error } = await supabase.from('sessions')
         .select('id,title,works(title,thumbnail_url)')
-        .eq('user_id', user!.id).eq('is_archived', false)
+        .eq('user_id', userId!).eq('is_archived', false)
         .order('updated_at', { ascending: false }).limit(8).abortSignal(signal);
       if (error) throw error;
       return (data as unknown as SidebarSession[]) ?? [];
@@ -50,11 +52,13 @@ export default function InterfaceFrame({ children }: { children: ReactNode }) {
     enabled: showNavigation,
     staleTime: 30_000,
     refetchOnWindowFocus: true,
-  });
+  }), [userId, showNavigation]);
+  const { data: sessions, isError, isLoading, refetch } = useQuery(sidebarQuery);
 
   useEffect(() => {
-    if (showNavigation) void refetch();
-  }, [pathname, showNavigation, refetch]);
+    // Share in-flight reads and honor staleTime during route navigation.
+    if (showNavigation) void queryClient.fetchQuery(sidebarQuery).catch(() => {});
+  }, [pathname, showNavigation, queryClient, sidebarQuery]);
 
   async function guardedNavigate(event: MouseEvent<HTMLAnchorElement>, to: string) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

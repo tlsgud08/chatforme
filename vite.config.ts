@@ -10,7 +10,9 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      registerType: 'autoUpdate',
+      // A new worker must not replace chunks underneath an open chat/editor.
+      // It activates after the previous app's tabs have closed.
+      registerType: 'prompt',
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         // Keep the original logo in the repo without downloading it to every device.
