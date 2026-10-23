@@ -13,7 +13,14 @@ const themeUri=uri(compile('src/lib/theme.ts'));
 const theme=await import(themeUri);
 const directivesUri=uri(compile('src/lib/themeDirectives.ts').replace("'./theme'",JSON.stringify(themeUri)));
 const directives=await import(directivesUri);
+const combinationUri=uri(compile('src/lib/workCombination.ts'));
+const databaseUri=uri('export const supabase=globalThis.__themeTestDb;');
+const workThemeDataUri=uri(compile('src/lib/workThemeData.ts')
+  .replace("'@/lib/supabase'",JSON.stringify(databaseUri))
+  .replace("'./themeDirectives'",JSON.stringify(directivesUri))
+  .replace("'./workCombination'",JSON.stringify(combinationUri)));
 const hooksUri=uri(`
+export {Fragment} from ${JSON.stringify(import.meta.resolve('react'))};
 export const useEffect=f=>{globalThis.__capturedEffects?.push(f);};
 export const useMemo=f=>f();
 export const useCallback=f=>f;
@@ -34,8 +41,8 @@ globalThis.__themeTestDb={from(table){
     update(patch){this.patch=patch;writes.push({table,patch});if(table==='profiles'&&globalThis.__profileResponse)Object.assign(globalThis.__profileResponse,patch);return this;},
     insert(patch){writes.push({table,patch});return this;},
     select(){return this;},eq(key,value){(this.filters??={})[key]=value;return this;},is(){return this;},or(){return this;},order(){return this;},range(){return this;},
-    single(){return this;},maybeSingle(){return this;},
-    then(resolve,reject){return Promise.resolve({data:table==='sessions'?{...globalThis.__sessionResponse,...this.patch}:table==='profiles'?globalThis.__profileResponse:table==='themes'?globalThis.__themeById?.[this.filters?.id]??globalThis.__themeResponse??[]:table==='works'?globalThis.__workResponse??[]:[],error:null}).then(resolve,reject);},
+    single(){return this;},maybeSingle(){return this;},returns(){return this;},
+    then(resolve,reject){return Promise.resolve({data:table==='sessions'?{...globalThis.__sessionResponse,...this.patch}:table==='profiles'?globalThis.__profileResponse:table==='themes'?(Object.hasOwn(globalThis.__themeById??{},this.filters?.id)?globalThis.__themeById[this.filters.id]:globalThis.__themeResponse??[]):table==='works'?(Object.hasOwn(globalThis.__workById??{},this.filters?.id)?globalThis.__workById[this.filters.id]:globalThis.__workResponse??[]):[],error:null}).then(resolve,reject);},
   };
   return builder;
 }};
@@ -43,7 +50,9 @@ const baseImports={
   react:hooksUri,
   '@/lib/theme':themeUri,
   '@/lib/themeDirectives':directivesUri,
-  '@/lib/supabase':uri('export const supabase=globalThis.__themeTestDb;'),
+  '@/lib/workCombination':combinationUri,
+  '@/lib/workThemeData':workThemeDataUri,
+  '@/lib/supabase':databaseUri,
   '@/lib/toast':uri('export const showToast=()=>{};'),
   '@/lib/dialog':uri('export const showConfirmDialog=async()=>true;'),
   './ThemeMenu':uri('export default function ThemeMenu(){return null;}'),
@@ -185,6 +194,26 @@ const roomPicker=tree(ThemeMenu,{userId:'owner',workId:'work',scope:'work'},['li
 assert.ok(renderToStaticMarkup(roomPicker).includes('LOCAL WORK'),'matching work chat still selects its work themes');
 assert.ok(!renderToStaticMarkup(roomPicker).includes('OTHER WORK'));
 console.log('Fluid variant handler, custom global identity, legacy OFF mode transitions and work catalog isolation OK');
+
+// Actual compact and legacy pickers keep every same-name combined-work choice
+// selectable and show its source, while ignoring cached out-of-scope records.
+for(const drawer of [false,true]){
+  const mainScene={...local,name:'궁궐',description:'메인 장면'};
+  const extraScene={...foreign,name:'궁궐',description:'추가 장면'};
+  let picked;
+  const view=tree(ThemeMenu,{userId:'owner',workId:'work',workIds:['work','other'],scope:'work',drawer,onSelect:t=>picked=t},
+    ['light',[extraScene,mainScene,{...foreign,id:'outside',work_id:'outside',name:'노출 금지'}],new Set(),{work:'메인 작품',other:'추가 작품'},'work','',null,undefined,false,null]);
+  const html=renderToStaticMarkup(view);
+  assert.ok(html.includes('메인 작품')&&html.includes('추가 작품'));
+  assert.ok(html.indexOf('메인 장면')<html.indexOf('추가 장면'));
+  assert.ok(!html.includes('노출 금지'));
+  const articles=elements(view).filter(el=>el.type==='article');
+  const choice=elements(articles[1]).find(el=>el.type==='button'&&typeof el.props.onClick==='function');
+  assert.equal(choice.props.disabled,false);
+  choice.props.onClick();
+  assert.equal(picked.id,extraScene.id);
+}
+console.log('Combined picker JSX: modern/legacy groups, same-name selection, stable work order and outside-scope filtering OK');
 
 // Global custom preference → sidebar, then sidebar → global settings.
 for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEFAULT_LIGHT},dual]){
@@ -522,3 +551,22 @@ for(const selected of [single,dual]){
  assert.equal(elements(busy).find(el=>el.type==='button'&&buttonLabel(el)==='커스텀').props.disabled,true);
 }
 console.log('Compact session drawer: global palette identity, light/dark and single/dual choices, night gate and busy guards preserved OK');
+
+const mainId='10000000-0000-0000-0000-000000000001',extraId='10000000-0000-0000-0000-000000000002';
+const mainPalette={...dual,id:'main-scene',name:'메인 장면',work_id:mainId,day_night_enabled:false};
+const extraPalette={...dual,id:'extra-scene',name:'추가 장면',work_id:extraId,owner_id:'owner',work_shared:false,day_night_enabled:false};
+for(const [combined,accessible,preferWork,visible] of [[true,true,true,true],[false,true,true,true],[true,false,true,true],[true,false,false,true],[true,false,true,false]]){
+  globalThis.__capturedEffects=[];
+  globalThis.__themeLocation={pathname:'/chat/30000000-0000-0000-0000-000000000001'};
+  globalThis.__profileResponse={prefer_work_theme:preferWork,preferred_theme_mode:'custom',preferred_theme_id:single.id,preferred_theme_variant:'light'};
+  globalThis.__themeById={[single.id]:single,[mainPalette.id]:mainPalette,[extraPalette.id]:visible?extraPalette:null};
+  globalThis.__workById={[mainId]:{id:mainId,default_theme_id:mainPalette.id,default_theme_variant:'light'},[extraId]:accessible?{id:extraId}:null};
+  globalThis.__sessionResponse={...dayRoom,work_id:mainId,work_combination_enabled:combined,combined_work_ids:[extraId],theme_id:extraPalette.id,theme_override:null,theme_period:'night',theme_day_night_enabled:true};
+  tree(ThemeManager,{},[]);const cleanup=globalThis.__capturedEffects[0]();await flush();
+  const expected=combined&&accessible&&visible?extraPalette:preferWork?mainPalette:single;
+  assert.equal(root.dataset.themeName,expected.name,'removed or inaccessible extra scenes fall back to the main/account preference');
+  assert.equal(root.dataset.themeVariant,combined&&accessible&&visible?'dark':'light','an invalid extra scene cannot carry a night period into the fallback');
+  cleanup();
+}
+delete globalThis.__capturedEffects;delete globalThis.__themeById;delete globalThis.__workById;
+console.log('Combined ThemeManager: accessible private scene, removed scope, revoked work, invisible palette, main/account fallback and stale night-state reset OK');

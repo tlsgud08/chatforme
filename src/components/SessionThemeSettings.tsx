@@ -7,6 +7,7 @@ import { appliedThemeIsSingle, appliedThemeLabel, appliedThemeVariant, bothVaria
 import ThemeMenu from './ThemeMenu';
 import Toggle from './Toggle';
 import { SessionMenuPage } from './SessionMenuFrame';
+import { activeThemeWorkIds } from '@/lib/workCombination';
 
 type Props={session:Session;userId:string;onUpdate:(patch:Partial<Session>)=>void;busy?:boolean;compact?:boolean};
 type SavedChoice={id:string;variant:ThemeVariant;theme:SavedTheme|null};
@@ -26,6 +27,8 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
   const mutationRevision=useRef(0);
   const writePending=useRef(false);
   const isFluid=session.theme_override==null;
+  const themeWorkIds=activeThemeWorkIds(session);
+  const themeWorkScopeKey=themeWorkIds.join(',');
   useEffect(()=>{
     let active=true;
     let generation=0;
@@ -65,9 +68,13 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     const refresh=async()=>{
       if(writePending.current)return;
       const run=++generation,revision=mutationRevision.current;
-      const {data}=await supabase.from('sessions').select('theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period').eq('id',session.id).eq('user_id',userId).maybeSingle();
+      const columns=session.work_combination_enabled!==undefined
+        ?'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids'
+        :'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period';
+      const {data}=await supabase.from('sessions').select(columns).eq('id',session.id).eq('user_id',userId).returns<Partial<Session>[]>().maybeSingle();
       if(!active||!data||run!==generation||revision!==mutationRevision.current)return;
-      if(data.theme_override!==session.theme_override||data.theme_id!==session.theme_id||data.theme_variant!==session.theme_variant||data.theme_day_night_enabled!==session.theme_day_night_enabled||data.theme_period!==session.theme_period){
+      if(data.theme_override!==session.theme_override||data.theme_id!==session.theme_id||data.theme_variant!==session.theme_variant||data.theme_day_night_enabled!==session.theme_day_night_enabled||data.theme_period!==session.theme_period
+        ||data.work_combination_enabled!==session.work_combination_enabled||JSON.stringify(data.combined_work_ids??[])!==JSON.stringify(session.combined_work_ids??[])){
         onUpdate(data);
       }
       if(session.theme_id){
@@ -79,7 +86,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     window.addEventListener('inuchat:theme-changed',listener);
     window.addEventListener('focus',listener);
     return ()=>{active=false;window.removeEventListener('inuchat:theme-changed',listener);window.removeEventListener('focus',listener);};
-  },[session.id,session.theme_override,session.theme_id,session.theme_variant,session.theme_day_night_enabled,session.theme_period,userId,onUpdate]);
+  },[session.id,session.theme_override,session.theme_id,session.theme_variant,session.theme_day_night_enabled,session.theme_period,themeWorkScopeKey,session.work_combination_enabled,userId,onUpdate]);
 
   async function save(override:'builtin'|'custom'|null,id:string|null,variant:ThemeVariant|null,selected?:SavedTheme):Promise<boolean>{
     if(busy||writePending.current)return false;
@@ -191,7 +198,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
       <p className="inu-help">{mode==='inherit'?(siteMode==='custom'?'전역 커스텀 테마는 유지하고 라이트·다크 선호만 함께 저장합니다.':'라이트·다크 선택은 사이트 전역 설정에도 함께 저장됩니다.'):mode==='custom'&&theme&&!bothVariants(theme)?'단일 테마는 라이트·다크에 관계없이 같은 색상을 유지합니다.':'선택한 테마와 라이트·다크를 고정합니다.'}</p>
       <details className="inu-small-details"><summary>테마 적용 방식</summary><p>개별 선택이 가장 우선하며 모든 기기에 동기화됩니다. 유동적은 AI의 테마 변경을 따르고 다른 모드는 선택을 고정합니다. 단일 테마는 같은 색상을 유지합니다. 낮·밤 전환이 허용된 복수 테마만 밤에 다크 버전을 사용하며, 나머지는 전역 선호를 따릅니다. 시간 전환을 끄면 전환 전용 테마는 자동 선택 목록에서 제외되고 기존 낮·밤 태그는 전송 시 일반 이름으로 정리됩니다.</p></details>
     </div>
-    {open&&<SessionMenuPage enabled title="테마 선택 및 관리" onBack={()=>setOpen(false)}><ThemeMenu drawer embedded userId={userId} workId={session.work_id} scope={pickerScope} selectedId={session.theme_id} onClose={()=>setOpen(false)} onSelect={selected=>{const next=appliedSingle?singlePreference:session.theme_variant??siteVariant;void save('custom',selected.id,next,selected).then(ok=>{if(ok)setOpen(false);});}}/></SessionMenuPage>}
+    {open&&<SessionMenuPage enabled title="테마 선택 및 관리" onBack={()=>setOpen(false)}><ThemeMenu key={themeWorkScopeKey+pickerScope} drawer embedded userId={userId} workId={session.work_id} workIds={themeWorkIds} scope={pickerScope} selectedId={session.theme_id} onClose={()=>setOpen(false)} onSelect={selected=>{const next=appliedSingle?singlePreference:session.theme_variant??siteVariant;void save('custom',selected.id,next,selected).then(ok=>{if(ok)setOpen(false);});}}/></SessionMenuPage>}
   </details>;
   return <section className="mt-4 border-t border-surface2 pt-4">
     <h3 className="mb-2 text-sm font-semibold text-white">채팅방 테마</h3>
@@ -237,7 +244,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     </div>}
     {mode==='custom'&&!open&&<p className="mt-2 text-xs text-slate-500">{theme&&!bothVariants(theme)?'단일 테마 · 라이트·다크 설정에 관계없이 같은 색상으로 표시됩니다.':'이 모드에서는 선택한 테마와 라이트·다크를 고정합니다.'}</p>}
     {open&&<div className="mt-3 rounded-lg border border-surface2">
-      <ThemeMenu userId={userId} workId={session.work_id} scope={pickerScope} selectedId={session.theme_id}
+      <ThemeMenu key={themeWorkScopeKey+pickerScope} userId={userId} workId={session.work_id} workIds={themeWorkIds} scope={pickerScope} selectedId={session.theme_id}
         onClose={()=>setOpen(false)} onSelect={selected=>{
           const next=appliedSingle?singlePreference:session.theme_variant??siteVariant;
           void save('custom',selected.id,next,selected).then(ok=>{if(ok)setOpen(false);});

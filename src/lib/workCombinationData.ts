@@ -38,7 +38,10 @@ export async function searchCombinationWorks(search: string, mainWorkId: string,
   return (data ?? []) as CombinationWorkInfo[];
 }
 
-export async function saveWorkCombination(session: Session, userId: string, enabled: boolean, value: string[]): Promise<Pick<Session, 'work_combination_enabled' | 'combined_work_ids'>> {
+export type WorkCombinationPatch = Pick<Session, 'work_combination_enabled' | 'combined_work_ids' | 'theme_override' | 'theme_id' | 'theme_variant' | 'theme_period' | 'theme_day_night_enabled' | 'auto_theme_enabled'>;
+export const WORK_COMBINATION_COLUMNS = 'work_combination_enabled,combined_work_ids,theme_override,theme_id,theme_variant,theme_period,theme_day_night_enabled,auto_theme_enabled';
+
+export async function saveWorkCombination(session: Session, userId: string, enabled: boolean, value: string[]): Promise<WorkCombinationPatch> {
   const ids = combinedWorkIds(value, session.work_id);
   const previous = combinedWorkIds(session.combined_work_ids, session.work_id);
   const { data, error } = await supabase.from('sessions')
@@ -46,11 +49,11 @@ export async function saveWorkCombination(session: Session, userId: string, enab
     .eq('id', session.id).eq('user_id', userId).eq('work_id', session.work_id)
     .eq('work_combination_enabled', session.work_combination_enabled ?? false)
     .eq('combined_work_ids', `{${previous.join(',')}}`)
-    .select('work_combination_enabled,combined_work_ids').single();
+    .select(WORK_COMBINATION_COLUMNS).single();
   if (error?.code === 'PGRST116') throw new Error('다른 화면에서 설정이 변경됐거나 채팅방에 접근할 수 없습니다. 설정을 새로고침해 주세요.');
   if (error?.code === '42703' || error?.code === 'PGRST204') throw new Error('작품 결합 DB 업데이트가 필요합니다. 관리자에게 문의해 주세요.');
   if (error || !data) throw new Error('작품 결합 설정을 저장하지 못했습니다. 작품 접근 권한과 연결을 확인해 주세요.');
-  return data as Pick<Session, 'work_combination_enabled' | 'combined_work_ids'>;
+  return data as WorkCombinationPatch;
 }
 
 /** Called before writing a user turn; missing/revoked works stop the request. */

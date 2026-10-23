@@ -49,30 +49,43 @@ export function stripThemeDirectives(content: string, streaming = false): string
 export function finalThemeDirective(content: string): string | null {
   return /\{\{theme::([^{}]+)\}\}\s*$/.exec(content)?.[1].trim() ?? null;
 }
-export function availableWorkThemes(themes: SavedTheme[], workId: string, userId: string): SavedTheme[] {
-  return themes.filter(t => t.work_id === workId && (t.work_shared !== false || t.owner_id === userId));
+export function availableWorkThemes(themes: SavedTheme[], workId: string | readonly string[], userId: string): SavedTheme[] {
+  const ids = new Set(typeof workId === 'string' ? [workId] : workId);
+  return themes.filter(t => t.work_id !== null && ids.has(t.work_id) && (t.work_shared !== false || t.owner_id === userId));
 }
-function themeChoices(themes:SavedTheme[],enabled:boolean){
+export type ThemeCatalogScope = { workNames: Readonly<Record<string, string>> };
+export function themeDirectiveBaseName(theme: SavedTheme, qualified = false): string {
+  return qualified ? `id:${theme.id}` : theme.name;
+}
+export function dayNightCatalogNames(themes: SavedTheme[], qualified = false): string[] {
+  return [...new Set(themes.filter(dayNightThemeEligible).flatMap(theme =>
+    qualified ? [theme.name, themeDirectiveBaseName(theme, true)] : [theme.name]))];
+}
+function themeChoices(themes:SavedTheme[],enabled:boolean,qualified=false){
   const choices=themes.filter(theme=>automaticThemeAvailable(theme,enabled)).sort((a,b)=>a.id.localeCompare(b.id)).flatMap(theme=>
     enabled&&dayNightThemeEligible(theme)
-      ?(['day','night']as const).map(period=>({theme,period,name:themeDirectiveName(theme,period,true)}))
-      :[{theme,period:null as ThemePeriod|null,name:theme.name}]);
+      ?(['day','night']as const).map(period=>({theme,period,name:qualified?`${themeDirectiveBaseName(theme,true)}:${period==='night'?'밤':'낮'}`:themeDirectiveName(theme,period,true)}))
+      :[{theme,period:null as ThemePeriod|null,name:themeDirectiveBaseName(theme,qualified)}]);
   // Legacy suffix names can collide with generated choices. Never choose arbitrarily.
   const counts=new Map<string,number>();
   for(const choice of choices)counts.set(choice.name.trim(),(counts.get(choice.name.trim())??0)+1);
   return choices.filter(choice=>counts.get(choice.name.trim())===1);
 }
-export function themeCatalogPrompt(themes: SavedTheme[],enabled=false): string {
-  return themeChoices(themes,enabled).map(({theme,period,name})=>
-    `- 이름: ${name}\n  적용 조건: ${theme.ai_prompt?.trim() || '별도 조건 없음'}${period?'\n  '+(period==='day'?DAY_THEME_CONDITION:NIGHT_THEME_CONDITION):''}`).join('\n\n');
+export function themeCatalogPrompt(themes: SavedTheme[],enabled=false,scope?:ThemeCatalogScope): string {
+  // Keep the original single-work catalog byte-for-byte when scope is omitted.
+  return themeChoices(themes,enabled,!!scope).map(({theme,period,name})=>
+    `- 이름: ${name}${scope?`\n  테마명: ${JSON.stringify(theme.name)}\n  작품: ${JSON.stringify(scope.workNames[theme.work_id??'']??'작품')}`:''}\n  적용 조건: ${theme.ai_prompt?.trim() || '별도 조건 없음'}${period?'\n  '+(period==='day'?DAY_THEME_CONDITION:NIGHT_THEME_CONDITION):''}`).join('\n\n');
 }
-export function resolveThemeDirectiveChoice(name:string|null,themes:SavedTheme[],enabled=false):{theme:SavedTheme;period:ThemePeriod|null}|null {
+export function resolveThemeDirectiveChoice(name:string|null,themes:SavedTheme[],enabled=false,qualified=false):{theme:SavedTheme;period:ThemePeriod|null}|null {
   if(!name||name==='keep')return null;
-  const choices=themeChoices(themes,enabled);
+  const choices=themeChoices(themes,enabled,qualified);
   const matches=choices.filter(choice=>choice.name.trim()===name);
   if(matches.length===1)return {theme:matches[0].theme,period:matches[0].period};
   // With the feature OFF, old suffixed responses still select the original theme.
-  if(!enabled&&/:(낮|밤)$/.test(name))return resolveThemeDirectiveChoice(name.replace(/:(낮|밤)$/,''),themes,false);
+  if(!enabled&&/:(낮|밤)$/.test(name))return resolveThemeDirectiveChoice(name.replace(/:(낮|밤)$/,''),themes,false,qualified);
+  // Accept legacy names only when unambiguous. An obsolete ID must never be
+  // reinterpreted as a literal name belonging to an unrelated theme.
+  if(qualified&&!name.startsWith('id:'))return resolveThemeDirectiveChoice(name,themes,enabled,false);
   return null;
 }
 export function resolveDirectiveTheme(name: string | null, themes: SavedTheme[]): SavedTheme | null {
