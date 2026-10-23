@@ -1,11 +1,26 @@
 import { supabase } from './supabase';
 import type { Message, Session } from '@/types/db';
 
+export interface MessagePage { messages: Message[]; hasOlder: boolean; oldestTurn: number | null; totalUserTurns: number; }
+
+export async function fetchMessagePage(sessionId: string, before?: number, signal?: AbortSignal): Promise<MessagePage> {
+  // Both read RPCs are STABLE/SECURITY INVOKER. GET retains the SDK's bounded
+  // network retries; POST RPCs are deliberately not retried by the locked SDK.
+  const request = supabase.rpc('session_message_page', {
+    target_session: sessionId, before_turn: before,
+  }, { get: true });
+  // Omit an absent cursor: GET would encode null as the invalid integer "null".
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  if (!data || !Array.isArray(data.messages)) throw new Error('메시지 목록을 불러오지 못했습니다.');
+  return data as MessagePage;
+}
+
 export async function generationContext(session: Session, keywordTurns: number, reroll: boolean, signal?: AbortSignal): Promise<{ messages: Message[]; summary: string; summaryLastTurn: number }> {
   const request = supabase.rpc('session_generation_context', {
     target_session: session.id, after_summary: session.summary_last_turn,
     keyword_turns: keywordTurns, reroll,
-  });
+  }, { get: true });
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   if (!data || !Array.isArray(data.messages)) throw new Error('대화 문맥을 불러오지 못했습니다.');
