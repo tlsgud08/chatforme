@@ -117,6 +117,14 @@ try {
     assert.deepEqual(calls[0].ilike, ['title', '%100\\%\\_\\\\%']);
     assert.deepEqual(calls[0].range, [40, 59]);
     assert.equal(calls[0].filters['neq:id'], main);
+    assert.equal(calls[0].or, 'visibility.neq.unlisted,creator_id.eq.owner', 'ordinary users retain unlisted discovery rules');
+    for (const title of ['明治ロマン', '한국어 작품', 'English Title']) {
+      calls.length = 0;
+      await searchCombinationWorks(title, main, 'owner', 0, undefined, true);
+      assert.deepEqual(calls[0].ilike, ['title', `%${title}%`], 'search must preserve multilingual titles');
+      assert.equal(calls[0].or, undefined, 'administrators must not lose accessible unlisted works');
+      assert.equal(calls[0].columns, 'id,title,description', 'search must not fetch prompts');
+    }
     calls.length = 0;
     await fetchCombinationWorkInfo(Array.from({ length: 205 }, (_, index) => String(index)));
     assert.deepEqual(calls.map(call => call.ids.length), [100, 100, 5], 'large lists must not overflow query URLs');

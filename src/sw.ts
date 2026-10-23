@@ -26,7 +26,8 @@ const supabaseOrigin = (() => {
   }
 })();
 
-self.skipWaiting();
+// Keep the old worker and its precached route chunks alive for existing tabs.
+// Immediate activation deletes those chunks while React still references them.
 clientsClaim();
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
