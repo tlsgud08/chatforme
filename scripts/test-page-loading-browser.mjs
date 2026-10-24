@@ -62,6 +62,8 @@ const requests = [];
 let delayCounts = 0;
 let failContextRequests = 0, failMessagePageRequests = 0;
 let modelRequests = 0;
+let editConnectionFailure = '';
+messages = messages.map(message => ({ ...message, content_version: 0 }));
 const errors = [];
 async function setup(context) {
     await context.addInitScript(({ userId }) => { localStorage.setItem('chatforme.apiKeys', JSON.stringify({ openrouter: 'mock-only-key' })); localStorage.setItem('sb-loading-check-auth-token', JSON.stringify({ access_token: 'test-access-token', refresh_token: 'test-refresh-token', token_type: 'bearer', expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: userId, email: 'admin@example.test', aud: 'authenticated', role: 'authenticated' } })); }, { userId });
@@ -106,11 +108,16 @@ async function setup(context) {
             else if (request.method() === 'PATCH') {
                 const patch = request.postDataJSON();
                 const id = (url.searchParams.get('id') || '').replace('eq.', '');
-                messages = messages.map(m => m.id === id ? { ...m, ...patch } : m);
-                data = single ? messages.find(m => m.id === id) : [];
+                const editing = 'command_name' in patch;
+                if (editing && editConnectionFailure === 'before') { editConnectionFailure = ''; return route.abort('failed'); }
+                const match = m => m.id === id && (!url.searchParams.has('content_version') || url.searchParams.get('content_version') === 'eq.' + m.content_version);
+                const changed = messages.filter(match);
+                messages = messages.map(m => match(m) ? { ...m, ...patch, content_version: m.content_version + (patch.content != null && patch.content !== m.content ? 1 : 0) } : m);
+                if (editing && editConnectionFailure === 'after') { editConnectionFailure = ''; return route.abort('failed'); }
+                data = single ? messages.find(m => m.id === id) : messages.filter(m => changed.some(c => c.id === m.id));
             }
             else
-                data = messages;
+                data = url.searchParams.has('id') ? messages.filter(m => 'eq.' + m.id === url.searchParams.get('id')) : messages;
         }
         else if (path.startsWith('rpc/'))
             data = [];
@@ -161,6 +168,8 @@ try {
     }
     else {
         await page.locator('.chat-scroll').waitFor();
+        await page.getByRole('status', { name: '앱 업데이트 안내' }).waitFor();
+        await page.getByRole('status', { name: '앱 업데이트 안내' }).getByRole('button', { name: '확인', exact: true }).click();
         const pageReads = requests.slice(beforeRoomRead).filter(r => r.path === 'rpc/session_message_page');
         assert.equal(pageReads.length, 2, 'one failed message read must recover without leaving the room');
         assert(pageReads.every(r => r.method === 'GET' && !new URLSearchParams(r.search).has('before_turn')));
@@ -178,6 +187,8 @@ try {
         await page.waitForTimeout(100);
         const top = await scroller.evaluate(e => e.scrollTop);
         const message = page.locator('.chat-message').last();
+        const editStart = requests.length;
+        editConnectionFailure = 'after';
         await message.getByRole('button', { name: '메시지 편집', exact: true }).click();
         await message.locator('textarea').fill(('Edited story line.\n\n').repeat(20));
         await message.getByRole('button', { name: '저장', exact: true }).click();
@@ -185,6 +196,15 @@ try {
         await page.waitForTimeout(100);
         const afterEdit = await scroller.evaluate(e => e.scrollTop);
         assert(Math.abs(afterEdit - top) < 3, `edit moved scroll ${top} -> ${afterEdit}`);
+        assert.equal(requests.slice(editStart).filter(r => r.path === 'messages' && r.method === 'PATCH').length, 1, 'a lost edit acknowledgement must not replay the committed edit');
+        const secondEditStart = requests.length;
+        editConnectionFailure = 'before';
+        await message.getByRole('button', { name: '메시지 편집', exact: true }).click();
+        await message.locator('textarea').fill(('Second edited story line.\n\n').repeat(20));
+        await message.getByRole('button', { name: '저장', exact: true }).click();
+        await message.locator('textarea').waitFor({ state: 'hidden' });
+        assert.equal(requests.slice(secondEditStart).filter(r => r.path === 'messages' && r.method === 'PATCH').length, 2, 'an uncommitted edit gets one guarded retry');
+        console.log(JSON.stringify({ lostEditAcknowledgementRecovery: true, unsentEditRecovery: true, waitingVersionNotice: true }));
         console.log(JSON.stringify({ scrollEdit: { before: top, after: afterEdit } }));
         await scroller.evaluate(e => { e.scrollTop = 200; });
         await page.waitForTimeout(100);
