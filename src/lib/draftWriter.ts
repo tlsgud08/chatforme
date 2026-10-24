@@ -5,29 +5,37 @@ export function createDraftWriter(write: (text: string) => Promise<void>, interv
   let timer: ReturnType<typeof setTimeout> | undefined;
   let lastError: unknown;
   let stopped = false;
+  let flushing = false;
+  const schedule = () => {
+    if (!stopped && !flushing && pending !== undefined && !timer && !running) {
+      timer = setTimeout(() => { timer = undefined; void drain(); }, interval);
+    }
+  };
   const drain = async () => {
     if (running) return running;
+    if (pending === undefined) return;
+    const value = pending;
+    pending = undefined;
     running = (async () => {
-      while (pending !== undefined) {
-        const value = pending;
-        pending = undefined;
-        try { await write(value); lastError = undefined; }
-        catch (error) { lastError = error; }
-      }
+      try { await write(value); lastError = undefined; }
+      catch (error) { lastError = error; }
     })();
-    try { await running; } finally { running = undefined; }
+    try { await running; } finally { running = undefined; schedule(); }
   };
   return {
     push(text: string) {
       if (stopped) return;
       pending = text;
-      if (!timer && !running) timer = setTimeout(() => { timer = undefined; void drain(); }, interval);
+      schedule();
     },
     async flush() {
       clearTimeout(timer); timer = undefined;
-      await drain();
-      if (pending !== undefined) await drain();
-      if (lastError) throw lastError;
+      flushing = true;
+      try {
+        await running;
+        while (pending !== undefined) await drain();
+        if (lastError) throw lastError;
+      } finally { flushing = false; schedule(); }
     },
     async stop() {
       stopped = true;

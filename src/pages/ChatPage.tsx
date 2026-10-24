@@ -8,6 +8,7 @@ import { useChatScroll } from '@/hooks/useChatScroll';
 import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
 import { createDraftWriter } from '@/lib/draftWriter';
+import { saveMessageEdit } from '@/lib/messageEdit';
 import { registerAccountTask } from '@/lib/accountTasks';
 import { fetchMessagePage, generationContext, selectResponse } from '@/lib/sessionData';
 import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '@/lib/llm/types';
@@ -1064,9 +1065,8 @@ export default function ChatPage() {
           setSession((current) => current ? { ...current, summary: '', summary_last_turn: 0 } : current);
         }
       }
-      const { error } = await supabase.from('messages').update({ content, command_id: commandId, command_name: editingCommandName }).eq('id', msgId);
-      if (error) throw error;
-      setMessages((m) => m.map((msg) => msg.id === msgId ? { ...msg, content, command_id: commandId, command_name: editingCommandName } : msg));
+      const saved = await saveMessageEdit(original, { content, command_id: commandId, command_name: editingCommandName });
+      setMessages((m) => m.map((msg) => msg.id === msgId ? { ...msg, ...saved } : msg));
       setEditingId(null);
     } catch (error) {
       addError(`메시지 편집 실패: ${describeUnknownError(error)}`);
