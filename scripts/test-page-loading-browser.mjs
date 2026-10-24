@@ -60,12 +60,16 @@ const profile = { id: userId, display_name: 'Tester', preferred_theme_mode: 'lig
 let messages = Array.from({ length: 16 }, (_, i) => ({ id: 'message-' + i, session_id: sessionId, role: i % 2 ? 'assistant' : 'user', content: ('Message ' + i + ' story line.\n\n').repeat(12), turn_index: 1 + Math.floor(i / 2), created_at: new Date(1700000000000 + i * 1000).toISOString(), is_hidden: false, is_active_variant: true, generation_status: 'complete', command_name: null, command_id: null, cost: 0, output_tokens: 0, input_tokens: 0, reroll_index: 1 }));
 const requests = [];
 let delayCounts = 0;
+let failContextRequests = 0, failMessagePageRequests = 0;
+let modelRequests = 0;
 const errors = [];
 async function setup(context) {
     await context.addInitScript(({ userId }) => { localStorage.setItem('chatforme.apiKeys', JSON.stringify({ openrouter: 'mock-only-key' })); localStorage.setItem('sb-loading-check-auth-token', JSON.stringify({ access_token: 'test-access-token', refresh_token: 'test-refresh-token', token_type: 'bearer', expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: userId, email: 'admin@example.test', aud: 'authenticated', role: 'authenticated' } })); }, { userId });
     await context.route('https://loading-check.test/**', async (route) => {
         const request = route.request(), url = new URL(request.url()), path = url.pathname.replace('/rest/v1/', '');
         requests.push({ path, search: url.search, method: request.method(), at: Date.now() });
+        if (path === 'rpc/session_generation_context' && failContextRequests-- > 0) return route.abort('failed');
+        if (path === 'rpc/session_message_page' && failMessagePageRequests-- > 0) return route.abort('failed');
         const single = request.headers().accept?.includes('vnd.pgrst.object');
         let data = [];
         if (path === 'works')
@@ -114,6 +118,7 @@ async function setup(context) {
     });
     await context.route('https://**/*', async (route) => { const url = new URL(route.request().url()); if (url.hostname === 'loading-check.test')
         return route.fallback(); if (url.pathname.endsWith('/chat/completions')) {
+        modelRequests++;
         const text = ('Generated AI story paragraph.\n\n').repeat(40);
         return route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'data: ' + JSON.stringify({ id: 'mock-generation', choices: [{ delta: { content: text } }], usage: { prompt_tokens: 20, completion_tokens: 40, cost: 0 } }) + '\n\ndata: [DONE]\n\n' });
     } await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); });
@@ -146,6 +151,8 @@ try {
     } return 'timeout'; });
     await page.getByRole('link', { name: '채팅방', exact: true }).first().click();
     await page.locator('.session-list').getByText('Test room', { exact: true }).waitFor();
+    if (!baseline) failMessagePageRequests = 1;
+    const beforeRoomRead = requests.length;
     await page.locator('.session-list a').first().click();
     if (baseline) {
         await page.getByRole('alert').filter({ hasText: '화면을 불러오지 못했습니다' }).waitFor();
@@ -154,6 +161,9 @@ try {
     }
     else {
         await page.locator('.chat-scroll').waitFor();
+        const pageReads = requests.slice(beforeRoomRead).filter(r => r.path === 'rpc/session_message_page');
+        assert.equal(pageReads.length, 2, 'one failed message read must recover without leaving the room');
+        assert(pageReads.every(r => r.method === 'GET' && !new URLSearchParams(r.search).has('before_turn')));
         assert.equal(workerState, 'waiting');
         assert.equal(await page.getByRole('alert').count(), 0);
         assert(listMs < 1200, 'counts must not block the room list');
@@ -179,13 +189,35 @@ try {
         await scroller.evaluate(e => { e.scrollTop = 200; });
         await page.waitForTimeout(100);
         await page.getByPlaceholder('메시지 입력…').fill('Generate a test response');
+        failContextRequests = 1;
+        const beforeGenerationRead = requests.length;
+        const modelsBefore = modelRequests;
         await page.getByRole('button', { name: '메시지 전송', exact: true }).click();
         await page.locator('.chat-message').last().getByText(/Generated AI story paragraph/).first().waitFor({ timeout: 15000 });
         await page.waitForFunction(() => !document.querySelector('.chat-stream'));
         await page.waitForTimeout(100);
         const afterGeneration = await scroller.evaluate(e => e.scrollTop);
+        const sendRequests = requests.slice(beforeGenerationRead);
+        assert.equal(sendRequests.filter(r => r.path === 'rpc/session_generation_context').length, 2);
+        assert(sendRequests.filter(r => r.path === 'rpc/session_generation_context').every(r => r.method === 'GET'));
+        assert.equal(sendRequests.filter(r => r.path === 'messages' && r.method === 'POST').length, 2, 'exactly one user and assistant write');
+        assert.equal(modelRequests - modelsBefore, 1, 'a recovered context read must call the model exactly once');
         assert(Math.abs(afterGeneration - 200) < 3, `generation moved scroll 200 -> ${afterGeneration}`);
         console.log(JSON.stringify({ scrollGeneration: { before: 200, after: afterGeneration } }));
+        // Exhausted read retries must restore the draft, release the send lock,
+        // and leave persisted messages/model billing untouched.
+        failContextRequests = 20;
+        const beforeOutage = requests.length, paidBeforeOutage = modelRequests;
+        await page.getByPlaceholder('메시지 입력…').fill('Keep this draft after an outage');
+        await page.getByRole('button', { name: '메시지 전송', exact: true }).click();
+        await page.waitForFunction(() => document.querySelector('textarea[aria-label="메시지 입력"]')?.value === 'Keep this draft after an outage', undefined, { timeout: 15000 });
+        await page.getByRole('button', { name: '메시지 전송', exact: true }).waitFor();
+        const outageRequests = requests.slice(beforeOutage);
+        assert.equal(outageRequests.filter(r => r.path === 'rpc/session_generation_context').length, 4);
+        assert.equal(outageRequests.filter(r => r.path === 'messages' && r.method !== 'GET').length, 0);
+        assert.equal(modelRequests, paidBeforeOutage);
+        failContextRequests = 0;
+        console.log(JSON.stringify({ messageReadRecovery: true, contextReadRecovery: true, singleModelCall: true, boundedOutageDraftRestore: true }));
         await page.getByRole('button', { name: '세션 메뉴 열기' }).click();
         await page.getByLabel('추가할 작품 검색', { exact: true }).fill('明治ロマン');
         await page.getByText('Japanese unlisted work', { exact: true }).waitFor();
@@ -220,6 +252,19 @@ try {
         assert(!new URLSearchParams(detail.search).get('select').includes('*'), 'work details must not download unused prompt bodies');
         console.log(JSON.stringify({ mobileLegacyRecovery: true, optionalCountFailure: true, metadataOnlyWorkDetail: true }));
         await mobile.close();
+        const recovery = await browser.newContext({ serviceWorkers: 'block' });
+        await setup(recovery);
+        const recoveryPage = await recovery.newPage();
+        failMessagePageRequests = 20;
+        const readStart = requests.length;
+        await recoveryPage.goto(origin + '/chat/' + sessionId);
+        await recoveryPage.getByRole('alert').filter({ hasText: '채팅방을 불러오지 못했습니다' }).waitFor({ timeout: 15000 });
+        assert.equal(requests.slice(readStart).filter(r => r.path === 'rpc/session_message_page').length, 4);
+        failMessagePageRequests = 0;
+        await recoveryPage.getByRole('button', { name: '다시 불러오기', exact: true }).click();
+        await recoveryPage.locator('.chat-scroll').waitFor();
+        console.log(JSON.stringify({ roomManualRecovery: true }));
+        await recovery.close();
     }
 }
 finally {

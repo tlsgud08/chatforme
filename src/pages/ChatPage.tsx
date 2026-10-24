@@ -9,7 +9,7 @@ import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
 import { createDraftWriter } from '@/lib/draftWriter';
 import { registerAccountTask } from '@/lib/accountTasks';
-import { generationContext, selectResponse } from '@/lib/sessionData';
+import { fetchMessagePage, generationContext, selectResponse } from '@/lib/sessionData';
 import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '@/lib/llm/types';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
@@ -35,17 +35,6 @@ import './ChatPage.css';
 const GENERATION_TIMEOUT_MS = 8 * 60_000;
 const DRAFT_SAVE_INTERVAL_MS = 1000;
 const MESSAGE_FETCH_BATCH_SIZE = 500;
-interface MessagePage { messages: Message[]; hasOlder: boolean; oldestTurn: number | null; totalUserTurns: number; }
-
-async function fetchMessagePage(sessionId: string, before?: number): Promise<MessagePage> {
-  const { data, error } = await supabase.rpc('session_message_page', {
-    target_session: sessionId, before_turn: before ?? null,
-  });
-  if (error) throw error;
-  if (!data || !Array.isArray(data.messages)) throw new Error('메시지 목록을 불러오지 못했습니다.');
-  return data as MessagePage;
-}
-
 async function fetchAllSessionMessages(sessionId: string): Promise<Message[]> {
   const messages: Message[] = [];
   for (let from = 0; ; from += MESSAGE_FETCH_BATCH_SIZE) {
@@ -148,7 +137,7 @@ function classifyError(raw: string): string {
   if (raw.includes('(404)')) return '모델을 찾을 수 없습니다. 세션 메뉴에서 모델을 재선택하세요';
   if (raw.includes('(429)')) return 'API 요청 한도를 초과했습니다. 잠시 후 재시도하세요';
   if (raw.includes('(500)') || raw.includes('(502)') || raw.includes('(503)')) return 'AI 서버 오류입니다. 잠시 후 재시도하세요';
-  if (raw.includes('Failed to fetch') || raw.toLowerCase().includes('networkerror')) return '네트워크 오류입니다. 인터넷 연결을 확인하세요';
+  if (/failed to fetch|load failed|networkerror/i.test(raw)) return '연결 오류로 요청을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요';
   const apiMatch = raw.match(/^(.+?API 오류 \(\d+\))/);
   if (apiMatch) return apiMatch[1];
   return raw.length <= 80 ? raw : raw.slice(0, 80) + '…';
@@ -213,6 +202,7 @@ export default function ChatPage() {
 
   const [session, setSession] = useState<Session | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [work, setWork] = useState<Work | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [persona, setPersona] = useState<Persona | null>(null);
@@ -373,24 +363,27 @@ export default function ChatPage() {
   }
 
   useEffect(() => {
+    if (!sessionId || !user?.id) return;
     let cancelled = false;
+    const controller = new AbortController();
+    const signal = controller.signal;
     setPersona(null);
     setStartConfig(null);
     setLoadError('');
     void (async () => {
-      const { data: s, error: sessionError } = await supabase.from('sessions').select('*').eq('id', sessionId).single();
+      const { data: s, error: sessionError } = await supabase.from('sessions').select('*').eq('id', sessionId).abortSignal(signal).single();
       if (sessionError || !s) throw sessionError ?? new Error('채팅방에 접근할 수 없습니다.');
       if (cancelled) return;
       const sess = s as Session;
       const [workResult, profileResult, configResult, page, booksResult, notesResult, personaResult, startResult] = await Promise.all([
-        supabase.from('works').select('*').eq('id', sess.work_id).single(),
-        supabase.from('profiles').select('*').eq('id', user!.id).single(),
-        supabase.from('platform_config').select('system_prompt,theme_prompt').eq('id', 1).single(),
-        fetchMessagePage(sess.id),
-        supabase.from('keyword_books').select('*').eq('work_id', sess.work_id).order('sort_order'),
-        supabase.from('story_notes').select('*').eq('session_id', sess.id).order('created_at'),
-        sess.persona_id ? supabase.from('personas').select('*').eq('id', sess.persona_id).single() : Promise.resolve({ data: null, error: null }),
-        sess.start_config_id ? supabase.from('start_configs').select('*').eq('id', sess.start_config_id).single() : Promise.resolve({ data: null, error: null }),
+        supabase.from('works').select('*').eq('id', sess.work_id).abortSignal(signal).single(),
+        supabase.from('profiles').select('*').eq('id', user.id).abortSignal(signal).single(),
+        supabase.from('platform_config').select('system_prompt,theme_prompt').eq('id', 1).abortSignal(signal).single(),
+        fetchMessagePage(sess.id, undefined, signal),
+        supabase.from('keyword_books').select('*').eq('work_id', sess.work_id).order('sort_order').abortSignal(signal),
+        supabase.from('story_notes').select('*').eq('session_id', sess.id).order('created_at').abortSignal(signal),
+        sess.persona_id ? supabase.from('personas').select('*').eq('id', sess.persona_id).abortSignal(signal).single() : Promise.resolve({ data: null, error: null }),
+        sess.start_config_id ? supabase.from('start_configs').select('*').eq('id', sess.start_config_id).abortSignal(signal).single() : Promise.resolve({ data: null, error: null }),
       ]);
       if (cancelled) return;
       for (const result of [workResult, profileResult, configResult, booksResult, notesResult, personaResult, startResult]) {
@@ -414,9 +407,14 @@ export default function ChatPage() {
       setTotalUserTurnCount(page.totalUserTurns);
       setKeywordBooks((booksResult.data as KeywordBook[]) ?? []);
       setStoryNotes((notesResult.data as StoryNote[]) ?? []);
-    })().catch(error => { if (!cancelled) setLoadError(describeUnknownError(error)); });
-    return () => { cancelled = true; };
-  }, [sessionId, user?.id]);
+    })().catch(error => {
+      if (!cancelled) {
+        controller.abort();
+        setLoadError(describeUnknownError(error));
+      }
+    });
+    return () => { cancelled = true; controller.abort(); };
+  }, [sessionId, user?.id, loadAttempt]);
 
   useEffect(() => {
     if (!sessionId || !sessionModel || settingsSessionIdRef.current !== sessionId) return;
@@ -706,7 +704,7 @@ export default function ChatPage() {
         contextSummary = context.summary;
         contextSummaryTurn = context.summaryLastTurn;
       } catch (error) {
-        addError(`대화 문맥 불러오기 실패: ${describeUnknownError(error)}`);
+        if (!controller.signal.aborted) addError(`대화 문맥 불러오기 실패: ${describeUnknownError(error)}`);
         restoreSubmitted();
         releaseSend();
         return;
@@ -1224,7 +1222,7 @@ export default function ChatPage() {
   }
   const sessionTurnCount = totalUserTurnCount;
 
-  if (loadError) return <div role="alert" className="p-6 text-amber-400">채팅방을 불러오지 못했습니다: {loadError}<button className="ml-3 underline" onClick={() => navigate('/sessions')}>채팅방 목록</button></div>;
+  if (loadError) return <div role="alert" className="p-6 text-amber-400">채팅방을 불러오지 못했습니다: {loadError}<button type="button" className="ml-3 underline" onClick={() => setLoadAttempt(attempt => attempt + 1)}>다시 불러오기</button><button type="button" className="ml-3 underline" onClick={() => navigate('/sessions')}>채팅방 목록</button></div>;
 
   if (!currentSession || !work) {
     return <div className="flex h-full items-center justify-center text-slate-400">불러오는 중…</div>;
