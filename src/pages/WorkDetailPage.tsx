@@ -16,6 +16,9 @@ export default function WorkDetailPage() {
   const queryClient = useQueryClient();
   const favoriteLock = useRef(false);
   const [starting, setStarting] = useState(false);
+  const startLock = useRef(false);
+  const routeAlive = useRef(true);
+  useEffect(() => { routeAlive.current = true; return () => { routeAlive.current = false; }; }, [workId, user?.id]);
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>('');
   const [selectedConfigId, setSelectedConfigId] = useState<string>('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -39,19 +42,21 @@ export default function WorkDetailPage() {
     staleTime: 30_000,
   });
 
-  const { data: startConfigs = [] } = useQuery({
+  const { data: startConfigs = [], isLoading: configsLoading, isError: configsError, refetch: refetchConfigs } = useQuery({
     queryKey: ['start-configs', workId],
-    queryFn: async () => {
-      const { data } = await supabase.from('start_configs').select('*').eq('work_id', workId).order('sort_order');
+    queryFn: async ({ signal }) => {
+      const { data, error } = await supabase.from('start_configs').select('*').eq('work_id', workId).order('sort_order').abortSignal(signal);
+      if (error) throw error;
       return (data as StartConfig[]) ?? [];
     },
     enabled: !!workId,
   });
 
-  const { data: personas = [] } = useQuery({
+  const { data: personas = [], isLoading: personasLoading, isError: personasError, refetch: refetchPersonas } = useQuery({
     queryKey: ['personas', user?.id],
-    queryFn: async () => {
-      const { data } = await supabase.from('personas').select('*').eq('user_id', user!.id).order('created_at');
+    queryFn: async ({ signal }) => {
+      const { data, error } = await supabase.from('personas').select('*').eq('user_id', user!.id).order('created_at').abortSignal(signal);
+      if (error) throw error;
       return (data as Persona[]) ?? [];
     },
     enabled: !!user,
@@ -115,18 +120,21 @@ export default function WorkDetailPage() {
   }
 
   async function startChat() {
-    if (!work) return;
+    if (!work || !user || startLock.current || configsLoading || personasLoading || configsError || personasError) return;
+    const configId = selectedConfigId || (startConfigs.find(config => config.is_default) ?? startConfigs[0])?.id || null;
+    const personaId = selectedPersonaId || (personas.find(persona => persona.is_default) ?? personas[0])?.id || null;
+    if ((configId && !startConfigs.some(config => config.id === configId)) || (personaId && !personas.some(persona => persona.id === personaId))) { showToast('시작 설정을 다시 선택해 주세요.'); return; }
+    startLock.current = true;
     setStarting(true);
-
-    if (!user) { setStarting(false); return; }
-    const { data: sessionId, error } = await supabase.rpc('create_session_with_start', {
-      target_work: work.id, target_persona: selectedPersonaId || null, target_config: selectedConfigId || null,
-    });
-    if (error || !sessionId) { showToast('채팅 시작에 실패했습니다: ' + (error?.message ?? '저장 결과가 없습니다.')); setStarting(false); return; }
-
-    setStarting(false);
-    void queryClient.invalidateQueries({ queryKey: ['sessions', user.id] });
-    navigate(`/chat/${sessionId}`);
+    try {
+      const { data: sessionId, error } = await supabase.rpc('create_session_with_start', {
+        target_work: work.id, target_persona: personaId, target_config: configId,
+      });
+      if (error || !sessionId) throw error ?? new Error('저장 결과가 없습니다.');
+      void queryClient.invalidateQueries({ queryKey: ['sessions', user.id] });
+      if (routeAlive.current) navigate(`/chat/${sessionId}`);
+    } catch (error) { if (routeAlive.current) showToast('채팅 시작에 실패했습니다: ' + (error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error))); }
+    finally { startLock.current = false; if (routeAlive.current) setStarting(false); }
   }
 
   async function deleteWork() {
@@ -247,7 +255,7 @@ export default function WorkDetailPage() {
             </select>
           </div>
         )}
-        {personas.length === 0 && (
+        {!personasLoading && !personasError && personas.length === 0 && (
           <p className="text-xs text-slate-500">
             페르소나 없음 — 설정 탭에서 추가하면 여기서 선택할 수 있습니다.
           </p>
@@ -268,10 +276,12 @@ export default function WorkDetailPage() {
           </div>
         )}
 
+        {(configsError || personasError) && <p role="alert" className="text-sm text-amber-400">시작 설정을 불러오지 못했습니다. <button type="button" className="underline" onClick={() => { void refetchConfigs(); void refetchPersonas(); }}>시작 설정 다시 불러오기</button></p>}
+        {(configsLoading || personasLoading) && <p role="status" className="text-xs text-slate-400">시작 설정을 불러오는 중…</p>}
         <div className="flex gap-2">
           <button
             onClick={startChat}
-            disabled={starting}
+            disabled={starting || configsLoading || personasLoading || configsError || personasError}
             className="min-w-0 flex-1 rounded-lg bg-brand py-3 font-semibold text-white disabled:opacity-50"
           >
             {starting ? '시작 중…' : '새 채팅 시작'}

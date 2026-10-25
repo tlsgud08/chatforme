@@ -62,6 +62,16 @@ const requests = [];
 let delayCounts = 0;
 let failContextRequests = 0, failMessagePageRequests = 0;
 let modelRequests = 0;
+let editConnectionFailure = '';
+let contextDelay = 0, contextFailure = false;
+let createCalls = 0;
+let startDelay = 0, startFailure = false;
+let modelDelay = 0, nextPageSnapshotDelay = 0;
+let themeDelay = 0, themeRows = [], generationSummaryTurn = 0;
+let failRerollSummary = false, failRerollCommand = false;
+const modelPayloads = [];
+let branchCalls = 0, failBranchReply = false, branchResult = null, branchDelay = 0;
+messages = messages.map(message => ({ ...message, content_version: 0 }));
 const errors = [];
 async function setup(context) {
     await context.addInitScript(({ userId }) => { localStorage.setItem('chatforme.apiKeys', JSON.stringify({ openrouter: 'mock-only-key' })); localStorage.setItem('sb-loading-check-auth-token', JSON.stringify({ access_token: 'test-access-token', refresh_token: 'test-refresh-token', token_type: 'bearer', expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: userId, email: 'admin@example.test', aud: 'authenticated', role: 'authenticated' } })); }, { userId });
@@ -75,17 +85,63 @@ async function setup(context) {
         if (path === 'works')
             data = url.searchParams.has('title') ? [{ id: '20000000-0000-0000-0000-000000000002', title: '明治ロマン', description: 'Japanese unlisted work' }] : single ? work : [work];
         else if (path === 'sessions')
-            data = single || url.searchParams.has('id') ? session : [{ ...session, works: { title: work.title, thumbnail_url: null } }];
+            data = branchResult && url.searchParams.get('id') === 'eq.'+branchResult.id ? branchResult : single || url.searchParams.has('id') ? session : [{ ...session, works: { title: work.title, thumbnail_url: null } }];
         else if (path === 'profiles')
             data = single ? profile : [profile];
         else if (path === 'public_profiles')
             data = [{ id: userId, display_name: 'Tester' }];
-        else if (path === 'platform_config')
+        else if (path === 'themes') {
+            const snapshot = structuredClone(themeRows);
+            await new Promise(resolve => setTimeout(resolve, themeDelay));
+            data = snapshot;
+        }
+        else if (path === 'summary_versions' && failRerollSummary)
+            return route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({message:'summary context unavailable'})});
+        else if (path === 'commands' && failRerollCommand)
+            return route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({message:'command context unavailable'})});
+        else if (path === 'start_configs') {
+            await new Promise(resolve => setTimeout(resolve, startDelay));
+            if (startFailure) return route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({message:'start settings unavailable'})});
+            data = [{id:'opening-config',work_id:workId,name:'Opening',is_default:true,system_prompt:'Opening context',keep_turns:5}];
+        }
+        else if (path === 'platform_config') {
+            await new Promise(resolve => setTimeout(resolve, contextDelay));
+            if (contextFailure) return route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({code:'42501',message:'context unavailable'})});
             data = { system_prompt: '', theme_prompt: '' };
-        else if (path === 'rpc/session_message_page')
-            data = { messages, hasOlder: false, oldestTurn: 1, totalUserTurns: 8 };
+        }
+        else if (path === 'rpc/session_message_page') {
+            const snapshot = structuredClone(messages), delay = nextPageSnapshotDelay;
+            nextPageSnapshotDelay = 0;
+            if (delay) await new Promise(resolve=>setTimeout(resolve,delay));
+            data = { messages:snapshot, hasOlder: false, oldestTurn: 1, totalUserTurns: 8 };
+        }
         else if (path === 'rpc/session_generation_context')
-            data = { messages, summary: '', summaryLastTurn: 0 };
+            data = { messages, summary: '', summaryLastTurn: generationSummaryTurn };
+        else if (path === 'rpc/mutate_session_message') {
+            const input = request.postDataJSON();
+            let current = messages.find(message => message.id === input.target_message);
+            const edit = input.operation === 'edit';
+            if (editConnectionFailure === 'before') { editConnectionFailure = ''; return route.abort('failed'); }
+            if (current && !(edit && current.content === input.message_text && current.command_name === input.command_label && current.command_id === input.command_uuid)) {
+                if (current.content_version !== input.expected_version || current.command_name !== input.expected_command_name || current.command_id !== input.expected_command_id) {
+                    return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({code:'40001',message:'changed'}) });
+                }
+                if (edit) {
+                    current = { ...current, content: input.message_text, command_id: input.command_uuid, command_name: input.command_label, content_version: current.content_version + 1 };
+                    messages = messages.map(message => message.id === current.id ? current : message);
+                } else messages = messages.filter(message => message.id !== current.id);
+            }
+            data = { message: edit ? current : null, replacement: null, session, deleted: !edit };
+            if (editConnectionFailure === 'after') { editConnectionFailure = ''; return route.abort('failed'); }
+        }
+        else if (path === 'rpc/create_session_with_start') { createCalls++; assert.equal(request.postDataJSON().target_config,'opening-config'); data = sessionId; }
+        else if (path === 'rpc/branch_session_at_message') {
+            branchCalls++;
+            branchResult = {...session,id:request.postDataJSON().branch_id,title:'Test room (분기)'};
+            data = branchResult.id;
+            if (branchDelay) await new Promise(resolve=>setTimeout(resolve,branchDelay));
+            if (failBranchReply) { failBranchReply=false; return route.abort('failed'); }
+        }
         else if (path === 'rpc/finish_session_response') {
             const input = request.postDataJSON();
             const ai = { ...messages.find(m => m.id === input.target_message), content: input.response_text, generation_status: 'complete', usage_accounted: true };
@@ -106,11 +162,16 @@ async function setup(context) {
             else if (request.method() === 'PATCH') {
                 const patch = request.postDataJSON();
                 const id = (url.searchParams.get('id') || '').replace('eq.', '');
-                messages = messages.map(m => m.id === id ? { ...m, ...patch } : m);
-                data = single ? messages.find(m => m.id === id) : [];
+                const editing = 'command_name' in patch;
+                if (editing && editConnectionFailure === 'before') { editConnectionFailure = ''; return route.abort('failed'); }
+                const match = m => m.id === id && (!url.searchParams.has('content_version') || url.searchParams.get('content_version') === 'eq.' + m.content_version);
+                const changed = messages.filter(match);
+                messages = messages.map(m => match(m) ? { ...m, ...patch, content_version: m.content_version + (patch.content != null && patch.content !== m.content ? 1 : 0) } : m);
+                if (editing && editConnectionFailure === 'after') { editConnectionFailure = ''; return route.abort('failed'); }
+                data = single ? messages.find(m => m.id === id) : messages.filter(m => changed.some(c => c.id === m.id));
             }
             else
-                data = messages;
+                data = url.searchParams.has('id') ? messages.filter(m => 'eq.' + m.id === url.searchParams.get('id')) : messages;
         }
         else if (path.startsWith('rpc/'))
             data = [];
@@ -119,6 +180,8 @@ async function setup(context) {
     await context.route('https://**/*', async (route) => { const url = new URL(route.request().url()); if (url.hostname === 'loading-check.test')
         return route.fallback(); if (url.pathname.endsWith('/chat/completions')) {
         modelRequests++;
+        modelPayloads.push(route.request().postDataJSON());
+        if (modelDelay) await new Promise(resolve=>setTimeout(resolve,modelDelay));
         const text = ('Generated AI story paragraph.\n\n').repeat(40);
         return route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'data: ' + JSON.stringify({ id: 'mock-generation', choices: [{ delta: { content: text } }], usage: { prompt_tokens: 20, completion_tokens: 40, cost: 0 } }) + '\n\ndata: [DONE]\n\n' });
     } await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); });
@@ -161,6 +224,8 @@ try {
     }
     else {
         await page.locator('.chat-scroll').waitFor();
+        await page.getByRole('status', { name: '앱 업데이트 안내' }).waitFor();
+        await page.getByRole('status', { name: '앱 업데이트 안내' }).getByRole('button', { name: '확인', exact: true }).click();
         const pageReads = requests.slice(beforeRoomRead).filter(r => r.path === 'rpc/session_message_page');
         assert.equal(pageReads.length, 2, 'one failed message read must recover without leaving the room');
         assert(pageReads.every(r => r.method === 'GET' && !new URLSearchParams(r.search).has('before_turn')));
@@ -168,23 +233,39 @@ try {
         assert.equal(await page.getByRole('alert').count(), 0);
         assert(listMs < 1200, 'counts must not block the room list');
         assert.equal(sidebarReloads, 1, 'route changes must not refetch a fresh sidebar');
+        assert.equal(requests.filter(r => r.path === 'sessions' && r.method === 'PATCH').length, 0, 'opening a room must not rewrite its model settings');
     }
     const result = { label, listMs, sidebarReloads, workerState, failedAssets, errors };
     console.log(JSON.stringify(result));
     if (!baseline) {
         const scroller = page.locator('.chat-scroll');
+        await page.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
         await page.waitForTimeout(100);
         await scroller.evaluate(e => { e.scrollTop = e.scrollHeight - e.clientHeight - 40; });
         await page.waitForTimeout(100);
         const top = await scroller.evaluate(e => e.scrollTop);
         const message = page.locator('.chat-message').last();
+        const editStart = requests.length;
+        editConnectionFailure = 'after';
         await message.getByRole('button', { name: '메시지 편집', exact: true }).click();
+        const editScroll = [{stage:'clicked',top:await scroller.evaluate(e=>e.scrollTop)}];
         await message.locator('textarea').fill(('Edited story line.\n\n').repeat(20));
+        editScroll.push({stage:'filled',top:await scroller.evaluate(e=>e.scrollTop)});
         await message.getByRole('button', { name: '저장', exact: true }).click();
+        editScroll.push({stage:'saved',top:await scroller.evaluate(e=>e.scrollTop)});
         await message.locator('textarea').waitFor({ state: 'hidden' });
         await page.waitForTimeout(100);
         const afterEdit = await scroller.evaluate(e => e.scrollTop);
-        assert(Math.abs(afterEdit - top) < 3, `edit moved scroll ${top} -> ${afterEdit}`);
+        assert(Math.abs(afterEdit - top) < 3, `edit moved scroll ${top} -> ${afterEdit}: ${JSON.stringify(editScroll)}`);
+        assert.equal(requests.slice(editStart).filter(r => r.path === 'rpc/mutate_session_message').length, 2, 'a lost edit acknowledgement is recovered through an idempotent transaction');
+        const secondEditStart = requests.length;
+        editConnectionFailure = 'before';
+        await message.getByRole('button', { name: '메시지 편집', exact: true }).click();
+        await message.locator('textarea').fill(('Second edited story line.\n\n').repeat(20));
+        await message.getByRole('button', { name: '저장', exact: true }).click();
+        await message.locator('textarea').waitFor({ state: 'hidden' });
+        assert.equal(requests.slice(secondEditStart).filter(r => r.path === 'rpc/mutate_session_message').length, 2, 'an uncommitted edit gets one guarded retry');
+        console.log(JSON.stringify({ lostEditAcknowledgementRecovery: true, unsentEditRecovery: true, waitingVersionNotice: true }));
         console.log(JSON.stringify({ scrollEdit: { before: top, after: afterEdit } }));
         await scroller.evaluate(e => { e.scrollTop = 200; });
         await page.waitForTimeout(100);
@@ -265,6 +346,150 @@ try {
         await recoveryPage.locator('.chat-scroll').waitFor();
         console.log(JSON.stringify({ roomManualRecovery: true }));
         await recovery.close();
+        // The core history must render before slow prompt dependencies. A failed
+        // dependency keeps reading and draft entry usable, but never enables send.
+        const progressive = await browser.newContext({ viewport:{width:390,height:844}, serviceWorkers:'block' });
+        await setup(progressive);
+        const progressivePage = await progressive.newPage();
+        contextDelay = 2000; contextFailure = false;
+        const displayStart = Date.now();
+        await progressivePage.goto(origin + '/chat/' + sessionId);
+        await progressivePage.locator('.chat-scroll').waitFor();
+        const coreDisplayMs = Date.now()-displayStart;
+        assert(coreDisplayMs < 1500, 'history must not wait two seconds for prompt settings');
+        assert.equal(await progressivePage.getByRole('button',{name:'메시지 전송',exact:true}).isEnabled(),false);
+        await progressivePage.getByPlaceholder('메시지 입력…').fill('Preserve this draft while loading');
+        await progressivePage.getByRole('button',{name:'메시지 전송',exact:true}).waitFor();
+        await progressivePage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        assert.equal(await progressivePage.getByPlaceholder('메시지 입력…').inputValue(),'Preserve this draft while loading');
+        contextDelay = 0; contextFailure = true;
+        await progressivePage.reload();
+        await progressivePage.locator('.chat-scroll').waitFor();
+        await progressivePage.getByRole('button',{name:'설정 다시 불러오기',exact:true}).waitFor();
+        await progressivePage.getByPlaceholder('메시지 입력…').fill('Draft survives context retry');
+        assert.equal(await progressivePage.getByRole('button',{name:'메시지 전송',exact:true}).isEnabled(),false);
+        const modelsAtContextError = modelRequests;
+        await progressivePage.getByPlaceholder('메시지 입력…').press('Enter');
+        assert.equal(modelRequests,modelsAtContextError);
+        contextFailure = false;
+        const coreReadsBeforeRetry = requests.filter(r=>r.path==='rpc/session_message_page').length;
+        await progressivePage.getByRole('button',{name:'설정 다시 불러오기',exact:true}).click();
+        await progressivePage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        assert.equal(await progressivePage.getByPlaceholder('메시지 입력…').inputValue(),'Draft survives context retry');
+        assert.equal(requests.filter(r=>r.path==='rpc/session_message_page').length,coreReadsBeforeRetry,'context retry must not reload history');
+        console.log(JSON.stringify({progressiveHistoryMs:coreDisplayMs,promptDelayMs:2000,contextFailurePreservesHistory:true,contextRetryPreservesDraft:true}));
+        await progressive.close();
+        const creation = await browser.newContext({serviceWorkers:'block'});
+        await setup(creation);
+        const creationPage = await creation.newPage();
+        startDelay = 1500;
+        await creationPage.goto(origin+'/works/'+workId);
+        await creationPage.getByRole('heading',{name:'Test work',exact:true}).waitFor();
+        assert.equal(await creationPage.getByRole('button',{name:'새 채팅 시작',exact:true}).isEnabled(),false);
+        await creationPage.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(button=>button.textContent.trim()==='새 채팅 시작'&&!button.disabled));
+        const creationsBefore = createCalls;
+        await creationPage.getByRole('button',{name:'새 채팅 시작',exact:true}).evaluate(button=>{button.click();button.click();});
+        await creationPage.locator('.chat-scroll').waitFor();
+        assert.equal(createCalls-creationsBefore,1,'two synchronous clicks must create exactly one room');
+        startDelay = 0; startFailure = true;
+        await creationPage.goto(origin+'/works/'+workId);
+        await creationPage.getByRole('button',{name:'시작 설정 다시 불러오기',exact:true}).waitFor();
+        assert.equal(await creationPage.getByRole('button',{name:'새 채팅 시작',exact:true}).isEnabled(),false);
+        startFailure = false;
+        await creationPage.getByRole('button',{name:'시작 설정 다시 불러오기',exact:true}).click();
+        await creationPage.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(button=>button.textContent.trim()==='새 채팅 시작'&&!button.disabled));
+        console.log(JSON.stringify({startSettingsRequired:true,startFailureRecovery:true,doubleClickCreatesOneRoom:true}));
+        await creation.close();
+        // Re-enter during a generation: an older initial-page response must not
+        // overwrite the completed response that a fresh listener read first.
+        const background = await browser.newContext({viewport:{width:1280,height:900},serviceWorkers:'block'});
+        await setup(background);
+        const backgroundPage = await background.newPage();
+        await backgroundPage.goto(origin+'/chat/'+sessionId);
+        await backgroundPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        const modelsBeforeBackground=modelRequests;
+        modelDelay=1500;
+        await backgroundPage.getByPlaceholder('메시지 입력…').fill('Generation survives route changes');
+        await backgroundPage.getByRole('button',{name:'메시지 전송',exact:true}).click();
+        const untilModel=Date.now()+10000;
+        while(modelRequests===modelsBeforeBackground&&Date.now()<untilModel)await backgroundPage.waitForTimeout(10);
+        assert.equal(modelRequests,modelsBeforeBackground+1);
+        await backgroundPage.getByRole('link',{name:'작품',exact:true}).first().click();
+        nextPageSnapshotDelay=2000;
+        await backgroundPage.locator('.desktop-session').first().click();
+        await backgroundPage.locator('.chat-scroll').waitFor();
+        await backgroundPage.locator('.chat-message').last().getByText(/Generated AI story paragraph/).first().waitFor();
+        assert.equal(modelRequests,modelsBeforeBackground+1,'navigation must not restart a paid generation');
+        assert.equal(await backgroundPage.locator('.chat-stream').count(),0);
+        modelDelay=0;
+        console.log(JSON.stringify({backgroundGenerationPreserved:true,lateInitialPageCannotOverwriteCompletion:true}));
+        await background.close();
+        // First send in a fluid single-work room must use a fresh catalog even
+        // while the display's independent theme request is still pending.
+        session.theme_override = null;
+        session.work_combination_enabled = false;
+        themeRows = [{id:'first-send-theme',work_id:workId,owner_id:userId,work_shared:true,name:'First send scene',ai_prompt:'FIRST_SEND_CATALOG_SENTINEL'}];
+        themeDelay = 1500;
+        const promptContext = await browser.newContext({serviceWorkers:'block'});
+        await setup(promptContext);
+        const promptPage = await promptContext.newPage();
+        await promptPage.goto(origin+'/chat/'+sessionId);
+        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await promptPage.getByPlaceholder('메시지 입력…').fill('Use the first-send scene');
+        await promptPage.getByRole('button',{name:'메시지 전송',exact:true}).click();
+        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        assert(JSON.stringify(modelPayloads.at(-1)).includes('FIRST_SEND_CATALOG_SENTINEL'),'first send must include the pending work theme catalog');
+        assert(JSON.stringify(modelPayloads.at(-1)).includes('이름: First send scene'),'single-work catalogs must retain unqualified scene names');
+        themeDelay = 0;
+        const modelsBeforeReroll = modelRequests;
+        const writes = () => requests.filter(r=>['POST','PATCH','DELETE'].includes(r.method)).length;
+        const writesBeforeReroll = writes();
+        generationSummaryTurn = messages.filter(message=>message.role==='user'&&!message.is_hidden).length;
+        failRerollSummary = true;
+        const summariesBefore = requests.filter(r=>r.path==='summary_versions').length;
+        await promptPage.getByRole('button',{name:'다시 생성',exact:true}).click();
+        while(requests.filter(r=>r.path==='summary_versions').length===summariesBefore)await promptPage.waitForTimeout(10);
+        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        assert.equal(modelRequests,modelsBeforeReroll,'failed summary reads must not regenerate with missing memory');
+        assert.equal(writes(),writesBeforeReroll,'failed reroll context must not write messages');
+        failRerollSummary = false; generationSummaryTurn = 0;
+        const lastUser = messages.findLast(message=>message.role==='user'&&!message.is_hidden);
+        lastUser.command_id='legacy-command'; lastUser.command_name='Legacy'; lastUser.command_prompt=null;
+        failRerollCommand = true;
+        const commandsBefore = requests.filter(r=>r.path==='commands').length;
+        await promptPage.getByRole('button',{name:'다시 생성',exact:true}).click();
+        while(requests.filter(r=>r.path==='commands').length===commandsBefore)await promptPage.waitForTimeout(10);
+        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        assert.equal(modelRequests,modelsBeforeReroll,'failed command reads must not regenerate with missing commands');
+        assert.equal(writes(),writesBeforeReroll);
+        failRerollCommand = false;
+        console.log(JSON.stringify({firstSendFreshSingleWorkCatalog:true,rerollSummaryFailurePreservesContext:true,rerollCommandFailurePreservesContext:true}));
+        await promptContext.close();
+        const branching = await browser.newContext({serviceWorkers:'block'});
+        await setup(branching);
+        const branchPage = await branching.newPage();
+        await branchPage.goto(origin+'/chat/'+sessionId);
+        await branchPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        failBranchReply=true;
+        const beforeBranchRequests=requests.length, modelsBeforeBranch=modelRequests;
+        await branchPage.locator('.chat-message').last().getByRole('button',{name:'여기서 분기',exact:true}).click();
+        await branchPage.getByRole('dialog').getByRole('button',{name:'분기',exact:true}).click();
+        await branchPage.waitForURL(url=>url.pathname==='/chat/'+branchResult?.id);
+        await branchPage.locator('.chat-scroll').waitFor();
+        assert.equal(branchCalls,1,'lost branch acknowledgement must recover the saved room without another copy');
+        assert.equal(modelRequests,modelsBeforeBranch);
+        assert(!requests.slice(beforeBranchRequests).some(r=>['sessions','messages','summary_versions','story_notes'].includes(r.path)&&r.method==='POST'),'branch children must only be copied inside the transaction');
+        branchDelay=1500;
+        const callsBeforeLeaving=branchCalls;
+        await branchPage.locator('.chat-message').last().getByRole('button',{name:'여기서 분기',exact:true}).click();
+        await branchPage.getByRole('dialog').getByRole('button',{name:'분기',exact:true}).click();
+        while(branchCalls===callsBeforeLeaving)await branchPage.waitForTimeout(10);
+        await branchPage.getByRole('link',{name:'작품',exact:true}).first().click();
+        await branchPage.waitForTimeout(1700);
+        assert.equal(new URL(branchPage.url()).pathname,'/works','a late branch reply must not pull the user back after navigation');
+        branchDelay=0;
+        console.log(JSON.stringify({atomicBranchNavigation:true,lostBranchAcknowledgementRecovery:true,clientChildWrites:0}));
+        await branching.close();
     }
 }
 finally {
