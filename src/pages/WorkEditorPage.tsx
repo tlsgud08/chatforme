@@ -11,6 +11,7 @@ import { showConfirmDialog } from '@/lib/dialog';
 import { registerNavigationGuard } from '@/lib/navigationGuard';
 import WorkThemeSettings from '@/components/WorkThemeSettings';
 import CommandMenu from '@/components/CommandMenu';
+import { saveWorkEditor, type WorkEditorState } from '@/lib/workSave';
 
 type Tab = 'basic' | 'prompt' | 'multichat' | 'start' | 'keywords' | 'permissions';
 type EditorProfile = { user_id: string; display_name: string; avatar_url: string | null; created_at: string };
@@ -71,10 +72,20 @@ export default function WorkEditorPage() {
   const baselineRef = useRef('');
   const dirtyRef = useRef(false);
   const historyGuardRef = useRef(false);
+  const saveLockRef = useRef(false);
+  const structureLockRef = useRef(false);
+  const serverBaselineRef = useRef<WorkEditorState | null>(null);
+  const latestEditRef = useRef({ work, startConfigs, keywordBooks, kwInputs });
+  latestEditRef.current = { work, startConfigs, keywordBooks, kwInputs };
+  const editorRouteRef = useRef(workId);
+  editorRouteRef.current = workId;
 
   useEffect(() => {
     if (!workId) return;
     let cancelled = false;
+    setReady(false);
+    setLoadError('');
+    serverBaselineRef.current = null;
     void Promise.all([
       supabase.from('works').select('*').eq('id', workId).single(),
       supabase.from('keyword_books').select('*').eq('work_id', workId).order('sort_order'),
@@ -88,6 +99,7 @@ export default function WorkEditorPage() {
       const serverWork = workResult.data as Work;
       const serverKeywords = (keywordResult.data as KeywordBook[]) ?? [];
       const configs = (configResult.data as StartConfig[]) ?? [];
+      serverBaselineRef.current = { work: serverWork, starts: configs.map(value => ({ ...value })), keywords: serverKeywords };
       if (configs.length > 0 && !configs.some((c) => c.is_default)) {
         configs[0] = { ...configs[0], is_default: true };
       }
@@ -252,62 +264,33 @@ export default function WorkEditorPage() {
   const canSave = !titleOver && !descOver;
 
   async function save() {
-    if (!work) return;
+    const previous = serverBaselineRef.current;
+    if (!work || !ready || !previous || saveLockRef.current || structureLockRef.current) return;
     setSaveAttempted(true);
     if (!canSave || noConfigs || hasConfigErrors) {
       if (noConfigs || hasConfigErrors) setTab('start');
       return;
     }
+    const submitted: WorkEditorState = { work, starts: startConfigs, keywords: keywordBooks };
+    const submittedSnapshot = snapshot(work, startConfigs, keywordBooks);
+    saveLockRef.current = true;
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('works')
-        .update({
-          title: work.title,
-          description: work.description,
-          main_prompt: work.main_prompt,
-          multichat_prompt: work.multichat_prompt ?? '',
-          thumbnail_url: work.thumbnail_url,
-          default_theme_id: work.default_theme_id ?? null,
-          default_theme_variant: work.default_theme_variant ?? null,
-          visibility: work.visibility,
-          is_published: work.visibility === 'public',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', work.id);
-      if (error) throw error;
-
-      const relatedResults = await Promise.all([
-        ...startConfigs.map((cfg) =>
-          supabase.from('start_configs').update({
-            name: cfg.name,
-            initial_message: cfg.initial_message,
-            initial_context: cfg.initial_context,
-            keep_turns: cfg.keep_turns,
-            is_default: cfg.is_default,
-          }).eq('id', cfg.id)
-        ),
-        ...keywordBooks.map((kb) =>
-          supabase.from('keyword_books').update({
-            name: kb.name,
-            keywords: kb.keywords,
-            content: kb.content,
-            activation_turns: kb.activation_turns,
-          }).eq('id', kb.id)
-        ),
-      ]);
-      const relatedError = relatedResults.find((result) => result.error)?.error;
-      if (relatedError) throw relatedError;
-      baselineRef.current = snapshot(work, startConfigs, keywordBooks);
-      dirtyRef.current = false;
-      setDirty(false);
-      setKwInputs({});
-      if (workId) localStorage.removeItem(draftKey(workId));
-      showToast('저장되었습니다.');
+      await saveWorkEditor(previous, submitted);
+      if (editorRouteRef.current !== submitted.work.id) return;
+      serverBaselineRef.current = submitted;
+      baselineRef.current = submittedSnapshot;
+      const current = latestEditRef.current;
+      const changed = !current.work || snapshot(current.work, current.startConfigs, current.keywordBooks) !== submittedSnapshot || Object.values(current.kwInputs).some(Boolean);
+      dirtyRef.current = changed;
+      setDirty(changed);
+      if (!changed && workId) localStorage.removeItem(draftKey(workId));
+      showToast(changed ? '저장했습니다. 이후에 수정한 내용은 아직 저장되지 않았어요.' : '저장되었습니다.');
     } catch (error) {
-      showToast('저장 실패: ' + saveErrorMessage(error));
+      if (editorRouteRef.current === submitted.work.id) showToast('저장 실패: ' + saveErrorMessage(error));
     } finally {
-      setSaving(false);
+      saveLockRef.current = false;
+      if (editorRouteRef.current === submitted.work.id) setSaving(false);
     }
   }
 
@@ -341,44 +324,77 @@ export default function WorkEditorPage() {
   }
 
   async function addStartConfig() {
-    if (!work || startConfigs.length >= 3) return;
-    const { data, error } = await supabase
-      .from('start_configs')
-      .insert({ work_id: work.id, name: '', initial_message: '', initial_context: '', keep_turns: 3, sort_order: startConfigs.length, is_default: startConfigs.length === 0 })
-      .select('*').single();
-    if (error) { showToast('추가 실패: ' + error.message); return; }
-    setStartConfigs((cs) => [...cs, data as StartConfig]);
+    if (!work || saveLockRef.current || structureLockRef.current || startConfigs.length >= 3) return;
+    structureLockRef.current = true;
+    setSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from('start_configs')
+        .insert({ work_id: work.id, name: '', initial_message: '', initial_context: '', keep_turns: 3, sort_order: startConfigs.length, is_default: startConfigs.length === 0 })
+        .select('*').single();
+      if (error) { showToast('추가 실패: ' + error.message); return; }
+      if (editorRouteRef.current !== workId) return;
+      if (serverBaselineRef.current) serverBaselineRef.current = { ...serverBaselineRef.current, starts: [...serverBaselineRef.current.starts, data as StartConfig] };
+      setStartConfigs((cs) => [...cs, data as StartConfig]);
+    } catch (error) { showToast('변경 실패: ' + saveErrorMessage(error)); }
+    finally { structureLockRef.current = false; if (editorRouteRef.current === workId) setSaving(false); }
   }
 
   async function addKeywordBook() {
-    if (!work) return;
-    const { data, error } = await supabase
-      .from('keyword_books')
-      .insert({ work_id: work.id, name: '', keywords: [], content: '', activation_turns: 3, sort_order: keywordBooks.length })
-      .select('*').single();
-    if (error) { showToast('추가 실패: ' + error.message); return; }
-    setKeywordBooks((ks) => [...ks, data as KeywordBook]);
+    if (!work || saveLockRef.current || structureLockRef.current) return;
+    structureLockRef.current = true;
+    setSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from('keyword_books')
+        .insert({ work_id: work.id, name: '', keywords: [], content: '', activation_turns: 3, sort_order: keywordBooks.length })
+        .select('*').single();
+      if (error) { showToast('추가 실패: ' + error.message); return; }
+      if (editorRouteRef.current !== workId) return;
+      if (serverBaselineRef.current) serverBaselineRef.current = { ...serverBaselineRef.current, keywords: [...serverBaselineRef.current.keywords, data as KeywordBook] };
+      setKeywordBooks((ks) => [...ks, data as KeywordBook]);
+    } catch (error) { showToast('변경 실패: ' + saveErrorMessage(error)); }
+    finally { structureLockRef.current = false; if (editorRouteRef.current === workId) setSaving(false); }
   }
 
   async function deleteKeywordBook(id: string) {
+    if (saveLockRef.current || structureLockRef.current) return;
     if (!await showConfirmDialog('이 키워드북을 삭제할까요?', '삭제한 키워드북은 복구할 수 없습니다.', '삭제')) return;
-    const { data: deleted, error } = await supabase.from('keyword_books').delete().eq('id', id).select('id');
-    if (error || !deleted?.length) {
-      showToast('삭제 실패: ' + (error?.message ?? '키워드북이 삭제되지 않았습니다.'));
-      return;
-    }
-    setKeywordBooks((ks) => ks.filter((k) => k.id !== id));
+    if (saveLockRef.current || structureLockRef.current) return;
+    structureLockRef.current = true;
+    setSaving(true);
+    try {
+      const { data: deleted, error } = await supabase.from('keyword_books').delete().eq('id', id).select('id');
+      if (error || !deleted?.length) {
+        showToast('삭제 실패: ' + (error?.message ?? '키워드북이 삭제되지 않았습니다.'));
+        return;
+      }
+      if (editorRouteRef.current !== workId) return;
+      if (serverBaselineRef.current) serverBaselineRef.current = { ...serverBaselineRef.current, keywords: serverBaselineRef.current.keywords.filter(value => value.id !== id) };
+      setKeywordBooks((ks) => ks.filter((k) => k.id !== id));
+    } catch (error) { showToast('변경 실패: ' + saveErrorMessage(error)); }
+    finally { structureLockRef.current = false; if (editorRouteRef.current === workId) setSaving(false); }
   }
 
   async function deleteStartConfig(id: string) {
+    if (saveLockRef.current || structureLockRef.current) return;
     if (!await showConfirmDialog('이 시작 설정을 삭제할까요?', '삭제한 시작 설정은 복구할 수 없습니다.', '삭제')) return;
-    const { data: deleted, error } = await supabase.from('start_configs').delete().eq('id', id).select('id');
-    if (error || !deleted?.length) {
-      showToast('삭제 실패: ' + (error?.message ?? '시작 설정이 삭제되지 않았습니다.'));
-      return;
-    }
-    setStartConfigs((cs) => cs.filter((c) => c.id !== id));
+    if (saveLockRef.current || structureLockRef.current) return;
+    structureLockRef.current = true;
+    setSaving(true);
+    try {
+      const { data: deleted, error } = await supabase.from('start_configs').delete().eq('id', id).select('id');
+      if (error || !deleted?.length) {
+        showToast('삭제 실패: ' + (error?.message ?? '시작 설정이 삭제되지 않았습니다.'));
+        return;
+      }
+      if (editorRouteRef.current !== workId) return;
+      if (serverBaselineRef.current) serverBaselineRef.current = { ...serverBaselineRef.current, starts: serverBaselineRef.current.starts.filter(value => value.id !== id) };
+      setStartConfigs((cs) => cs.filter((c) => c.id !== id));
+    } catch (error) { showToast('변경 실패: ' + saveErrorMessage(error)); }
+    finally { structureLockRef.current = false; if (editorRouteRef.current === workId) setSaving(false); }
   }
+
 
   if (loadError) return <div className="p-6 text-center"><p className="text-amber-400">{loadError}</p><button onClick={() => navigate('/create')} className="mt-4 text-sm text-slate-400 underline">목록으로</button></div>;
   if (!work) return <p className="p-6 text-slate-400">불러오는 중…</p>;

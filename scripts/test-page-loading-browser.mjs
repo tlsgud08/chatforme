@@ -69,6 +69,7 @@ let startDelay = 0, startFailure = false;
 let modelDelay = 0, nextPageSnapshotDelay = 0;
 let themeDelay = 0, themeRows = [], generationSummaryTurn = 0;
 let failRerollSummary = false, failRerollCommand = false;
+let failFinalCommits = 0, loseBeginReply = false;
 const modelPayloads = [];
 let branchCalls = 0, failBranchReply = false, branchResult = null, branchDelay = 0;
 messages = messages.map(message => ({ ...message, content_version: 0 }));
@@ -102,7 +103,7 @@ async function setup(context) {
         else if (path === 'start_configs') {
             await new Promise(resolve => setTimeout(resolve, startDelay));
             if (startFailure) return route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({message:'start settings unavailable'})});
-            data = [{id:'opening-config',work_id:workId,name:'Opening',is_default:true,system_prompt:'Opening context',keep_turns:5}];
+            data = [{id:'opening-config',work_id:workId,name:'Opening',is_default:true,initial_message:'Opening story',initial_context:'Opening context',keep_turns:5}];
         }
         else if (path === 'platform_config') {
             await new Promise(resolve => setTimeout(resolve, contextDelay));
@@ -142,7 +143,35 @@ async function setup(context) {
             if (branchDelay) await new Promise(resolve=>setTimeout(resolve,branchDelay));
             if (failBranchReply) { failBranchReply=false; return route.abort('failed'); }
         }
+        else if (path === 'rpc/recover_expired_session_responses') data = 0;
+        else if (path === 'rpc/begin_session_response') {
+            const input = request.postDataJSON();
+            let draft = messages.find(message => message.id === input.response_id);
+            let userMessage = messages.find(message => message.id === input.user_message_id) ?? null;
+            const replayed = !!draft;
+            if (!draft) {
+                if (input.user_message_id) {
+                    userMessage = { ...messages[0], id:input.user_message_id, session_id:sessionId, role:'user', content:input.user_text, turn_index:input.requested_turn,
+                        command_id:input.user_command_id, command_name:input.user_command_name, command_prompt:input.user_command_prompt,
+                        content_version:0, is_active_variant:true, is_hidden:false, generation_status:'complete', created_at:new Date().toISOString() };
+                    messages.push(userMessage);
+                }
+                draft = { ...messages[0], id:input.response_id, session_id:sessionId, role:'assistant', content:'', turn_index:input.requested_turn,
+                    reroll_group_id:input.reroll_message, reroll_index:input.requested_variant, is_active_variant:!input.reroll_message,
+                    content_version:0, is_hidden:false, generation_status:'streaming', created_at:new Date().toISOString() };
+                messages.push(draft);
+            }
+            data = { draft, userMessage, replayed };
+            if (loseBeginReply) { loseBeginReply=false; return route.abort('failed'); }
+        }
+        else if (path === 'rpc/interrupt_session_response') {
+            const input = request.postDataJSON();
+            const ai = {...messages.find(message=>message.id===input.target_message),content:input.response_text,generation_status:'interrupted'};
+            messages = messages.map(message=>message.id===ai.id?ai:message);
+            data = {message:ai,session};
+        }
         else if (path === 'rpc/finish_session_response') {
+            if (failFinalCommits-- > 0) return route.abort('failed');
             const input = request.postDataJSON();
             const ai = { ...messages.find(m => m.id === input.target_message), content: input.response_text, generation_status: 'complete', usage_accounted: true };
             messages = messages.map(m => m.id === ai.id ? ai : m);
@@ -272,6 +301,7 @@ try {
         await page.getByPlaceholder('메시지 입력…').fill('Generate a test response');
         failContextRequests = 1;
         const beforeGenerationRead = requests.length;
+        const rowsBeforeGeneration = messages.length;
         const modelsBefore = modelRequests;
         await page.getByRole('button', { name: '메시지 전송', exact: true }).click();
         await page.locator('.chat-message').last().getByText(/Generated AI story paragraph/).first().waitFor({ timeout: 15000 });
@@ -281,7 +311,9 @@ try {
         const sendRequests = requests.slice(beforeGenerationRead);
         assert.equal(sendRequests.filter(r => r.path === 'rpc/session_generation_context').length, 2);
         assert(sendRequests.filter(r => r.path === 'rpc/session_generation_context').every(r => r.method === 'GET'));
-        assert.equal(sendRequests.filter(r => r.path === 'messages' && r.method === 'POST').length, 2, 'exactly one user and assistant write');
+        assert.equal(sendRequests.filter(r => r.path === 'rpc/begin_session_response').length, 1, 'one atomic user/assistant claim');
+        assert.equal(sendRequests.filter(r => r.path === 'messages' && r.method === 'POST').length, 0, 'turn creation has no client partial writes');
+        assert.equal(messages.length, rowsBeforeGeneration + 2, 'exactly one user row and one assistant row');
         assert.equal(modelRequests - modelsBefore, 1, 'a recovered context read must call the model exactly once');
         assert(Math.abs(afterGeneration - 200) < 3, `generation moved scroll 200 -> ${afterGeneration}`);
         console.log(JSON.stringify({ scrollGeneration: { before: 200, after: afterGeneration } }));
@@ -428,7 +460,7 @@ try {
         // while the display's independent theme request is still pending.
         session.theme_override = null;
         session.work_combination_enabled = false;
-        themeRows = [{id:'first-send-theme',work_id:workId,owner_id:userId,work_shared:true,name:'First send scene',ai_prompt:'FIRST_SEND_CATALOG_SENTINEL'}];
+        themeRows = [{id:'first-send-theme',work_id:workId,owner_id:userId,work_shared:true,name:'First send scene',ai_prompt:'FIRST_SEND_CATALOG_SENTINEL'}, {id:'second-scene',work_id:workId,owner_id:userId,work_shared:true,name:'Second scene',ai_prompt:'Other place'}];
         themeDelay = 1500;
         const promptContext = await browser.newContext({serviceWorkers:'block'});
         await setup(promptContext);
@@ -465,6 +497,30 @@ try {
         failRerollCommand = false;
         console.log(JSON.stringify({firstSendFreshSingleWorkCatalog:true,rerollSummaryFailurePreservesContext:true,rerollCommandFailurePreservesContext:true}));
         await promptContext.close();
+        // Complete output survives both final-save failures and a full reload.
+        session.theme_override='builtin';
+        const retainedContext = await browser.newContext({serviceWorkers:'block'});
+        await setup(retainedContext);
+        const retainedPage = await retainedContext.newPage();
+        await retainedPage.goto(origin+'/chat/'+sessionId);
+        await retainedPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        const modelsBeforeRecovery=modelRequests, rowsBeforeRecovery=messages.length;
+        failFinalCommits=2; loseBeginReply=true;
+        await retainedPage.getByPlaceholder('메시지 입력…').fill('Keep the answer after both save failures');
+        await retainedPage.getByRole('button',{name:'메시지 전송',exact:true}).click();
+        await retainedPage.getByRole('alert',{name:'보관한 답변',exact:true}).waitFor();
+        assert.equal(modelRequests,modelsBeforeRecovery+1);
+        assert.equal(messages.length,rowsBeforeRecovery+2,'lost start reply cannot create duplicate turns');
+        assert(messages.at(-1).content==='','failed final save must remain unconfirmed');
+        await retainedPage.reload();
+        await retainedPage.getByRole('alert',{name:'보관한 답변',exact:true}).waitFor();
+        await retainedPage.getByRole('button',{name:'저장 다시 확인',exact:true}).click();
+        await retainedPage.getByRole('alert',{name:'보관한 답변',exact:true}).waitFor({state:'hidden'});
+        assert.equal(modelRequests,modelsBeforeRecovery+1,'saving a retained answer must never regenerate it');
+        assert.equal(messages.at(-1).generation_status,'complete');
+        assert(messages.at(-1).content.includes('Generated AI story paragraph'));
+        console.log(JSON.stringify({retainedAnswerSurvivesReload:true,boundedFinalSaveRetry:true,lostStartReplyNoDuplicates:true,recoveryModelCalls:0}));
+        await retainedContext.close();
         const branching = await browser.newContext({serviceWorkers:'block'});
         await setup(branching);
         const branchPage = await branching.newPage();
@@ -490,6 +546,62 @@ try {
         branchDelay=0;
         console.log(JSON.stringify({atomicBranchNavigation:true,lostBranchAcknowledgementRecovery:true,clientChildWrites:0}));
         await branching.close();
+        // The actual editor keeps changes made after a submitted snapshot.
+        const editorContext = await browser.newContext({serviceWorkers:'block'});
+        await setup(editorContext);
+        let releaseEditorSave, editorSaveBody;
+        await editorContext.route('https://loading-check.test/rest/v1/rpc/save_work_editor',async route=>{
+            editorSaveBody=route.request().postDataJSON();
+            await new Promise(resolve=>releaseEditorSave=resolve);
+            await route.fulfill({status:200,contentType:'application/json',body:'true'});
+        });
+        const editorPage = await editorContext.newPage();
+        await editorPage.goto(origin+'/create/'+workId);
+        const titleInput=editorPage.locator('.editor-basic input:not([type="file"])').first();
+        await titleInput.waitFor();
+        await titleInput.fill('Submitted title');
+        await editorPage.locator('.work-editor-header button').last().click();
+        const editorDeadline=Date.now()+10000;
+        while(!releaseEditorSave&&Date.now()<editorDeadline)await editorPage.waitForTimeout(10);
+        assert(releaseEditorSave,'editor must use the atomic save RPC');
+        await titleInput.fill('Newer unsaved title');
+        releaseEditorSave();
+        await editorPage.waitForFunction(()=>!document.querySelector('.work-editor-header button:last-child').disabled);
+        assert.equal(await titleInput.inputValue(),'Newer unsaved title');
+        assert.equal(editorSaveBody.desired.work.title,'Submitted title');
+        assert((await editorPage.locator('.work-editor-header button').last().textContent()).includes('저장'));
+        assert((await editorPage.evaluate(id=>localStorage.getItem('inuchat:work-editor-draft:'+id),workId)).includes('Newer unsaved title'));
+        console.log(JSON.stringify({editorAtomicSave:true,newerEditorInputAndDraftPreserved:true}));
+        await editorContext.close();
+        // A failed settings read cannot offer an empty global-prompt save.
+        const adminContext = await browser.newContext({serviceWorkers:'block'});
+        await setup(adminContext);
+        let adminLoadFailed=true, adminSaves=0, adminSaveBody;
+        const adminConfig={system_prompt:'ORIGINAL GLOBAL',theme_prompt:'ORIGINAL THEME',multichat_system_prompt:'ORIGINAL MULTI',work_combination_prompt:''};
+        await adminContext.route('https://loading-check.test/rest/v1/platform_config*',route=>route.fulfill({status:adminLoadFailed?503:200,contentType:'application/json',body:JSON.stringify(adminLoadFailed?{message:'configuration unavailable'}:adminConfig)}));
+        await adminContext.route('https://loading-check.test/rest/v1/rpc/save_platform_prompts',route=>{
+            adminSaves++;adminSaveBody=route.request().postDataJSON();
+            assert(route.request().url().length<200,'long prompts must not be put in URL filters');
+            return route.fulfill({status:200,contentType:'application/json',body:'true'});
+        });
+        const adminPage=await adminContext.newPage();
+        await adminPage.goto(origin+'/settings');
+        await adminPage.getByText('전역 프롬프트를 불러오지 못했습니다. 기존 내용은 변경하지 않았습니다.',{exact:true}).waitFor();
+        assert.equal(await adminPage.getByRole('heading',{name:'관리자 — 전역 시스템 프롬프트',exact:true,includeHidden:true}).count(),0);
+        assert.equal(adminSaves,0);
+        adminLoadFailed=false;
+        await adminPage.getByRole('button',{name:'설정 다시 불러오기',exact:true}).click();
+        await adminPage.getByRole('button',{name:'운영자',exact:true}).click();
+        await adminPage.getByRole('heading',{name:'관리자 — 전역 시스템 프롬프트',exact:true}).waitFor();
+        const globalPromptSection=adminPage.getByRole('heading',{name:'관리자 — 전역 시스템 프롬프트',exact:true}).locator('..');
+        await globalPromptSection.locator('textarea').first().fill('LONG PROMPT '.repeat(1000));
+        await globalPromptSection.getByRole('button',{name:'저장',exact:true}).click();
+        await adminPage.getByText('전역 시스템 프롬프트를 저장했습니다.',{exact:true}).waitFor();
+        assert.equal(adminSaves,1);assert.equal(adminSaveBody.previous.system_prompt,'ORIGINAL GLOBAL');
+        assert.equal(adminSaveBody.desired.theme_prompt,'ORIGINAL THEME');assert.equal(adminSaveBody.desired.multichat_system_prompt,'ORIGINAL MULTI');
+        console.log(JSON.stringify({failedAdminReadCannotErasePrompts:true,longPromptBodySave:true,otherPromptsPreserved:true}));
+        await adminContext.close();
+
     }
 }
 finally {

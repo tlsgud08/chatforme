@@ -60,6 +60,7 @@ ${declaration('fetchAllSessionMessages')}
 ${declaration('orderMessagesByTurn')}
 export { fetchAllSessionMessages, orderMessagesByTurn };
 export function makeHandler(context) {
+  const recoverExpiredResponses = context.recoverExpiredResponses ?? (async () => 0);
   const {session,work,sending,exportInFlightRef,setExportingConversation,fetchAllSessionMessages,formatConversationText,orderMessagesByTurn,showToast,downloadConversationText,conversationFilename,addError,describeUnknownError} = context;
   ${declaration('exportConversation')}
   return exportConversation;

@@ -23,7 +23,7 @@ export async function fetchMessagePage(sessionId: string, before?: number, signa
   return data as MessagePage;
 }
 
-export async function generationContext(session: Session, keywordTurns: number, reroll: boolean, signal?: AbortSignal): Promise<{ messages: Message[]; summary: string; summaryLastTurn: number }> {
+export async function generationContext(session: Session, keywordTurns: number, reroll: boolean, signal?: AbortSignal): Promise<{ messages: Message[]; summary: string; summaryLastTurn: number; contextHash?: string }> {
   const request = supabase.rpc('session_generation_context', {
     target_session: session.id, after_summary: session.summary_last_turn,
     keyword_turns: keywordTurns, reroll,
@@ -31,7 +31,7 @@ export async function generationContext(session: Session, keywordTurns: number, 
   const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   if (!data || !Array.isArray(data.messages)) throw new Error('대화 문맥을 불러오지 못했습니다.');
-  return { messages: data.messages as Message[], summary: data.summary, summaryLastTurn: data.summaryLastTurn };
+  return { messages: data.messages as Message[], summary: data.summary, summaryLastTurn: data.summaryLastTurn, ...(typeof data.contextHash === 'string' ? { contextHash: data.contextHash } : {}) };
 }
 
 export async function selectResponse(sessionId: string, group: string, messageId: string, expected?: string): Promise<Session | null> {
