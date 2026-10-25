@@ -20,7 +20,7 @@ assert.doesNotMatch(session, /label:'기본값'/);
 const chat = read('src/pages/ChatPage.tsx');
 assert.match(chat, /session.theme_override!=null\)return/);
 assert.match(chat, /\.is\('theme_override',null\)/);
-assert.match(chat, /autoThemeEnabled:liveTheme.session.theme_override==null/);
+assert.match(chat, /autoThemeEnabled:automaticThemeEnabled\(liveTheme.session,liveTheme.themes,liveTheme.dayNight,!!liveTheme.scope\)/);
 assert.doesNotMatch(chat, /theme_override:'custom' as const/);
 const fluidMigration=read('supabase/migrations/20261014173500_fluid_chat_theme.sql');
 assert.match(fluidMigration, /CREATE OR REPLACE FUNCTION public.sync_fluid_theme_variant/);

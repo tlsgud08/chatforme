@@ -4,6 +4,9 @@ import ts from 'typescript';
 import vm from 'node:vm';
 const uri=source=>'data:text/javascript;base64,'+Buffer.from(source).toString('base64');
 const compile=source=>ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const themeURL=uri(compile(readFileSync(new URL('../src/lib/theme.ts',import.meta.url),'utf8')));
+const {automaticThemeEnabled,normalizeThemePeriods,stripThemeDirectives}=await import(uri(compile(
+  readFileSync(new URL('../src/lib/themeDirectives.ts',import.meta.url),'utf8').replace("'./theme'",JSON.stringify(themeURL)))));
 const {createDraftWriter}=await import(uri(compile(readFileSync(new URL('../src/lib/draftWriter.ts',import.meta.url),'utf8'))));
 const tick=()=>new Promise(resolve=>setTimeout(resolve,5));
 const writes=[];let release;
@@ -48,14 +51,16 @@ await summary();assert.equal(paidCalls,0);
 // the viewport contains only the final five user turns of a longer room.
 const commits=[], summaryErrors=[], summaryRequests=[];
 const complete=Array.from({length:30},(_,i)=>({id:'u'+i,role:'user',content:'turn '+(i+1),is_active_variant:true,generation_status:'complete'}));
+let summaryThemeContext={session:{theme_override:'builtin'},themes:[],names:[],dayNight:false};
+const summaryTasks=new Map();
 const merging=vm.runInNewContext(fn('messagesThroughTurn')+'\n'+fn('generateSummary')+'\ngenerateSummary',{
   contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'custom core'},
   messages:complete.slice(-5),sendInFlightRef:{current:false},summaryGenerating:false,
-  activeGenerations:new Map(),activeSummaryGenerations:new Map(),AbortController,
+  activeGenerations:new Map(),activeSummaryGenerations:summaryTasks,AbortController,
   getApiKey:()=> 'mock-key',registerAccountTask:()=>()=>{},
-  setSummaryGenerating:()=>{},finishSummaryGeneration:()=>{},setMessages:()=>{},setSession:()=>{},
-  readLiveThemeContext:async()=>({session:{theme_override:'builtin'},names:[]}),
-  fetchAllSessionMessages:async()=>complete,stripThemeDirectives:text=>text,
+  setSummaryGenerating:()=>{},finishSummaryGeneration:id=>summaryTasks.delete(id),setMessages:()=>{},setSession:()=>{},
+  readLiveThemeContext:async()=>summaryThemeContext,
+  fetchAllSessionMessages:async()=>complete,automaticThemeEnabled,normalizeThemePeriods,stripThemeDirectives,
   modelsFor:()=>['mock-model'],normalizeReasoning:()=>({send:false}),
   generate:async(_provider,args)=>{summaryRequests.push(args);return {text:'merged memory',usage:{inputTokens:1,outputTokens:2,cost:0}};},
   supabase:{rpc:async(name,args)=>{commits.push({name,args});return {data:{id:'s'},error:null};}},
@@ -69,4 +74,13 @@ assert.deepEqual(summaryErrors,[]);
 assert.equal(commits[0]?.args.through_turn,20,'summary merge must not replace the checkpoint with the viewport count');
 assert.ok(summaryRequests[0].messages[0].content.includes('memory through twenty'));
 assert.equal(commits[0].args.source_versions[1].id,'note20');
+for(const count of [0,1,2]){
+  summaryThemeContext={session:{theme_override:null},themes:Array.from({length:count},(_,i)=>({id:'theme'+i,name:'scene'+i,work_id:'work'})),names:[],dayNight:false};
+  const notes=[{id:'tagged',content:'memory {{theme::scene0}}',summarized_through_turn:20}];
+  const snapshot=JSON.stringify(notes);
+  await merging(notes,20);
+  assert.deepEqual(summaryErrors,[]);
+  assert.equal(summaryRequests.at(-1).messages[0].content.includes('{{theme::'),count>1,'actual summary request must use the same theme-count gate');
+  assert.equal(JSON.stringify(notes),snapshot);
+}
 console.log('Integrity client: bounded draft writes, account cancellation without screen listeners, keyword boundary, summary conflict guard and merge checkpoint passed');
