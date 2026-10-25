@@ -47,6 +47,12 @@ function WorkDetailRoute() {
   return <WorkDetailPage key={`${user?.id}:${workId}`} />;
 }
 
+function WorkEditorRoute() {
+  const { workId } = useParams();
+  const { user } = useAuth();
+  return <WorkEditorPage key={`${user?.id}:${workId}`} />;
+}
+
 export default function App() {
   const { user, loading } = useAuth();
 
@@ -82,7 +88,7 @@ export default function App() {
         <Route path="/works/:workId" element={<RouteContent><WorkDetailRoute /></RouteContent>} />
         <Route path="/sessions" element={<RouteContent><SessionsPage /></RouteContent>} />
         <Route path="/create" element={<RouteContent><CreatePage /></RouteContent>} />
-        <Route path="/create/:workId" element={<RouteContent><WorkEditorPage /></RouteContent>} />
+        <Route path="/create/:workId" element={<RouteContent><WorkEditorRoute /></RouteContent>} />
         <Route path="/my" element={<RouteContent><MyPage /></RouteContent>} />
         <Route path="/settings" element={<RouteContent><SettingsPage /></RouteContent>} />
         <Route path="/favorites" element={<RouteContent><FavoritesPage /></RouteContent>} />

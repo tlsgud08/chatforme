@@ -45,6 +45,11 @@ export default function SettingsPage() {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [multichatSystemPrompt, setMultichatSystemPrompt] = useState('');
   const [systemPromptLoaded, setSystemPromptLoaded] = useState(false);
+  const [settingsLoadError, setSettingsLoadError] = useState('');
+  const [settingsLoadAttempt, setSettingsLoadAttempt] = useState(0);
+  const [systemPromptSaving, setSystemPromptSaving] = useState(false);
+  const systemPromptLock = useRef(false);
+  const systemPromptBaseline = useRef<{ system_prompt: string; theme_prompt: string; multichat_system_prompt: string } | null>(null);
   const [workCombinationPrompt, setWorkCombinationPrompt] = useState('');
   const [workCombinationPromptLoaded, setWorkCombinationPromptLoaded] = useState(false);
   const [workCombinationPromptSaving, setWorkCombinationPromptSaving] = useState(false);
@@ -53,12 +58,19 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!user) return;
+    const controller = new AbortController();
+    setSettingsLoadError('');
+    setSystemPromptLoaded(false);
+    systemPromptBaseline.current = null;
     supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
+      .abortSignal(controller.signal)
       .single()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (controller.signal.aborted) return;
+        if (error || !data) { setSettingsLoadError('계정 설정을 불러오지 못했습니다. 다시 불러와 주세요.'); return; }
         const loaded = data as Profile;
         setProfile({ ...loaded, default_provider: 'openrouter', default_model: toOpenRouterModel(loaded.default_provider, loaded.default_model) });
         setDefaultOutputSettings({
@@ -75,15 +87,22 @@ export default function SettingsPage() {
         .from('platform_config')
         .select('system_prompt,multichat_system_prompt,theme_prompt')
         .eq('id', 1)
+        .abortSignal(controller.signal)
         .single()
-        .then(({ data }) => {
-          setThemePrompt(data?.theme_prompt ?? '');
-          setSystemPrompt(data?.system_prompt ?? '');
-          setMultichatSystemPrompt(data?.multichat_system_prompt ?? '');
+        .then(({ data, error }) => {
+          if (controller.signal.aborted) return;
+          if (error || !data || [data.system_prompt, data.theme_prompt, data.multichat_system_prompt].some(value => typeof value !== 'string')) {
+            setSettingsLoadError('전역 프롬프트를 불러오지 못했습니다. 기존 내용은 변경하지 않았습니다.'); return;
+          }
+          systemPromptBaseline.current = { system_prompt: data.system_prompt, theme_prompt: data.theme_prompt, multichat_system_prompt: data.multichat_system_prompt };
+          setThemePrompt(data.theme_prompt);
+          setSystemPrompt(data.system_prompt);
+          setMultichatSystemPrompt(data.multichat_system_prompt);
           setSystemPromptLoaded(true);
         });
     }
-  }, [user]);
+    return () => controller.abort();
+  }, [user?.id, settingsLoadAttempt]);
 
   useEffect(() => {
     if (!profile) return;
@@ -187,13 +206,23 @@ export default function SettingsPage() {
   }
 
   async function saveSystemPrompt() {
-    if (!isAdmin) return;
-    const { error } = await supabase
-      .from('platform_config')
-      .update({ system_prompt: systemPrompt, theme_prompt: themePrompt, multichat_system_prompt: multichatSystemPrompt, updated_at: new Date().toISOString() })
-      .eq('id', 1);
-    if (error) { flash('저장 실패: ' + error.message); return; }
-    flash('전역 시스템 프롬프트를 저장했습니다.');
+    const previous = systemPromptBaseline.current;
+    if (!isAdmin || !systemPromptLoaded || !previous || systemPromptLock.current) return;
+    const next = { system_prompt: systemPrompt, theme_prompt: themePrompt, multichat_system_prompt: multichatSystemPrompt };
+    systemPromptLock.current = true;
+    setSystemPromptSaving(true);
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { data, error } = await supabase.rpc('save_platform_prompts', { previous, desired: next });
+        if (!error && data === true) break;
+        if (!attempt && /load failed|failed to fetch|networkerror|network request failed/i.test(error?.message ?? '')) continue;
+        flash(error?.code === '40001' ? '다른 화면에서 전역 프롬프트가 변경되었습니다. 입력은 유지했으니 최신 설정과 비교해 주세요.' : '저장을 확인하지 못했습니다. 입력은 유지했습니다. 연결과 서버 업데이트를 확인해 주세요.');
+        return;
+      }
+      systemPromptBaseline.current = next;
+      flash('전역 시스템 프롬프트를 저장했습니다.');
+    } catch { flash('저장을 확인하지 못했습니다. 입력은 유지했습니다. 연결을 확인해 주세요.'); }
+    finally { systemPromptLock.current = false; setSystemPromptSaving(false); }
   }
 
   async function saveMasterPassword() {
@@ -273,6 +302,7 @@ export default function SettingsPage() {
   return (
     <div className="settings-page flex flex-col gap-6 p-4" data-active-settings={activeSection}>
       <ModernPageHeading title="설정" description="화면, 모델과 대화 기본값을 관리합니다." />
+      {settingsLoadError && <div role="alert" className="rounded-lg bg-surface p-3 text-sm text-amber-400"><p>{settingsLoadError}</p><button type="button" onClick={() => setSettingsLoadAttempt(value => value + 1)} className="mt-2 underline">설정 다시 불러오기</button></div>}
       <nav className="settings-navigation modern-only" aria-label="설정 분류">
         {([['appearance', '화면 · 테마', 'palette'], ['api', 'API · 모델', 'key'], ['output', '출력 설정', 'output'], ['summary', '요약 설정', 'summary'], ['cost', '가격 경고', 'cost'], ['account', '계정', 'my'], ...(isAdmin ? [['admin', '운영자', 'admin']] : [])] as [string, string, InterfaceIconName][]).map(([id, label, icon]) => <button type="button" key={id} aria-current={activeSection === id ? 'page' : undefined} onClick={() => setActiveSection(id)}><InterfaceIcon name={icon} />{label}</button>)}
       </nav>
@@ -484,6 +514,7 @@ export default function SettingsPage() {
             <span className="text-xs text-slate-500">{systemPrompt.length}자</span>
             <button
               onClick={saveSystemPrompt}
+              disabled={systemPromptSaving || !systemPromptLoaded}
               className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-semibold text-white"
             >
               저장

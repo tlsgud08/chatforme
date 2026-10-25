@@ -59,7 +59,7 @@ const merging=vm.runInNewContext(fn('messagesThroughTurn')+'\n'+fn('generateSumm
   activeGenerations:new Map(),activeSummaryGenerations:summaryTasks,AbortController,
   getApiKey:()=> 'mock-key',registerAccountTask:()=>()=>{},
   setSummaryGenerating:()=>{},finishSummaryGeneration:id=>summaryTasks.delete(id),setMessages:()=>{},setSession:()=>{},
-  readLiveThemeContext:async()=>summaryThemeContext,
+  readLiveThemeContext:async()=>summaryThemeContext, recoverExpiredResponses:async()=>0,
   fetchAllSessionMessages:async()=>complete,automaticThemeEnabled,normalizeThemePeriods,stripThemeDirectives,
   modelsFor:()=>['mock-model'],normalizeReasoning:()=>({send:false}),
   generate:async(_provider,args)=>{summaryRequests.push(args);return {text:'merged memory',usage:{inputTokens:1,outputTokens:2,cost:0}};},
