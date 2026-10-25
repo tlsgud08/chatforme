@@ -236,6 +236,10 @@ export default function ChatPage() {
   const [showCostKrw, setShowCostKrw] = useState(() => localStorage.getItem('inuchat.showCostKrw') === '1');
   const [showCacheTokens, setShowCacheTokens] = useState(() => localStorage.getItem('inuchat.showCacheTokens') === '1');
   const [showImages, setShowImages] = useState(() => localStorage.getItem('inuchat.showImages') !== '0');
+  const [showOffMode, setShowOffMode] = useState(() => {
+    try { return localStorage.getItem('inuchat.showOffMode') === '1'; }
+    catch { return false; }
+  });
   const exchange = useUsdKrwRate();
   const turnPriceWarning = loadTurnPriceWarning();
   const [errorLog, setErrorLog] = useState<ErrorEntry[]>([]);
@@ -1138,7 +1142,7 @@ export default function ChatPage() {
   const hasLocalGeneration = !!sessionId && activeGenerations.has(sessionId);
   const displayableMessages = messages.filter((m) => !(hasLocalGeneration && m.generation_status === 'streaming') && m.is_active_variant !== false && (!m.is_hidden || debugMode));
   const hasOlderDisplayMessages = hasOlderServerMessages;
-  const visibleMessages = displayableMessages;
+  const visibleMessages = showOffMode ? displayableMessages.filter((message) => message.role !== 'user') : displayableMessages;
   const assistantTurnNumbers = new Map<string, number>();
   const loadedActiveUserTurns = messages.filter((message) => message.role === 'user' && !message.is_hidden && message.is_active_variant !== false).length;
   let countedUserTurns = Math.max(0, totalUserTurnCount - loadedActiveUserTurns);
@@ -1333,6 +1337,11 @@ export default function ChatPage() {
           onShowCacheTokensToggle={(v) => { setShowCacheTokens(v); localStorage.setItem('inuchat.showCacheTokens', v ? '1' : '0'); }}
           showImages={showImages}
           onShowImagesToggle={(v) => { setShowImages(v); localStorage.setItem('inuchat.showImages', v ? '1' : '0'); }}
+          showOffMode={showOffMode}
+          onShowOffModeToggle={(v) => {
+            setShowOffMode(v);
+            try { localStorage.setItem('inuchat.showOffMode', v ? '1' : '0'); } catch { /* Keep the toggle usable when storage is unavailable. */ }
+          }}
           exchange={exchange}
           sessionModel={sessionModel || modelsFor('openrouter')[0]}
           sessionReasoning={sessionReasoning}
