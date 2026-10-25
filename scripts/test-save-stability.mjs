@@ -30,9 +30,11 @@ const client=createClient('https://edit.test','mock-key',{auth:{persistSession:f
   if(mode==='unconfirmed')throw new TypeError('Load failed');
   return new Response(JSON.stringify(remote?[remote]:[]),{headers:{'content-type':'application/json'}});
  }
- assert.equal(init.method,'PATCH');patches++;
+ assert.equal(init.method,'POST');patches++;
+ const args=JSON.parse(init.body),patch={content:args.message_text,command_id:args.command_uuid,command_name:args.command_label};
+ const response=()=>new Response(JSON.stringify({message:remote,session:{id:'s'},replacement:null,deleted:false}),{headers:{'content-type':'application/json'}});
  if(mode==='denied')return new Response(JSON.stringify({code:'42501',message:'denied'}),{status:403});
- const patch=JSON.parse(init.body);
+ if(remote.content===patch.content&&remote.command_id===patch.command_id&&remote.command_name===patch.command_name)return response();
  const apply=()=>{if(remote.content!==patch.content)remote.content_version++;Object.assign(remote,patch);commits++;};
  if(patches===1&&['before','conflict','command-conflict','unconfirmed','late','twice'].includes(mode)){
   if(mode==='conflict'){remote.content='someone else';remote.content_version++;}
@@ -41,25 +43,27 @@ const client=createClient('https://edit.test','mock-key',{auth:{persistSession:f
   throw new TypeError('Load failed');
  }
  if(late){late();late=undefined;}
- const guarded=remote&&url.searchParams.get('content_version')==='eq.'+remote.content_version
-  &&url.searchParams.get('command_name')===(remote.command_name==null?'is.null':'eq.'+remote.command_name);
+ if(remote.content===patch.content&&remote.command_id===patch.command_id&&remote.command_name===patch.command_name)return response();
+ const guarded=remote&&args.expected_version===remote.content_version&&args.expected_command_name===remote.command_name;
  if(mode==='twice')throw new TypeError('Load failed');
- if(guarded)apply();
+ if(!guarded)return new Response(JSON.stringify({code:'40001',message:'changed'}),{status:409});
+ apply();
  if(patches===1&&mode==='body')return new Response(new ReadableStream({start(controller){controller.error(new TypeError('Load failed'));}}),{headers:{'content-type':'application/json'}});
  if(patches===1&&mode==='after')throw new TypeError('Load failed');
- return new Response(JSON.stringify(guarded?[remote]:[]),{headers:{'content-type':'application/json'}});
+ return response();
 }}});
 globalThis.__messageEditTest=client;
 const stub=uri('export const supabase=globalThis.__messageEditTest;');
-const moduleSource=compile(readFileSync(new URL('../src/lib/messageEdit.ts',import.meta.url),'utf8')).replace("'./supabase'",`'${stub}'`);
-const {saveMessageEdit}=await import(uri(moduleSource));
+const moduleSource=compile(readFileSync(new URL('../src/lib/messageMutations.ts',import.meta.url),'utf8')).replace("'./supabase'",`'${stub}'`);
+const {mutateMessage}=await import(uri(moduleSource));
+const saveMessageEdit=(original,patch)=>mutateMessage(original,patch).then(result=>result.message);
 const patch={content:'new',command_id:null,command_name:null};
 function reset(next){mode=next;remote={...original};patches=commits=reads=0;late=undefined;}
 try{
  for(const scenario of ['normal','before','after','body','late']){
   reset(scenario);const saved=await saveMessageEdit({...original},patch);
   assert.equal(saved.content,'new');assert.equal(saved.content_version,1);assert.equal(commits,1,scenario+' cannot repeat a committed edit');
-  assert.equal(patches,['before','late'].includes(scenario)?2:1);
+  assert.equal(patches,scenario==='normal'?1:2);
  }
  for(const scenario of ['conflict','command-conflict']){
   reset(scenario);await assert.rejects(saveMessageEdit({...original},patch),/다른 화면/);assert.equal(patches,1);assert.equal(commits,0);

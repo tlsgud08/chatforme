@@ -11,3 +11,6 @@ dist-ssr
 
 # build cache
 *.tsbuildinfo
+
+# Local Supabase CLI cache
+supabase/.temp/

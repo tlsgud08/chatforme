@@ -41,6 +41,12 @@ function ChatRoute() {
   return <ChatPage key={`${user?.id}:${sessionId}`} />;
 }
 
+function WorkDetailRoute() {
+  const { workId } = useParams();
+  const { user } = useAuth();
+  return <WorkDetailPage key={`${user?.id}:${workId}`} />;
+}
+
 export default function App() {
   const { user, loading } = useAuth();
 
@@ -73,7 +79,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Navigate to="/works" replace />} />
         <Route path="/works" element={<RouteContent><WorksPage /></RouteContent>} />
-        <Route path="/works/:workId" element={<RouteContent><WorkDetailPage /></RouteContent>} />
+        <Route path="/works/:workId" element={<RouteContent><WorkDetailRoute /></RouteContent>} />
         <Route path="/sessions" element={<RouteContent><SessionsPage /></RouteContent>} />
         <Route path="/create" element={<RouteContent><CreatePage /></RouteContent>} />
         <Route path="/create/:workId" element={<RouteContent><WorkEditorPage /></RouteContent>} />

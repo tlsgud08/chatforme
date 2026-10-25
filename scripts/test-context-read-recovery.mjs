@@ -77,7 +77,7 @@ try {
   for (const mutate of [() => mutateSummary('room', 'delete'), () => selectResponse('room', 'group', 'message')]) {
     reset(1);
     await assert.rejects(mutate());
-    assert.equal(requests.length, 1, 'lost write responses must never automatically repeat a mutation');
+    assert.equal(requests.filter(request => request.method === 'POST').length, 1, 'lost write responses must never automatically repeat a mutation');
     assert.equal(requests[0].method, 'POST');
   }
   console.log('Context recovery: reproduced POST failure; real SDK GET recovery, bounded outages, cursor semantics, permission errors, cancellation and non-repeated mutations passed');

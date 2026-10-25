@@ -16,7 +16,7 @@ export function subscribeAppUpdate(listener: () => void) {
       listeners.forEach(notify => notify());
     };
     registerSW({
-      immediate: true,
+      immediate: false,
       onNeedRefresh: ready,
       onRegisteredSW(_url, value) {
         registration = value;

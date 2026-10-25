@@ -8,15 +8,16 @@ import { useChatScroll } from '@/hooks/useChatScroll';
 import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
 import { createDraftWriter } from '@/lib/draftWriter';
-import { saveMessageEdit } from '@/lib/messageEdit';
+import { loadChatRoom, loadChatContext, type ChatContext } from '@/lib/chatRoomData';
+import { mutateMessage } from '@/lib/messageMutations';
 import { registerAccountTask } from '@/lib/accountTasks';
-import { fetchMessagePage, generationContext, selectResponse } from '@/lib/sessionData';
+import { branchSession, fetchMessagePage, generationContext, mergeLatestPage, selectResponse } from '@/lib/sessionData';
 import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '@/lib/llm/types';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import { assemblePrompt } from '@/lib/prompt/assemble';
 import { loadWorkCombination } from '@/lib/workCombinationData';
-import { activeThemeWorkIds, workThemeScopeKey } from '@/lib/workCombination';
+import { workThemeScopeKey } from '@/lib/workCombination';
 import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import { resolvePromptCache } from '@/lib/llm/promptCache';
 import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
@@ -204,6 +205,10 @@ export default function ChatPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [loadError, setLoadError] = useState('');
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [contextReady, setContextReady] = useState(false);
+  const [contextError, setContextError] = useState('');
+  const contextRetryRef = useRef<AbortController | null>(null);
+  const settingsSnapshotRef = useRef('');
   const [work, setWork] = useState<Work | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [persona, setPersona] = useState<Persona | null>(null);
@@ -247,6 +252,7 @@ export default function ChatPage() {
   const [summaryGenerating, setSummaryGenerating] = useState(false);
   const [storyNotes, setStoryNotes] = useState<StoryNote[]>([]);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const [selectingVariantId, setSelectingVariantId] = useState<string | null>(null);
   const [hasOlderServerMessages, setHasOlderServerMessages] = useState(false);
   const [oldestLoadedAt, setOldestLoadedAt] = useState<number | null>(null);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
@@ -266,6 +272,15 @@ export default function ChatPage() {
   const branchInFlightRef = useRef(false);
   const exportInFlightRef = useRef(false);
   const settingsSessionIdRef = useRef<string | null>(null);
+  const messageBoundaryRef = useRef({ hasOlder: false, oldestTurn: null as number | null });
+  const messageReadControllerRef = useRef(new AbortController());
+  const latestReadSequenceRef = useRef(0);
+  const appliedReadSequenceRef = useRef(0);
+
+  useEffect(() => {
+    messageReadControllerRef.current = new AbortController();
+    return () => { messageReadControllerRef.current.abort(); latestReadSequenceRef.current++; };
+  }, [sessionId]);
 
   useEffect(() => {
     setHasOlderServerMessages(false);
@@ -275,27 +290,39 @@ export default function ChatPage() {
 
   const loadLatestMessages = useCallback(async () => {
     if (!sessionId) return;
-    const page = await fetchMessagePage(sessionId);
+    const sequence = ++latestReadSequenceRef.current;
+    const signal = messageReadControllerRef.current.signal;
+    const page = await fetchMessagePage(sessionId, undefined, signal);
+    if (signal.aborted || sequence !== latestReadSequenceRef.current) return;
+    appliedReadSequenceRef.current = sequence;
     // A background completion must not discard older turns the reader opened.
-    setMessages(current => [...current.filter(message => page.oldestTurn !== null && message.turn_index < page.oldestTurn), ...page.messages]);
-    setOldestLoadedAt(current => current !== null && page.oldestTurn !== null ? Math.min(current, page.oldestTurn) : page.oldestTurn);
+    setMessages(current => {
+      const merged = mergeLatestPage(current, page, messageBoundaryRef.current);
+      messageBoundaryRef.current = { hasOlder: merged.hasOlder, oldestTurn: merged.oldestTurn };
+      setHasOlderServerMessages(merged.hasOlder);
+      setOldestLoadedAt(merged.oldestTurn);
+      return merged.messages;
+    });
     setTotalUserTurnCount(page.totalUserTurns);
   }, [sessionId]);
 
   const loadOlderMessages = useCallback(async () => {
-    if (!sessionId || !oldestLoadedAt || !hasOlderServerMessages || olderMessagesInFlightRef.current) return;
+    if (!sessionId || oldestLoadedAt === null || !hasOlderServerMessages || olderMessagesInFlightRef.current) return;
     olderMessagesInFlightRef.current = true;
     setLoadingOlderMessages(true);
     try {
-      const page = await fetchMessagePage(sessionId, oldestLoadedAt);
+      const signal = messageReadControllerRef.current.signal;
+      const page = await fetchMessagePage(sessionId, oldestLoadedAt, signal);
+      if (signal.aborted) return;
       setMessages((current) => {
         const loadedIds = new Set(current.map((message) => message.id));
-        return [...page.messages.filter((message) => !loadedIds.has(message.id)), ...current];
+        return orderMessagesByTurn([...page.messages.filter((message) => !loadedIds.has(message.id)), ...current]);
       });
       setHasOlderServerMessages(page.hasOlder);
       setOldestLoadedAt(page.oldestTurn);
+      messageBoundaryRef.current = { hasOlder: page.hasOlder, oldestTurn: page.oldestTurn };
     } catch (error) {
-      addError(`이전 대화 불러오기 실패: ${describeUnknownError(error)}`);
+      if (!messageReadControllerRef.current.signal.aborted) addError(`이전 대화 불러오기 실패: ${describeUnknownError(error)}`);
     } finally {
       olderMessagesInFlightRef.current = false;
       setLoadingOlderMessages(false);
@@ -306,7 +333,7 @@ export default function ChatPage() {
 
   const revealOlderMessages = useCallback(() => {
     const element = scrollRef.current;
-    if (!element || !hasOlderMessagesToReveal || olderMessagesInFlightRef.current) return;
+    if (!element || !hasOlderMessagesToReveal || olderMessagesInFlightRef.current || editInFlightRef.current || deleteInFlightRef.current) return;
 
     void loadOlderMessages();
   }, [hasOlderMessagesToReveal, loadOlderMessages]);
@@ -363,73 +390,81 @@ export default function ChatPage() {
     toastTimerRef.current = setTimeout(() => setToastError(''), 4000);
   }
 
+  const applyChatContext = useCallback((value: ChatContext) => {
+    setProfile(value.profile);
+    setPersona(value.persona);
+    setStartConfig(value.startConfig);
+    setKeywordBooks(value.keywordBooks);
+    setStoryNotes(value.storyNotes);
+    setSystemPrompt(value.systemPrompt);
+    setThemePrompt(value.themePrompt);
+    const settings = loadSessionSettings(value.session, value.profile);
+    settingsSnapshotRef.current = JSON.stringify(settings);
+    settingsSessionIdRef.current = value.session.id;
+    setSessionModel(settings.model);
+    setSessionReasoning(settings.reasoning);
+    setContextError('');
+    setContextReady(true);
+  }, []);
+
   useEffect(() => {
     if (!sessionId || !user?.id) return;
-    let cancelled = false;
     const controller = new AbortController();
-    const signal = controller.signal;
-    setPersona(null);
-    setStartConfig(null);
+    const initialSequence = ++latestReadSequenceRef.current;
+    contextRetryRef.current?.abort();
+    setContextReady(false);
+    setContextError('');
     setLoadError('');
-    void (async () => {
-      const { data: s, error: sessionError } = await supabase.from('sessions').select('*').eq('id', sessionId).abortSignal(signal).single();
-      if (sessionError || !s) throw sessionError ?? new Error('채팅방에 접근할 수 없습니다.');
-      if (cancelled) return;
-      const sess = s as Session;
-      const [workResult, profileResult, configResult, page, booksResult, notesResult, personaResult, startResult] = await Promise.all([
-        supabase.from('works').select('*').eq('id', sess.work_id).abortSignal(signal).single(),
-        supabase.from('profiles').select('*').eq('id', user.id).abortSignal(signal).single(),
-        supabase.from('platform_config').select('system_prompt,theme_prompt').eq('id', 1).abortSignal(signal).single(),
-        fetchMessagePage(sess.id, undefined, signal),
-        supabase.from('keyword_books').select('*').eq('work_id', sess.work_id).order('sort_order').abortSignal(signal),
-        supabase.from('story_notes').select('*').eq('session_id', sess.id).order('created_at').abortSignal(signal),
-        sess.persona_id ? supabase.from('personas').select('*').eq('id', sess.persona_id).abortSignal(signal).single() : Promise.resolve({ data: null, error: null }),
-        sess.start_config_id ? supabase.from('start_configs').select('*').eq('id', sess.start_config_id).abortSignal(signal).single() : Promise.resolve({ data: null, error: null }),
-      ]);
-      if (cancelled) return;
-      for (const result of [workResult, profileResult, configResult, booksResult, notesResult, personaResult, startResult]) {
-        if (result.error) throw result.error;
-      }
-      if (!workResult.data || !profileResult.data) throw new Error('작품 또는 계정 설정을 불러오지 못했습니다.');
-      setSession(sess);
-      setWork(workResult.data as Work);
-      setProfile(profileResult.data as Profile);
-      setPersona(personaResult.data as Persona | null);
-      setStartConfig(startResult.data as StartConfig | null);
-      const settings = loadSessionSettings(sess, profileResult.data as Profile);
-      setSessionModel(settings.model);
-      setSessionReasoning(settings.reasoning);
-      settingsSessionIdRef.current = sess.id;
-      setThemePrompt(configResult.data?.theme_prompt ?? '');
-      setSystemPrompt(configResult.data?.system_prompt ?? '');
-      setMessages(page.messages);
-      setHasOlderServerMessages(page.hasOlder);
-      setOldestLoadedAt(page.oldestTurn);
-      setTotalUserTurnCount(page.totalUserTurns);
-      setKeywordBooks((booksResult.data as KeywordBook[]) ?? []);
-      setStoryNotes((notesResult.data as StoryNote[]) ?? []);
-    })().catch(error => {
-      if (!cancelled) {
-        controller.abort();
-        setLoadError(describeUnknownError(error));
-      }
+    void loadChatRoom(sessionId, user.id, controller.signal, {
+      display: (sess, loadedWork, page) => {
+        setSession(current => current?.id === sess.id ? { ...sess, ...current } : sess);
+        setWork(loadedWork);
+        if (initialSequence >= appliedReadSequenceRef.current) {
+          appliedReadSequenceRef.current = initialSequence;
+          setMessages(page.messages);
+          setHasOlderServerMessages(page.hasOlder);
+          setOldestLoadedAt(page.oldestTurn);
+          messageBoundaryRef.current = { hasOlder: page.hasOlder, oldestTurn: page.oldestTurn };
+          setTotalUserTurnCount(page.totalUserTurns);
+        }
+      },
+      context: applyChatContext,
+      displayError: error => { controller.abort(); setLoadError(describeUnknownError(error)); },
+      contextError: error => { setContextError(describeUnknownError(error)); setContextReady(false); },
     });
-    return () => { cancelled = true; controller.abort(); };
-  }, [sessionId, user?.id, loadAttempt]);
+    return () => { controller.abort(); contextRetryRef.current?.abort(); };
+  }, [sessionId, user?.id, loadAttempt, applyChatContext]);
+
+  async function retryChatContext() {
+    if (!session || !user || contextRetryRef.current) return;
+    const controller = new AbortController();
+    contextRetryRef.current = controller;
+    setContextError('');
+    try {
+      const { data: fresh, error } = await supabase.from('sessions').select('*').eq('id', session.id).eq('user_id', user.id).abortSignal(controller.signal).single();
+      if (error || !fresh) throw error ?? new Error('채팅방에 접근할 수 없습니다.');
+      controller.signal.throwIfAborted();
+      if (fresh.work_id !== session.work_id) { setLoadAttempt(attempt => attempt + 1); return; }
+      const context = await loadChatContext(fresh as Session, user.id, controller.signal);
+      setSession(current => current?.id === fresh.id ? { ...current, ...fresh } : current);
+      applyChatContext(context);
+    }
+    catch (error) { if (!controller.signal.aborted) setContextError(describeUnknownError(error)); }
+    finally { if (contextRetryRef.current === controller) contextRetryRef.current = null; }
+  }
 
   useEffect(() => {
     if (!sessionId || !sessionModel || settingsSessionIdRef.current !== sessionId) return;
-    localStorage.setItem(sessionSettingsKey(sessionId), JSON.stringify({
-      provider: 'openrouter',
-      model: sessionModel,
-      reasoning: sessionReasoning,
-    }));
+    const settings = JSON.stringify({ provider: 'openrouter', model: sessionModel, reasoning: sessionReasoning });
+    localStorage.setItem(sessionSettingsKey(sessionId), settings);
+    if (settingsSnapshotRef.current === settings) return;
     const timer = window.setTimeout(() => {
       void supabase.from('sessions').update({
         model_override: sessionModel,
         reasoning_override: sessionReasoning,
       }).eq('id', sessionId).then(({ error }) => {
         if (error) addError(`모델 설정 저장 실패: ${describeUnknownError(error)}`);
+        else settingsSnapshotRef.current = settings;
       });
     }, 200);
     return () => window.clearTimeout(timer);
@@ -455,14 +490,14 @@ export default function ChatPage() {
     return ()=>{controller?.abort();window.removeEventListener('inuchat:theme-changed',refresh);};
   },[session?.id,themeSelectionKey,user?.id]);
 
-  async function readLiveThemeContext(withCatalog=true){
+  async function readLiveThemeContext(withCatalog=true, signal?: AbortSignal){
     if(!session||!profile)throw new Error('테마 설정을 불러오지 못했습니다.');
     const roomColumns = session.work_combination_enabled !== undefined
       ? 'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids'
       : 'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period';
     const [account,room]=await Promise.all([
-      supabase.from('profiles').select('preferred_theme_mode,preferred_theme_variant,prefer_work_theme,preferred_theme_id').eq('id',session.user_id).single(),
-      supabase.from('sessions').select(roomColumns).eq('id',session.id).eq('user_id',session.user_id).returns<Partial<Session>[]>().single(),
+      supabase.from('profiles').select('preferred_theme_mode,preferred_theme_variant,prefer_work_theme,preferred_theme_id').eq('id',session.user_id).abortSignal(signal ?? messageReadControllerRef.current.signal).single(),
+      supabase.from('sessions').select(roomColumns).eq('id',session.id).eq('user_id',session.user_id).abortSignal(signal ?? messageReadControllerRef.current.signal).returns<Partial<Session>[]>().single(),
     ]);
     if(account.error)throw account.error;
     if(room.error)throw room.error;
@@ -472,9 +507,8 @@ export default function ChatPage() {
     const dayNight=dayNightModeEnabled(liveSession,variant);
     // Combined catalogs are read against the live room and work permissions,
     // rather than a previous render (including changes on another device).
-    const combined=activeThemeWorkIds(liveSession).length>1;
-    const catalog=withCatalog&&combined&&liveSession.theme_override==null
-      ? await loadWorkThemeCatalog(liveSession,session.user_id)
+    const catalog=withCatalog&&liveSession.theme_override==null
+      ? await loadWorkThemeCatalog(liveSession,session.user_id,signal ?? messageReadControllerRef.current.signal)
       : {themes:availableWorkThemes(workThemes,session.work_id,session.user_id),scope:undefined};
     return {session:liveSession,preference,variant,dayNight,...catalog,
       names:dayNight?dayNightCatalogNames(catalog.themes,!!catalog.scope):[]};
@@ -564,7 +598,7 @@ export default function ChatPage() {
   }
 
   async function generateSummary(archivesToMerge: SummaryVersion[] = [], requestedThroughTurn?: number) {
-    if (!session || !profile || sendInFlightRef.current || activeGenerations.has(session.id) || summaryGenerating || activeSummaryGenerations.has(session.id)) return;
+    if (!contextReady || !session || !profile || editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current || sendInFlightRef.current || activeGenerations.has(session.id) || summaryGenerating || activeSummaryGenerations.has(session.id)) return;
     const apiKey = getApiKey('openrouter');
     if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return; }
     const summarySessionId = session.id;
@@ -573,7 +607,7 @@ export default function ChatPage() {
     activeSummaryGenerations.set(summarySessionId, { controller: summaryController, listeners: new Set() });
     setSummaryGenerating(true);
     try {
-      const liveTheme=await readLiveThemeContext();
+      const liveTheme=await readLiveThemeContext(true,summaryController.signal);
       // Include the hidden initial context in the first archive so important
       // scenario setup is not lost after its short keep_turns window expires.
       const sourceMode = session.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
@@ -652,6 +686,8 @@ export default function ChatPage() {
   }
 
   async function send(options?: { reroll?: boolean }) {
+    if (!contextReady) { showToast('대화 설정을 모두 불러온 뒤 전송해 주세요.'); return; }
+    if (editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current) { showToast('대화 변경을 마친 뒤 전송해 주세요.'); return; }
     if (workCombinationSavingRef.current) { showToast('작품 결합 설정을 저장한 뒤 전송해 주세요.'); return; }
     if (!work || !session || sendInFlightRef.current || (sessionId && (activeGenerations.has(sessionId) || activeSummaryGenerations.has(sessionId)))) return;
 
@@ -694,6 +730,11 @@ export default function ChatPage() {
       if (sessionId) publishGeneration(sessionId, null);
     };
 
+    // Independent reads start together. This promise always resolves, so an
+    // early context failure cannot leave an unhandled metadata rejection.
+    const liveThemeRead = readLiveThemeContext(false, controller.signal).then(
+      value => ({ value, error: null }), error => ({ value: null, error }),
+    );
     let completeMessages = messages;
     let contextSummary = session.summary;
     let contextSummaryTurn = session.summary_last_turn;
@@ -706,6 +747,7 @@ export default function ChatPage() {
         contextSummaryTurn = context.summaryLastTurn;
       } catch (error) {
         if (!controller.signal.aborted) addError(`대화 문맥 불러오기 실패: ${describeUnknownError(error)}`);
+        controller.abort();
         restoreSubmitted();
         releaseSend();
         return;
@@ -719,17 +761,25 @@ export default function ChatPage() {
     let rerollVersionIds: string[] | null = null;
     let rerollIndex = 1;
     let rerollGroupId: string | null = null;
-    if (rerollTarget && session) {
-      const currentTurns = baseMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
-      if (effectiveSummaryTurn >= currentTurns) {
-        const { data } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).lt('summarized_through_turn', currentTurns).order('created_at', { ascending: false });
-        const prior = (data as SummaryVersion[] | null) ?? [];
-        const selectedPrior = prior.filter((version) => version.is_active);
-        const restored = selectedPrior.length ? selectedPrior : prior.slice(0, 1);
-        effectiveSummary = restored.map((version) => version.content).join('\n\n--- Additional Summary Note ---\n\n');
-        effectiveSummaryTurn = restored.reduce((latest, version) => Math.max(latest, version.summarized_through_turn), 0);
-        rerollVersionIds = restored.map((version) => version.id);
+    try {
+      if (rerollTarget && session) {
+        const currentTurns = baseMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
+        if (effectiveSummaryTurn >= currentTurns) {
+          const { data, error } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).lt('summarized_through_turn', currentTurns).order('created_at', { ascending: false }).abortSignal(controller.signal);
+          if (error) throw error;
+          const prior = (data as SummaryVersion[] | null) ?? [];
+          const selectedPrior = prior.filter((version) => version.is_active);
+          const restored = selectedPrior.length ? selectedPrior : prior.slice(0, 1);
+          effectiveSummary = restored.map((version) => version.content).join('\n\n--- Additional Summary Note ---\n\n');
+          effectiveSummaryTurn = restored.reduce((latest, version) => Math.max(latest, version.summarized_through_turn), 0);
+          rerollVersionIds = restored.map((version) => version.id);
+        }
       }
+    } catch (error) {
+      if (!controller.signal.aborted) addError('재생성 요약 조회 실패: ' + describeUnknownError(error));
+      controller.abort();
+      releaseSend();
+      return;
     }
     if (rerollTarget) {
       rerollGroupId = rerollTarget.reroll_group_id ?? rerollTarget.id;
@@ -739,7 +789,13 @@ export default function ChatPage() {
     const rerollUserMessage = rerollTarget ? [...baseMessages].reverse().find((message) => message.role === 'user' && !message.is_hidden) ?? null : null;
     let rerollCommandPrompt = rerollUserMessage?.command_prompt?.trim() ?? '';
     if (!rerollCommandPrompt && rerollUserMessage?.command_id) {
-      const { data: command } = await supabase.from('commands').select('prompt').eq('id', rerollUserMessage.command_id).maybeSingle();
+      const { data: command, error } = await supabase.from('commands').select('prompt').eq('id', rerollUserMessage.command_id).abortSignal(controller.signal).maybeSingle();
+      if (error) {
+        if (!controller.signal.aborted) addError('재생성 명령어 조회 실패: ' + describeUnknownError(error));
+        controller.abort();
+        releaseSend();
+        return;
+      }
       rerollCommandPrompt = command?.prompt?.trim() ?? '';
     }
     const text = options?.reroll ? rerollUserMessage?.content ?? '' : submittedInput;
@@ -797,14 +853,15 @@ export default function ChatPage() {
 
     if (!session || !profile) { releaseSend(); return; }
     let liveTheme;
-    try{liveTheme=await readLiveThemeContext(false);}
+    try{const result=await liveThemeRead;if(result.error||!result.value)throw result.error;liveTheme=result.value;}
     catch(error){addError('테마 설정 조회 실패: '+describeUnknownError(error));restoreSubmitted();releaseSend();return;}
     let workCombination;
     try {
       workCombination = await loadWorkCombination(liveTheme.session, work, controller.signal);
-      if(workCombination&&liveTheme.session.theme_override==null){
-        const catalog=await loadWorkThemeCatalog(liveTheme.session,session.user_id,controller.signal,[{id:work.id,title:work.title},...workCombination.works]);
-        liveTheme={...liveTheme,...catalog,names:liveTheme.dayNight?dayNightCatalogNames(catalog.themes,true):[]};
+      if(liveTheme.session.theme_override==null){
+        const knownWorks=workCombination?[{id:work.id,title:work.title},...workCombination.works]:undefined;
+        const catalog=await loadWorkThemeCatalog(liveTheme.session,session.user_id,controller.signal,knownWorks);
+        liveTheme={...liveTheme,...catalog,names:liveTheme.dayNight?dayNightCatalogNames(catalog.themes,!!catalog.scope):[]};
       }
       if (controller.signal.aborted) throw new Error('응답 생성을 중단했습니다.');
     } catch (error) {
@@ -944,129 +1001,40 @@ export default function ChatPage() {
   }
 
   async function deleteMsg(msgId: string) {
-    const target = messages.find((message) => message.id === msgId);
-    const targetSessionId = target?.session_id;
-    if (!target || deleteInFlightRef.current || sendInFlightRef.current) return;
+    const target = messages.find(message => message.id === msgId);
+    if (!contextReady || !target || deleteInFlightRef.current || sendInFlightRef.current || editInFlightRef.current || branchInFlightRef.current || summaryGenerating || workCombinationSavingRef.current) return;
     deleteInFlightRef.current = true;
-    if (!await showConfirmDialog('이 메시지를 삭제할까요?', '삭제한 메시지는 복구할 수 없습니다.', '삭제')) {
-      deleteInFlightRef.current = false;
-      return;
-    }
-    setDeletingMessageId(msgId);
-    let completeMessages = messages;
-    if (session) {
-      try {
-        completeMessages = await fetchAllSessionMessages(session.id);
-      } catch (error) {
-        addError(`대화 정보 불러오기 실패: ${describeUnknownError(error)}`);
-        setDeletingMessageId(null);
-        deleteInFlightRef.current = false;
-        return;
-      }
-    }
-    if (target.role === 'user' && !target.is_hidden && session) {
-      const activeBeforeDelete = completeMessages.filter((message) => message.is_active_variant !== false);
-      const targetIndex = activeBeforeDelete.findIndex((message) => message.id === msgId);
-      const deletedTurn = activeBeforeDelete
-        .slice(0, targetIndex + 1)
-        .filter((message) => message.role === 'user' && !message.is_hidden).length;
-      const { data: versionsData, error: versionsError } = await supabase.from('summary_versions').select('*').eq('session_id', session.id);
-      if (versionsError) {
-        addError(`요약 정보 확인 실패: ${versionsError.message}`);
-        setDeletingMessageId(null);
-        deleteInFlightRef.current = false;
-        return;
-      }
-      const versions = (versionsData as SummaryVersion[] | null) ?? [];
-      const invalidVersions = versions.filter((version) => version.summarized_through_turn >= deletedTurn);
-      const remainingVersions = versions
-        .filter((version) => version.summarized_through_turn < deletedTurn)
-        .sort((a, b) => a.summarized_through_turn - b.summarized_through_turn);
-      const remainingActive = remainingVersions.filter((version) => version.is_active);
-      const fallback = remainingActive.length ? remainingActive : remainingVersions.slice(-1);
-      const nextSummary = fallback.map((version) => version.content).join('\n\n--- Additional Summary Note ---\n\n');
-      const nextSummaryTurn = Math.max(0, ...fallback.map((version) => version.summarized_through_turn));
-
-      // Clear the derived summary before mutating its source message. This
-      // ordering can discard a summary if the later delete fails, but it can
-      // never leave deleted user text in a prompt.
-      const { error: summaryError } = await supabase.from('sessions').update({ summary: nextSummary, summary_last_turn: nextSummaryTurn }).eq('id', session.id);
-      if (summaryError) {
-        addError(`요약 초기화 실패: ${summaryError.message}`);
-        setDeletingMessageId(null);
-        deleteInFlightRef.current = false;
-        return;
-      }
-      if (invalidVersions.length) {
-        const { error: deleteVersionsError } = await supabase.from('summary_versions').delete().in('id', invalidVersions.map((version) => version.id));
-        if (deleteVersionsError) {
-          addError(`이전 요약 삭제 실패: ${deleteVersionsError.message}`);
-          setDeletingMessageId(null);
-          deleteInFlightRef.current = false;
-          return;
-        }
-      }
-      if (fallback.length && !fallback.every((version) => version.is_active)) {
-        const { error: activateVersionError } = await supabase.from('summary_versions').update({ is_active: true }).in('id', fallback.map((version) => version.id));
-        if (activateVersionError) {
-          addError(`이전 요약 복원 실패: ${activateVersionError.message}`);
-          setDeletingMessageId(null);
-          deleteInFlightRef.current = false;
-          return;
-        }
-      }
-      setSession((current) => current ? { ...current, summary: nextSummary, summary_last_turn: nextSummaryTurn } : current);
-    }
-    const { data: deleted, error } = await supabase.from('messages').delete().eq('id', msgId).eq('session_id', targetSessionId).select('id');
-    if (error || !deleted?.length) {
-      addError(error?.message ?? '삭제할 메시지를 찾지 못했습니다.');
-      setDeletingMessageId(null);
-      deleteInFlightRef.current = false;
-      return;
-    }
-    const completeAfterDelete = completeMessages.filter((msg) => msg.id !== msgId);
-    let next = messages.filter((msg) => msg.id !== msgId);
-    if (target?.role === 'assistant' && target.is_active_variant !== false) {
-      const groupId = target.reroll_group_id ?? target.id;
-      const replacement = [...completeAfterDelete].reverse().find((message) => message.role === 'assistant' && (message.reroll_group_id ?? message.id) === groupId);
-      if (replacement) await supabase.from('messages').update({ is_active_variant: true }).eq('id', replacement.id);
-      if (replacement) next = next.map((message) => message.id === replacement.id ? { ...message, is_active_variant: true } : message);
-    }
-    setMessages(next);
-    if (target?.role === 'user' && !target.is_hidden) setTotalUserTurnCount((current) => Math.max(0, current - 1));
-    showToast('메시지를 삭제했습니다.');
-    setDeletingMessageId(null);
-    deleteInFlightRef.current = false;
+    try {
+      if (!await showConfirmDialog('이 메시지를 삭제할까요?', '삭제한 메시지는 복구할 수 없습니다.', '삭제')) return;
+      setDeletingMessageId(msgId);
+      messageReadControllerRef.current.abort();
+      messageReadControllerRef.current = new AbortController();
+      appliedReadSequenceRef.current = ++latestReadSequenceRef.current;
+      const result = await mutateMessage(target, null);
+      setSession(current => current?.id === result.session.id ? { ...current, ...result.session } : current);
+      setMessages(current => orderMessagesByTurn([...current.filter(message => message.id !== msgId && message.id !== result.replacement?.id), ...(result.replacement ? [result.replacement] : [])]));
+      if (target.role === 'user' && !target.is_hidden && target.is_active_variant) setTotalUserTurnCount(current => Math.max(0, current - 1));
+      void queryClient.invalidateQueries({ queryKey: ['session-counts', user?.id] });
+      showToast('메시지를 삭제했습니다.');
+    } catch (error) { addError(`메시지 삭제 실패: ${describeUnknownError(error)}`); }
+    finally { setDeletingMessageId(null); deleteInFlightRef.current = false; }
   }
 
   async function saveEdit(msgId: string) {
     const content = editingContent.trim();
-    if (!content || sendInFlightRef.current || editInFlightRef.current) return;
+    if (!contextReady || !content || sendInFlightRef.current || editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current || summaryGenerating || workCombinationSavingRef.current) return;
     const original = messages.find((message) => message.id === msgId);
     if (!original) { addError('메시지 편집 실패: 편집할 메시지를 찾지 못했습니다.'); return; }
     const commandId = editingCommandName ? original.command_id ?? null : null;
     editInFlightRef.current = true;
     setEditingSavingId(msgId);
     try {
-      if (original.role === 'user' && !original.is_hidden && session) {
-        const completeMessages = await fetchAllSessionMessages(session.id).catch((error) => {
-          addError(`대화 정보 불러오기 실패: ${describeUnknownError(error)}`);
-          return null;
-        });
-        if (!completeMessages) return;
-        const activeMessages = completeMessages.filter((message) => message.is_active_variant !== false);
-        const originalIndex = activeMessages.findIndex((message) => message.id === msgId);
-        const editedTurn = activeMessages.slice(0, originalIndex + 1).filter((message) => message.role === 'user' && !message.is_hidden).length;
-        if (editedTurn <= (session.summary_last_turn ?? 0)) {
-          const { error: clearSummaryError } = await supabase.from('sessions').update({ summary: '', summary_last_turn: 0 }).eq('id', session.id);
-          if (clearSummaryError) { addError(`요약 초기화 실패: ${clearSummaryError.message}`); return; }
-          const { error: deleteVersionsError } = await supabase.from('summary_versions').delete().eq('session_id', session.id).gte('summarized_through_turn', editedTurn);
-          if (deleteVersionsError) { addError(`이전 요약 삭제 실패: ${deleteVersionsError.message}`); return; }
-          setSession((current) => current ? { ...current, summary: '', summary_last_turn: 0 } : current);
-        }
-      }
-      const saved = await saveMessageEdit(original, { content, command_id: commandId, command_name: editingCommandName });
-      setMessages((m) => m.map((msg) => msg.id === msgId ? { ...msg, ...saved } : msg));
+      messageReadControllerRef.current.abort();
+      messageReadControllerRef.current = new AbortController();
+      appliedReadSequenceRef.current = ++latestReadSequenceRef.current;
+      const result = await mutateMessage(original, { content, command_id: commandId, command_name: editingCommandName });
+      setMessages(current => current.map(message => message.id === msgId ? { ...message, ...result.message! } : message));
+      setSession(current => current?.id === result.session.id ? { ...current, ...result.session } : current);
       setEditingId(null);
     } catch (error) {
       addError(`메시지 편집 실패: ${describeUnknownError(error)}`);
@@ -1078,102 +1046,37 @@ export default function ChatPage() {
 
   async function branchFrom(message: Message) {
     if (workCombinationSavingRef.current) { showToast('작품 결합 설정을 저장한 뒤 분기해 주세요.'); return; }
-    if (!session || !user) return;
-    if (branchInFlightRef.current) return;
+    if (!contextReady || !session || !user || sendInFlightRef.current || editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current || summaryGenerating) return;
     branchInFlightRef.current = true;
-    if (!await showConfirmDialog('새 채팅방으로 분기할까요?', '이 메시지 시점까지의 대화로 새 채팅방을 만듭니다.', '분기')) { branchInFlightRef.current = false; return; }
-    let allMessages: Message[];
+    const routeSignal = messageReadControllerRef.current.signal;
     try {
-      allMessages = await fetchAllSessionMessages(session.id);
-    } catch (error) {
-      addError(`분기할 대화 불러오기 실패: ${describeUnknownError(error)}`);
-      branchInFlightRef.current = false;
-      return;
-    }
-    // A previous branch may have given every copied row the same created_at.
-    // turn_index is the stable conversation order, including across branches.
-    const branchSource = orderMessagesByTurn(allMessages.filter((item) => item.is_active_variant !== false));
-    const messageIndex = branchSource.findIndex((item) => item.id === message.id);
-    if (messageIndex < 0) { branchInFlightRef.current = false; return; }
-    const branchMessages = branchSource.slice(0, messageIndex + 1);
-    const branchTurns = branchMessages.filter((item) => item.role === 'user' && !item.is_hidden).length;
-    const { data: versionsData, error: versionsError } = await supabase.from('summary_versions').select('*').eq('session_id', session.id).eq('is_active', true).lte('summarized_through_turn', branchTurns).order('summarized_through_turn').order('created_at');
-    if (versionsError && versionsError.code !== 'PGRST205') { addError(versionsError.message); branchInFlightRef.current = false; return; }
-    const versions = (versionsData as SummaryVersion[] | null) ?? [];
-    const branchSummary = versions.map((version) => version.content).join('\n\n--- Additional Summary Note ---\n\n');
-    const branchSummaryTurn = Math.max(0, ...versions.map((version) => version.summarized_through_turn));
-    const totalInputTokens = branchMessages.reduce((total, item) => total + item.input_tokens, 0);
-    const totalOutputTokens = branchMessages.reduce((total, item) => total + item.output_tokens, 0);
-    const totalCost = branchMessages.reduce((total, item) => total + item.cost, 0);
-    const { data: newSession, error } = await supabase.from('sessions').insert({
-      user_id: user.id, work_id: session.work_id, title: `${session.title} (분기)`, persona_id: session.persona_id,
-      start_config_id: session.start_config_id, user_note: session.user_note, active_plugins: session.active_plugins ?? [],
-      ...(session.work_combination_enabled !== undefined && {
-        work_combination_enabled: session.work_combination_enabled,
-        combined_work_ids: session.combined_work_ids ?? [],
-      }),
-      theme_day_night_enabled:session.theme_day_night_enabled??false,theme_period:session.theme_override==null?session.theme_period??null:null,
-      auto_theme_enabled:session.theme_override==null,
-      theme_override: session.theme_override ?? null, theme_id: session.theme_id ?? null, theme_variant: session.theme_variant ?? null,
-      output_settings_override_enabled: session.output_settings_override_enabled,
-      output_tokens_override: session.output_tokens_override,
-      temperature_override: session.temperature_override,
-      temperature_enabled_override: session.temperature_enabled_override,
-      frequency_penalty_override: session.frequency_penalty_override,
-      frequency_penalty_enabled_override: session.frequency_penalty_enabled_override,
-      reasoning_override: session.reasoning_override,
-      summary: branchSummary,
-      summary_last_turn: branchSummaryTurn, summary_model_override: session.summary_model_override,
-      total_input_tokens: totalInputTokens, total_output_tokens: totalOutputTokens, total_cost: totalCost,
-      summary_reasoning_override: session.summary_reasoning_override,
-      summary_level_override: session.summary_level_override, summary_allow_omission_override: session.summary_allow_omission_override,
-      summary_parameters_enabled_override: session.summary_parameters_enabled_override,
-      summary_source_mode_override: session.summary_source_mode_override,
-    }).select('id').single();
-    if (error || !newSession) { addError(error?.message ?? '분기 채팅방 생성에 실패했습니다.'); branchInFlightRef.current = false; return; }
-    // Normalize legacy message-based indexes while copying. The branch starts
-    // with contiguous conversation turns, so its last turn and session-list
-    // conversation count stay identical and subsequent sends continue at N+1.
-    let copiedTurnIndex = 0;
-    let copiedAssistantIndex = 0;
-    const copiedMessages = branchMessages.map(({ role, content, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at }) => {
-      if (role === 'user' && !is_hidden) { copiedTurnIndex += 1; copiedAssistantIndex = 0; }
-      return { session_id: newSession.id, role, content, turn_index: copiedTurnIndex, reroll_index: role === 'assistant' ? ++copiedAssistantIndex : 1, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost, is_hidden, is_summarized, generation_status, command_id, command_name, command_prompt, created_at };
-    });
-    const { error: messagesError } = copiedMessages.length ? await supabase.from('messages').insert(copiedMessages) : { error: null };
-    const { error: summariesError } = !messagesError && versions.length ? await supabase.from('summary_versions').insert(versions.map((version) => ({ session_id: newSession.id, content: version.content, summarized_through_turn: version.summarized_through_turn, is_active: true, input_tokens: version.input_tokens, output_tokens: version.output_tokens, cost: version.cost, created_at: version.created_at }))) : { error: null };
-    const { error: notesError } = !messagesError && !summariesError && storyNotes.length ? await supabase.from('story_notes').insert(storyNotes.map((note) => ({ session_id: newSession.id, content: note.content, created_at: note.created_at, updated_at: note.updated_at }))) : { error: null };
-    const copyError = messagesError ?? summariesError ?? notesError;
-    if (copyError) {
-      await supabase.from('sessions').delete().eq('id', newSession.id);
-      addError(`분기 채팅방 복사에 실패했습니다: ${copyError.message}`);
-      branchInFlightRef.current = false;
-      return;
-    }
-    showToast('새 채팅방으로 분기했습니다.');
-    branchInFlightRef.current = false;
-    void queryClient.invalidateQueries({ queryKey: ['sessions', user.id] });
-    navigate(`/chat/${newSession.id}`);
+      if (!await showConfirmDialog('새 채팅방으로 분기할까요?', '이 메시지 시점까지의 대화로 새 채팅방을 만듭니다.', '분기')) return;
+      if (routeSignal.aborted) return;
+      const id = await branchSession(message);
+      showToast('새 채팅방으로 분기했습니다.');
+      void queryClient.invalidateQueries({ queryKey: ['sessions', user.id] });
+      if (!routeSignal.aborted) navigate(`/chat/${id}`);
+    } catch (error) { if (!routeSignal.aborted) addError('분기 채팅방 생성 실패: ' + describeUnknownError(error)); }
+    finally { branchInFlightRef.current = false; }
   }
 
   async function selectVariant(message: Message, id: string) {
-    const groupId = message.reroll_group_id ?? message.id;
-    let group = messages.filter((item) => item.role === 'assistant' && (item.reroll_group_id ?? item.id) === groupId);
-    if (session) {
-      try {
-        group = await fetchRerollVariants(session.id, groupId);
-      } catch (error) {
-        addError(`응답 버전 불러오기 실패: ${describeUnknownError(error)}`);
-        return;
-      }
-    }
-    const groupIds = group.map((item) => item.id);
-    if (!groupIds.includes(id)) { addError('선택할 응답 버전을 찾을 수 없습니다.'); return; }
+    if (!contextReady || !session || sendInFlightRef.current || editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current || summaryGenerating || workCombinationSavingRef.current) return;
+    editInFlightRef.current = true;
+    setSelectingVariantId(id);
     try {
-      const updated = await selectResponse(session!.id, groupId, id, group.find(item => item.is_active_variant)?.id);
+      const groupId = message.reroll_group_id ?? message.id;
+      const group = await fetchRerollVariants(session.id, groupId);
+      const groupIds = group.map(item => item.id);
+      if (!groupIds.includes(id)) throw new Error('선택할 응답 버전을 찾을 수 없습니다.');
+      messageReadControllerRef.current.abort();
+      messageReadControllerRef.current = new AbortController();
+      appliedReadSequenceRef.current = ++latestReadSequenceRef.current;
+      const updated = await selectResponse(session.id, groupId, id, group.find(item => item.is_active_variant)?.id);
       if (updated) setSession(current => current?.id === updated.id ? { ...current, ...updated } : current);
-    } catch (error) { addError(`응답 버전 변경 실패: ${describeUnknownError(error)}`); return; }
-    setMessages((current) => current.map((item) => groupIds.includes(item.id) ? { ...item, is_active_variant: item.id === id } : item));
+      setMessages(current => current.map(item => groupIds.includes(item.id) ? { ...item, is_active_variant: item.id === id } : item));
+    } catch (error) { addError('응답 버전 변경 실패: ' + describeUnknownError(error)); }
+    finally { editInFlightRef.current = false; setSelectingVariantId(null); }
   }
 
   function variantsFor(message: Message) {
@@ -1235,9 +1138,12 @@ export default function ChatPage() {
         <button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 flex-1 text-left">
           <p className="truncate text-sm font-semibold text-white">{currentSession.title || work.title}</p>
         </button>
-        <button onClick={() => setMenuOpen(true)} aria-label="세션 메뉴 열기" className="px-2 text-xl text-slate-300"><InterfaceIcon name="menu" /></button>
+        <button disabled={!contextReady} onClick={() => setMenuOpen(true)} aria-label="세션 메뉴 열기" className="px-2 text-xl text-slate-300"><InterfaceIcon name="menu" /></button>
       </header>
 
+      {!contextReady && <div role="status" aria-label="대화 설정 상태" className="shrink-0 border-b border-surface2 px-3 py-2 text-xs text-slate-400">
+        {contextError ? <><p>대화는 읽을 수 있어요. 전송에 필요한 설정을 불러오지 못했습니다: {contextError}</p><button type="button" onClick={() => void retryChatContext()} className="mt-1 underline">설정 다시 불러오기</button><button type="button" disabled={exportingConversation || sending} onClick={() => void exportConversation()} className="ml-3 underline disabled:opacity-50">대화 TXT 추출</button></> : '대화 설정을 불러오는 중이에요. 완료되면 전송할 수 있어요.'}
+      </div>}
       {toastError && (
         <div className="toast-enter pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-4">
           <div className="max-w-[88vw] rounded-full bg-red-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg">
@@ -1306,15 +1212,15 @@ export default function ChatPage() {
                   {debugMode && m.role === 'assistant' && cacheDiagnostics[m.id] && <CacheDiagnosticPanel diagnostic={cacheDiagnostics[m.id]} />}
                   {!m.is_hidden && (
                     <div className={`chat-message-actions flex min-w-0 items-center gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <button disabled={sending} onClick={() => { setEditingId(m.id); setEditingContent(m.content); setEditingCommandName(m.command_name); }} aria-label="메시지 편집" title="편집" className="chat-message-action text-slate-500 disabled:opacity-50"><InterfaceIcon name="edit" /></button>
+                      <button disabled={sending || !contextReady || summaryGenerating || !!deletingMessageId} onClick={() => { setEditingId(m.id); setEditingContent(m.content); setEditingCommandName(m.command_name); }} aria-label="메시지 편집" title="편집" className="chat-message-action text-slate-500 disabled:opacity-50"><InterfaceIcon name="edit" /></button>
                       <button onClick={() => void branchFrom(m)} aria-label="여기서 분기" title="분기" className="chat-message-action text-slate-500"><InterfaceIcon name="branch" /></button>
-                      <button disabled={sending || deletingMessageId === m.id} onClick={() => void deleteMsg(m.id)} aria-label="메시지 삭제" title="삭제" className="chat-message-action text-[#DA7F88] disabled:opacity-50"><InterfaceIcon name="delete" /></button>
+                      <button disabled={sending || !contextReady || summaryGenerating || !!editingSavingId || deletingMessageId === m.id} onClick={() => void deleteMsg(m.id)} aria-label="메시지 삭제" title="삭제" className="chat-message-action text-[#DA7F88] disabled:opacity-50"><InterfaceIcon name="delete" /></button>
                       {m.role === 'assistant' && <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
                         {showCost && <span className="text-right text-[10px] text-slate-500"><span className={isTurnPriceWarning(m.cost, turnPriceWarning, exchange.rate) ? 'text-yellow-400' : undefined}>{showCostKrw ? formatKrw(m.cost, exchange.rate) : `$${m.cost.toFixed(6)}`}</span> {showCostKrw && exchange.fallback ? '(폴백 환율)' : ''} · 출력 {m.output_tokens.toLocaleString()} tokens</span>}
                         {showCacheTokens && <span className="text-right text-[10px] text-slate-500">캐시 읽기 {m.cache_read_tokens == null ? '미보고' : m.cache_read_tokens.toLocaleString()} · 쓰기 {m.cache_write_tokens == null ? '미보고' : m.cache_write_tokens.toLocaleString()}</span>}
-                        {variantsFor(m).length > 1 && <select disabled={sending || summaryGenerating} aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
+                        {variantsFor(m).length > 1 && <select disabled={sending || !contextReady || summaryGenerating || !!editingSavingId || !!deletingMessageId || !!selectingVariantId} aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
                         <span className="text-[10px] font-medium text-slate-500">{assistantTurnNumbers.get(m.id) ?? 0}턴</span>
-                        {m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성"><InterfaceIcon name="reroll" /></button>}
+                        {m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending || !contextReady || summaryGenerating || !!editingSavingId || !!deletingMessageId} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성"><InterfaceIcon name="reroll" /></button>}
                       </div>}
                     </div>
                   )}
@@ -1364,7 +1270,7 @@ export default function ChatPage() {
         ) : (
           <button
           onClick={() => void send()}
-            disabled={workCombinationSaving}
+            disabled={workCombinationSaving || !contextReady || !!editingSavingId || !!deletingMessageId || !!selectingVariantId || summaryGenerating}
             aria-label="메시지 전송"
             className="chat-send-button rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white"
           >
@@ -1375,10 +1281,10 @@ export default function ChatPage() {
 
       {commandMenuOpen && user && <CommandMenu userId={user.id} workId={work?.id} onClose={() => setCommandMenuOpen(false)} onSelect={setSelectedCommand} />}
 
-      {menuOpen && session && (
+      {menuOpen && session && contextReady && (
         <SessionMenu
           key={session.id}
-          sending={sending}
+          sending={sending || !!editingSavingId || !!deletingMessageId || !!selectingVariantId}
           session={session}
           profile={profile}
           onClose={() => setMenuOpen(false)}

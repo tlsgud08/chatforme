@@ -7,6 +7,18 @@ const server = await createServer({ server: { middlewareMode: true }, appType: '
 try {
   const { supabase } = await server.ssrLoadModule('/src/lib/supabase.ts');
   const { fetchSessionConversationCounts } = await server.ssrLoadModule('/src/lib/sessionCounts.ts');
+  const { mergeLatestPage } = await server.ssrLoadModule('/src/lib/sessionData.ts');
+  const row = turn_index => ({ id: 'm'+turn_index, turn_index });
+  const latest = { messages:[row(10),row(11)],oldestTurn:10,hasOlder:true,totalUserTurns:11 };
+  const all = mergeLatestPage(Array.from({length:10},(_,i)=>row(i)),latest,{oldestTurn:null,hasOlder:false});
+  assert.equal(all.hasOlder,false,'a fully expanded continuous history remains expanded');
+  assert.equal(all.oldestTurn,null);
+  assert.equal(all.messages.length,12);
+  const gap = mergeLatestPage([row(1)],latest,{oldestTurn:null,hasOlder:false});
+  assert.equal(gap.hasOlder,true,'a new gap must expose pagination rather than hide missing turns');
+  assert.equal(gap.oldestTurn,10);
+  const empty = mergeLatestPage([row(1)],{messages:[],oldestTurn:null,hasOlder:false,totalUserTurns:0},{oldestTurn:1,hasOlder:true});
+  assert.equal(empty.messages.length,0,'a refreshed empty room must not keep deleted rows');
   const originalFrom = supabase.from, originalRpc = supabase.rpc;
   let failure = { code: 'NETWORK', message: 'offline' }, reads = 0, active = 0, peak = 0;
   supabase.rpc = () => ({

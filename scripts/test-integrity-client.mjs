@@ -40,7 +40,7 @@ assert.match(source,/getActiveKeywordContents\(baseMessages\.filter\(message => 
 // requesting a paid model or mutating memory.
 let paidCalls=0;
 const summary=vm.runInNewContext(fn('generateSummary')+'\ngenerateSummary',{
-  session:{id:'s'},profile:{},messages:[],sendInFlightRef:{current:true},generate:()=>paidCalls++,
+  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s'},profile:{},messages:[],sendInFlightRef:{current:true},generate:()=>paidCalls++,
 });
 await summary();assert.equal(paidCalls,0);
 
@@ -49,7 +49,7 @@ await summary();assert.equal(paidCalls,0);
 const commits=[], summaryErrors=[], summaryRequests=[];
 const complete=Array.from({length:30},(_,i)=>({id:'u'+i,role:'user',content:'turn '+(i+1),is_active_variant:true,generation_status:'complete'}));
 const merging=vm.runInNewContext(fn('messagesThroughTurn')+'\n'+fn('generateSummary')+'\ngenerateSummary',{
-  session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'custom core'},
+  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'custom core'},
   messages:complete.slice(-5),sendInFlightRef:{current:false},summaryGenerating:false,
   activeGenerations:new Map(),activeSummaryGenerations:new Map(),AbortController,
   getApiKey:()=> 'mock-key',registerAccountTask:()=>()=>{},
