@@ -29,7 +29,7 @@ import { showToast } from '@/lib/toast';
 import { conversationFilename, downloadConversationText, formatConversationText } from '@/lib/chatExport';
 import CommandMenu from '@/components/CommandMenu';
 import { showConfirmDialog } from '@/lib/dialog';
-import { availableWorkThemes, dayNightCatalogNames, dayNightModeEnabled, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
+import { automaticThemeEnabled, availableWorkThemes, dayNightCatalogNames, dayNightModeEnabled, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
 import { paletteFor, preferredThemeVariant, requestThemeRefresh, type SavedTheme } from '@/lib/theme';
 import InterfaceIcon from '@/components/InterfaceIcon';
 import './ChatPage.css';
@@ -526,7 +526,7 @@ export default function ChatPage() {
     void (async()=>{
       try{
         const live=await readLiveThemeContext();
-        if(live.session.theme_override!=null||themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
+        if(!automaticThemeEnabled(live.session,live.themes,live.dayNight,!!live.scope)||themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
         const requestScope=themeRequestScopeRef.current;
         if(requestScope?.messageId===latest.id&&requestScope.scope!==workThemeScopeKey(live.session))return;
         const choice=resolveThemeDirectiveChoice(finalThemeDirective(latest.content),live.themes,live.dayNight,!!live.scope);
@@ -640,9 +640,10 @@ export default function ChatPage() {
         ? activeSourceMessages
         : messagesAfterSummary(activeSourceMessages, previousTurn);
       if (candidates.length === 0 && archivesToMerge.length === 0) throw new Error('새로 요약할 대화가 없습니다.');
-      const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${liveTheme.session.theme_override==null?normalizeThemePeriods(message.content,liveTheme.names):stripThemeDirectives(message.content)}`).join('\n\n');
+      const autoThemeEnabled=automaticThemeEnabled(liveTheme.session,liveTheme.themes,liveTheme.dayNight,!!liveTheme.scope);
+      const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${autoThemeEnabled?normalizeThemePeriods(message.content,liveTheme.names):stripThemeDirectives(message.content)}`).join('\n\n');
       const summaryInput = `${previous ? `=== Previous Summary Notes${archivesToMerge.length > 1 ? ' (merge the selected notes into one)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== Dialogue to Summarize ===\n${dialogue}` : '=== Request ===\nMerge the selected summary notes into one up-to-date summary without omissions or discontinuities.'}`;
-      const input=liveTheme.session.theme_override==null?normalizeThemePeriods(summaryInput,liveTheme.names):stripThemeDirectives(summaryInput);
+      const input=autoThemeEnabled?normalizeThemePeriods(summaryInput,liveTheme.names):stripThemeDirectives(summaryInput);
       const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
       const allowOmission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
       const parametersEnabled = !profile.summary_prompt?.trim() || (session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true);
@@ -910,7 +911,7 @@ export default function ChatPage() {
 
     try {
     const assembled = assemblePrompt({
-      autoThemeEnabled:liveTheme.session.theme_override==null,dayNightThemeNames:liveTheme.names,themePrompt,themeCatalog:themeCatalogPrompt(liveTheme.themes,liveTheme.dayNight,liveTheme.scope),
+      autoThemeEnabled:automaticThemeEnabled(liveTheme.session,liveTheme.themes,liveTheme.dayNight,!!liveTheme.scope),dayNightThemeNames:liveTheme.names,themePrompt,themeCatalog:themeCatalogPrompt(liveTheme.themes,liveTheme.dayNight,liveTheme.scope),
       systemPrompt, mainPrompt: work.main_prompt, workCombination, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
       plugins: session.active_plugins,

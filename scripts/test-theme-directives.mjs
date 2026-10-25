@@ -147,3 +147,48 @@ assert.equal(assemblePrompt(preferredHistory).messages[0].content,'{{theme::선�
 assert.equal(assemblePrompt(preferredHistory).messages[0].cacheBreakpoint,true);
 assert.equal(preferredHistory.history[0].content,'{{theme::선호 테마:밤}}');
 console.log('Optional day/night variants: mixed catalog, unsuffixed choices, global preference, fixed palettes, stale tags and independent availability OK');
+
+// Count distinct usable scenes, never the day/night variants of one scene.
+const fluid={theme_override:null};
+for(const dayNight of [false,true]){
+  for(const qualified of [false,true]){
+    for(const scenes of [[],[normal],[dual],[normalSingle]]){
+      assert.equal(h.automaticThemeEnabled(fluid,scenes,dayNight,qualified),false);
+    }
+    assert.equal(h.automaticThemeEnabled(fluid,[normal,normalSingle],dayNight,qualified),true);
+    assert.equal(h.automaticThemeEnabled(fluid,[normal,dual],dayNight,qualified),dayNight,'unavailable scenes do not enable automation');
+    for(const theme_override of ['custom','builtin']){
+      assert.equal(h.automaticThemeEnabled({theme_override},[normal,normalSingle],dayNight,qualified),false);
+    }
+  }
+}
+const sameName=[normal,{...normal,id:'extra-scene',work_id:'extra'}];
+assert.equal(h.automaticThemeEnabled(fluid,sameName),false,'ambiguous names offer no usable choices');
+assert.equal(h.automaticThemeEnabled(fluid,sameName,false,true),true,'combined works use distinct qualified IDs');
+const scope={workNames:{w:'메인',extra:'추가'}};
+for(const scenes of [[],[normal],[dual],[normalSingle],[normal,normalSingle],sameName]){
+  for(const dayNight of [false,true]){
+    for(const currentScope of [undefined,scope]){
+      const autoThemeEnabled=h.automaticThemeEnabled(fluid,scenes,dayNight,!!currentScope);
+      const request={...timed,systemPrompt:'GLOBAL '+nightText,mainPrompt:'WORK '+nightText,
+        autoThemeEnabled,themePrompt:h.DEFAULT_THEME_PROMPT,
+        themeCatalog:h.themeCatalogPrompt(scenes,dayNight,currentScope)};
+      const snapshot=JSON.stringify(request);
+      const result=assemblePrompt(request);
+      assert.equal(JSON.stringify(result).includes('{{theme::'),autoThemeEnabled,'all outgoing components follow the same gate');
+      assert.equal(result.systemParts.core.includes('# Theme Change Rules'),autoThemeEnabled);
+      assert.equal(result.systemParts.core.includes('# Available Work Themes'),autoThemeEnabled);
+      assert.equal(result.messages[0].cacheBreakpoint,true);
+      assert.equal(result.messages[0].content,autoThemeEnabled?nightText:'본문\n');
+      assert.equal(JSON.stringify(request),snapshot,'stored inputs and cache markers remain intact');
+    }
+  }
+}
+// Verify send/reroll, summary and response application share the tested gate.
+const chat=readFileSync(new URL('../src/pages/ChatPage.tsx',import.meta.url),'utf8');
+assert.match(chat,/autoThemeEnabled:automaticThemeEnabled\(liveTheme.session,liveTheme.themes,liveTheme.dayNight,!!liveTheme.scope\)/);
+assert.match(chat,/const autoThemeEnabled=automaticThemeEnabled\(liveTheme.session,liveTheme.themes,liveTheme.dayNight,!!liveTheme.scope\)/);
+assert.match(chat,/autoThemeEnabled\?normalizeThemePeriods\(message.content,liveTheme.names\):stripThemeDirectives\(message.content\)/);
+assert.match(chat,/autoThemeEnabled\?normalizeThemePeriods\(summaryInput,liveTheme.names\):stripThemeDirectives\(summaryInput\)/);
+assert.match(chat,/if\(!automaticThemeEnabled\(live.session,live.themes,live.dayNight,!!live.scope\)\|\|/);
+console.log('Theme count gate: 0/1 scenes, day/night variants, availability, combined IDs, all prompt components, history, summary, rerolls and cache preservation OK');

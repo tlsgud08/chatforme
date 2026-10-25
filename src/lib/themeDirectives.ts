@@ -71,6 +71,10 @@ function themeChoices(themes:SavedTheme[],enabled:boolean,qualified=false){
   for(const choice of choices)counts.set(choice.name.trim(),(counts.get(choice.name.trim())??0)+1);
   return choices.filter(choice=>counts.get(choice.name.trim())===1);
 }
+/** One scene's day/night palettes do not make it multiple work themes. */
+export function automaticThemeEnabled(session:ThemeSessionOverride|null,themes:SavedTheme[],dayNight=false,qualified=false):boolean {
+  return session?.theme_override==null&&new Set(themeChoices(themes,dayNight,qualified).map(choice=>choice.theme.id)).size>1;
+}
 export function themeCatalogPrompt(themes: SavedTheme[],enabled=false,scope?:ThemeCatalogScope): string {
   // Keep the original single-work catalog byte-for-byte when scope is omitted.
   return themeChoices(themes,enabled,!!scope).map(({theme,period,name})=>
