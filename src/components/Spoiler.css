@@ -4,7 +4,7 @@
   -webkit-box-decoration-break: clone;
 }
 .chat-spoiler[data-revealed='false'] {
-  background: #475569;
+  background: currentColor;
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
