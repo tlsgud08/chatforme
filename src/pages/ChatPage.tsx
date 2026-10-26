@@ -13,6 +13,7 @@ import { loadChatRoom, loadChatContext, type ChatContext } from '@/lib/chatRoomD
 import { mutateMessage } from '@/lib/messageMutations';
 import { registerAccountTask } from '@/lib/accountTasks';
 import { branchSession, fetchMessagePage, generationContext, mergeLatestPage, selectResponse } from '@/lib/sessionData';
+import { cacheSessionCount } from '@/lib/sessionCounts';
 import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '@/lib/llm/types';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
@@ -64,16 +65,6 @@ function orderMessagesByTurn(messages: Message[]): Message[] {
   });
 }
 
-async function fetchRerollVariants(sessionId: string, groupId: string): Promise<Message[]> {
-  const { data, error } = await supabase.from('messages')
-    .select('*')
-    .eq('session_id', sessionId)
-    .eq('role', 'assistant')
-    .or(`reroll_group_id.eq.${groupId},and(reroll_group_id.is.null,id.eq.${groupId})`)
-    .order('reroll_index', { ascending: true });
-  if (error) throw error;
-  return (data as Message[] | null) ?? [];
-}
 const sessionSettingsKey = (id: string) => `chatforme.session.${id}.settings`;
 interface SessionSettings { provider: Provider; model: string; reasoning: ReasoningSelection; }
 function loadSessionSettings(session: Session, profile: Profile | null): SessionSettings {
@@ -885,6 +876,7 @@ export default function ChatPage() {
     let partialText = '';
     let lastPaint = 0;
     let draftMessageId: string | null = null;
+    let startAttempted = false;
     let completionForRecovery: ResponseCommit | null = null;
     let retainedOnDisk = false;
     const draftWriter = createDraftWriter(async text => {
@@ -941,6 +933,7 @@ export default function ChatPage() {
       latestUserMessage: promptText,
     });
     const maxOutputTokens = session.output_settings_override_enabled ? session.output_tokens_override : profile.default_output_tokens;
+      startAttempted = true;
       const claimed = await beginResponse({
         target_session: session.id, response_id: crypto.randomUUID(),
         user_message_id: !options?.reroll && (text || commandPrompt) ? crypto.randomUUID() : null,
@@ -955,7 +948,9 @@ export default function ChatPage() {
       draftMessageId = draft.id;
       if (claimed.userMessage) {
         setMessages(current => [...current.filter(message => message.id !== claimed.userMessage!.id), claimed.userMessage!]);
-        setTotalUserTurnCount(current => current + 1);
+        const count = completeMessages.filter(message => message.role === 'user' && !message.is_hidden && message.is_active_variant !== false).length + 1;
+        setTotalUserTurnCount(count);
+        cacheSessionCount(queryClient, session.user_id, session.id, count);
       }
       if (draft.generation_status !== 'streaming') { await loadLatestMessages(); return; }
       if (controller.signal.aborted) throw new DOMException('생성을 중단했습니다.', 'AbortError');
@@ -986,8 +981,6 @@ export default function ChatPage() {
       const aiMsg = committed.message as Message;
       setCacheDiagnostics(current => ({ ...current, [aiMsg.id]: result.cacheDiagnostic }));
       setSession(current => current?.id === session.id ? { ...current, ...committed.session } : current);
-      void queryClient.invalidateQueries({ queryKey: ['session-counts', user?.id] });
-      void queryClient.invalidateQueries({ queryKey: ['sessions', user?.id, 'sidebar'] });
     } catch (err) {
       if (completionForRecovery) {
         setPendingSave(completionForRecovery);
@@ -1022,6 +1015,10 @@ export default function ChatPage() {
     } finally {
       await draftWriter.stop();
       if (generationTimeout) clearTimeout(generationTimeout);
+      if (startAttempted) {
+        void queryClient.invalidateQueries({ queryKey: ['session-counts', session.user_id] });
+        void queryClient.invalidateQueries({ queryKey: ['sessions', session.user_id] });
+      }
       releaseSend();
     }
   }
@@ -1039,7 +1036,11 @@ export default function ChatPage() {
       const result = await mutateMessage(target, null);
       setSession(current => current?.id === result.session.id ? { ...current, ...result.session } : current);
       setMessages(current => orderMessagesByTurn([...current.filter(message => message.id !== msgId && message.id !== result.replacement?.id), ...(result.replacement ? [result.replacement] : [])]));
-      if (target.role === 'user' && !target.is_hidden && target.is_active_variant) setTotalUserTurnCount(current => Math.max(0, current - 1));
+      if (target.role === 'user' && !target.is_hidden && target.is_active_variant) {
+        const count = Math.max(0, totalUserTurnCount - 1);
+        setTotalUserTurnCount(count);
+        cacheSessionCount(queryClient, session!.user_id, target.session_id, count);
+      }
       void queryClient.invalidateQueries({ queryKey: ['session-counts', user?.id] });
       showToast('메시지를 삭제했습니다.');
     } catch (error) { addError(`메시지 삭제 실패: ${describeUnknownError(error)}`); }
@@ -1092,15 +1093,18 @@ export default function ChatPage() {
     setSelectingVariantId(id);
     try {
       const groupId = message.reroll_group_id ?? message.id;
-      const group = await fetchRerollVariants(session.id, groupId);
+      const group = variantsFor(message);
       const groupIds = group.map(item => item.id);
       if (!groupIds.includes(id)) throw new Error('선택할 응답 버전을 찾을 수 없습니다.');
       messageReadControllerRef.current.abort();
       messageReadControllerRef.current = new AbortController();
       appliedReadSequenceRef.current = ++latestReadSequenceRef.current;
       const updated = await selectResponse(session.id, groupId, id, group.find(item => item.is_active_variant)?.id);
-      if (updated) setSession(current => current?.id === updated.id ? { ...current, ...updated } : current);
-      setMessages(current => current.map(item => groupIds.includes(item.id) ? { ...item, is_active_variant: item.id === id } : item));
+      setSession(current => current?.id === updated.session.id ? { ...current, ...updated.session } : current);
+      setMessages(current => orderMessagesByTurn([
+        ...current.filter(item => item.role !== 'assistant' || (item.reroll_group_id ?? item.id) !== groupId),
+        ...updated.messages,
+      ]));
     } catch (error) { addError('응답 버전 변경 실패: ' + describeUnknownError(error)); }
     finally { editInFlightRef.current = false; setSelectingVariantId(null); }
   }

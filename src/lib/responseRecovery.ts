@@ -70,9 +70,24 @@ export async function beginResponse(args: {
   for (let attempt = 0; attempt < 2; attempt++) {
     const { data, error } = await supabase.rpc('begin_session_response', args);
     if (!error && data?.draft?.id === args.response_id) return data;
-    if (error?.code === '40001') throw new Error('다른 화면에서 대화가 변경되었거나 생성 중입니다. 입력은 보존했으니 대화를 다시 확인해 주세요.');
+    if (error?.code === '40001') {
+      if (/generating/i.test(error.message ?? '')) throw new Error('이 채팅방에 생성 중으로 남은 답변이 있습니다. 생성 상태를 확인해 주세요. 입력은 보존했습니다.');
+      throw new Error('전송 준비 중 대화 또는 요약이 변경되었습니다. 입력은 보존했으니 대화를 다시 확인해 주세요.');
+    }
     if (error?.code === 'PGRST202') throw new Error('대화 저장을 위한 서버 업데이트가 필요합니다. 입력은 보존했습니다.');
-    if (attempt || !isConnectionError(error)) throw error ?? new Error('응답 시작을 확인하지 못했습니다. 입력은 보존했습니다.');
+    if (!isConnectionError(error)) throw error ?? new Error('응답 시작을 확인하지 못했습니다. 입력은 보존했습니다.');
+    // A lost second acknowledgement must not strand a successfully created
+    // user/draft pair. Confirm IDs; this function never calls the model.
+    const { data: draft, error: readError } = await supabase.from('messages').select('*')
+      .eq('id', args.response_id).eq('session_id', args.target_session).maybeSingle();
+    if (!readError && draft?.id === args.response_id && draft.role === 'assistant') {
+      const user = args.user_message_id ? await supabase.from('messages').select('*')
+        .eq('id', args.user_message_id).eq('session_id', args.target_session).maybeSingle() : { data: null, error: null };
+      if (!user.error && (!args.user_message_id || (user.data?.id === args.user_message_id && user.data.role === 'user'))) {
+        return { draft: draft as Message, userMessage: user.data as Message | null, replayed: true };
+      }
+    }
+    if (attempt) throw new Error('응답 시작의 저장 여부를 확인하지 못했습니다. 입력은 보존했습니다. 대화를 다시 확인해 주세요.');
   }
   throw new Error('응답 시작을 확인하지 못했습니다.');
 }
