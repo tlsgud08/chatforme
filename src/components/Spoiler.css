@@ -1,0 +1,20 @@
+.chat-spoiler {
+  border-radius: 0.2em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.chat-spoiler[data-revealed='false'] {
+  background: #475569;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.chat-spoiler[data-revealed='false'] > .chat-spoiler-content,
+.chat-spoiler[data-revealed='false'] > .chat-spoiler-content * {
+  visibility: hidden !important;
+}
+.chat-spoiler:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.chat-spoiler-block { display: block; }

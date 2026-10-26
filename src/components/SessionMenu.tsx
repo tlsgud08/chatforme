@@ -337,7 +337,7 @@ export default function SessionMenu({
           <label className="inu-switch-row inu-tall"><span>소비 비용 원화로 표시<small>모든 채팅방에 적용 · 환율 {exchange.rate.toLocaleString('ko-KR')}원</small></span><Toggle aria-label="소비 비용 원화로 표시" checked={showCostKrw} onChange={onShowCostKrwToggle} /></label>
           <label className="inu-switch-row inu-tall"><span>캐시 토큰 보기<small>OpenRouter 캐시 읽기·쓰기 토큰</small></span><Toggle aria-label="캐시 토큰 보기" checked={showCacheTokens} onChange={onShowCacheTokensToggle} /></label>
           <label className="inu-switch-row inu-tall"><span>이미지 보기<small>끄면 이미지를 흐린 링크로 표시</small></span><Toggle aria-label="마크다운 이미지 보기" checked={showImages} onChange={onShowImagesToggle} /></label>
-          <label className="inu-switch-row inu-tall"><span>자랑모드<small>유저 말풍선만 화면에서 숨깁니다</small></span><Toggle aria-label="자랑모드" checked={showOffMode} onChange={onShowOffModeToggle} /></label>
+          <label className="inu-switch-row inu-tall"><span>자랑모드<small>유저 말풍선의 내용을 스포일러로 가립니다. 누르면 볼 수 있어요</small></span><Toggle aria-label="자랑모드" checked={showOffMode} onChange={onShowOffModeToggle} /></label>
           <label className="inu-switch-row inu-tall"><span>디버그 모드<small>숨겨진 메시지를 채팅창에 표시</small></span><Toggle aria-label="디버그 모드" checked={debugMode} onChange={onDebugToggle} /></label>
         </section>
         <section className="inu-section"><h3><InterfaceIcon name="download" />대화 내보내기</h3><button type="button" className="inu-button inu-full" onClick={() => void onExportConversation()} disabled={sending || exportingConversation} aria-busy={exportingConversation}><InterfaceIcon name="download" />{exportingConversation ? '대화 추출 중…' : '대화 전체 추출'}</button><p className="inu-help">전체 대화를 TXT로 다운로드 · 테마 태그 제외</p></section>
