@@ -1,12 +1,15 @@
 import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkSpoiler from '@/lib/remarkSpoiler';
+import Spoiler from './Spoiler';
 import MarkdownImage from './MarkdownImage';
 import MarkdownCodeBlock from './MarkdownCodeBlock';
 import { stripThemeDirectives } from '@/lib/themeDirectives';
 import type { Message } from '@/types/db';
 
-const remarkPlugins = [remarkGfm];
+const remarkPlugins = [remarkGfm, remarkSpoiler];
+const streamingRemarkPlugins = [remarkGfm, [remarkSpoiler, { streaming: true }] as [typeof remarkSpoiler, { streaming: boolean }]];
 
 /** Memoize only the body; actions, variants and costs remain live in ChatPage. */
 const MessageContent = memo(function MessageContent({ content, role, status, showImages }: {
@@ -15,8 +18,10 @@ const MessageContent = memo(function MessageContent({ content, role, status, sho
   const mutedTextClassName = role === 'user' ? 'chat-user-muted-text' : 'chat-muted-text';
   return (
     <ReactMarkdown
-      remarkPlugins={remarkPlugins}
+      remarkPlugins={status === 'streaming' ? streamingRemarkPlugins : remarkPlugins}
       components={{
+        span: ({ node, children }) => node?.properties && ('dataSpoiler' in node.properties || 'data-spoiler' in node.properties)
+          ? <Spoiler>{children}</Spoiler> : <span>{children}</span>,
         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
         strong: ({ children }) => <strong className="font-bold">{children}</strong>,
         em: ({ children }) => <em className={mutedTextClassName}>{children}</em>,

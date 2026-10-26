@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import MessageContent from '@/components/MessageContent';
+import Spoiler from '@/components/Spoiler';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useChatScroll } from '@/hooks/useChatScroll';
@@ -36,6 +37,10 @@ import { automaticThemeEnabled, availableWorkThemes, dayNightCatalogNames, dayNi
 import { paletteFor, preferredThemeVariant, requestThemeRefresh, type SavedTheme } from '@/lib/theme';
 import InterfaceIcon from '@/components/InterfaceIcon';
 import './ChatPage.css';
+
+function SpoilerBoundary({ concealed, children }: { concealed: boolean; children: ReactNode }) {
+  return concealed ? <Spoiler block>{children}</Spoiler> : <>{children}</>;
+}
 
 const GENERATION_TIMEOUT_MS = 8 * 60_000;
 const DRAFT_SAVE_INTERVAL_MS = 1000;
@@ -1166,7 +1171,7 @@ export default function ChatPage() {
   const hasLocalGeneration = !!sessionId && activeGenerations.has(sessionId);
   const displayableMessages = messages.filter((m) => !(hasLocalGeneration && m.generation_status === 'streaming') && m.is_active_variant !== false && (!m.is_hidden || debugMode));
   const hasOlderDisplayMessages = hasOlderServerMessages;
-  const visibleMessages = showOffMode ? displayableMessages.filter((message) => message.role !== 'user') : displayableMessages;
+  const visibleMessages = displayableMessages;
   const assistantTurnNumbers = new Map<string, number>();
   const loadedActiveUserTurns = messages.filter((message) => message.role === 'user' && !message.is_hidden && message.is_active_variant !== false).length;
   let countedUserTurns = Math.max(0, totalUserTurnCount - loadedActiveUserTurns);
@@ -1263,8 +1268,10 @@ export default function ChatPage() {
                           ? 'text-slate-500'
                           : 'text-slate-100'
                   }`}>
-                    {m.role === 'user' && m.command_name && <p className="mb-2 font-bold text-indigo-400">/{m.command_name}</p>}
-                    <MessageContent content={m.content} role={m.role} status={m.generation_status} showImages={showImages} />
+                    <SpoilerBoundary key={`${m.id}:${showOffMode}`} concealed={showOffMode && m.role === 'user'}>
+                      {m.role === 'user' && m.command_name && <p className="mb-2 font-bold text-indigo-400">/{m.command_name}</p>}
+                      <MessageContent content={m.content} role={m.role} status={m.generation_status} showImages={showImages} />
+                    </SpoilerBoundary>
                   </div>
                   {m.role === 'assistant' && m.generation_status === 'interrupted' && m.content && (
                     <p className="text-xs text-amber-400">응답이 중간에 중단되어 수신한 내용까지만 저장되었습니다.</p>
@@ -1293,7 +1300,7 @@ export default function ChatPage() {
             {visibleMessages.length > 0 && <hr className="chat-turn-divider" aria-label="메시지 구분" />}
             <div data-scroll-anchor="streaming-response" className="chat-stream w-full min-w-0 max-w-full px-4 py-2.5 text-sm leading-relaxed text-slate-100">
               {streamingContent ? (
-                <p className="whitespace-pre-wrap break-words">{stripThemeDirectives(streamingContent,true)}</p>
+                <MessageContent content={streamingContent} role="assistant" status="streaming" showImages={showImages} />
               ) : (
                 <span className="text-slate-400">생각 중…</span>
               )}
