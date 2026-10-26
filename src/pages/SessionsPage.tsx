@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { fetchSessionConversationCounts } from '@/lib/sessionCounts';
+import { fetchSessionConversationCounts, sessionCountsKey } from '@/lib/sessionCounts';
+import { measureOperation } from '@/lib/operationTiming';
 import { useAuth } from '@/hooks/useAuth';
 import type { Session } from '@/types/db';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -53,10 +54,11 @@ export default function SessionsPage() {
     staleTime: 30_000,
   });
 
-  const { data: aiCountMap = {}, isError: countsError, refetch: refetchCounts } = useQuery({
-    queryKey: ['session-counts', user?.id, viewTab, list.map(session => session.id)],
-    queryFn: ({ signal }) => fetchSessionConversationCounts(list.map(session => session.id), signal),
+  const { data: turnCountMap = {}, isError: countsError, refetch: refetchCounts } = useQuery({
+    queryKey: sessionCountsKey(user?.id, list.map(session => session.id)),
+    queryFn: ({ signal }) => measureOperation('session-counts', () => fetchSessionConversationCounts(list.map(session => session.id), signal)),
     enabled: !!user && viewTab !== 'multichat' && list.length > 0,
+    staleTime: 30_000,
   });
 
   const { data: multichats, isLoading: multichatsLoading } = useQuery({
@@ -325,7 +327,7 @@ export default function SessionsPage() {
                     {s.title || s.works?.title || '채팅방'}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {aiCountMap[s.id] ?? (countsError ? '—' : '…')} 대화
+                    {turnCountMap[s.id] ?? (countsError ? '—' : '…')} 대화
                   </p>
                 </div>
               </Link>

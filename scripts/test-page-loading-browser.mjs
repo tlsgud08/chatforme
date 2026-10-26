@@ -60,6 +60,7 @@ const profile = { id: userId, display_name: 'Tester', preferred_theme_mode: 'lig
 let messages = Array.from({ length: 16 }, (_, i) => ({ id: 'message-' + i, session_id: sessionId, role: i % 2 ? 'assistant' : 'user', content: ('Message ' + i + ' story line.\n\n').repeat(12), turn_index: 1 + Math.floor(i / 2), created_at: new Date(1700000000000 + i * 1000).toISOString(), is_hidden: false, is_active_variant: true, generation_status: 'complete', command_name: null, command_id: null, cost: 0, output_tokens: 0, input_tokens: 0, reroll_index: 1 }));
 const requests = [];
 let delayCounts = 0;
+let delayCreators = 0, holdGenerationContext = false, releaseGenerationContext;
 let failContextRequests = 0, failMessagePageRequests = 0;
 let modelRequests = 0;
 let editConnectionFailure = '';
@@ -89,8 +90,10 @@ async function setup(context) {
             data = branchResult && url.searchParams.get('id') === 'eq.'+branchResult.id ? branchResult : single || url.searchParams.has('id') ? session : [{ ...session, works: { title: work.title, thumbnail_url: null } }];
         else if (path === 'profiles')
             data = single ? profile : [profile];
-        else if (path === 'public_profiles')
+        else if (path === 'public_profiles') {
+            await new Promise(resolve => setTimeout(resolve, delayCreators));
             data = [{ id: userId, display_name: 'Tester' }];
+        }
         else if (path === 'themes') {
             const snapshot = structuredClone(themeRows);
             await new Promise(resolve => setTimeout(resolve, themeDelay));
@@ -114,10 +117,22 @@ async function setup(context) {
             const snapshot = structuredClone(messages), delay = nextPageSnapshotDelay;
             nextPageSnapshotDelay = 0;
             if (delay) await new Promise(resolve=>setTimeout(resolve,delay));
-            data = { messages:snapshot, hasOlder: false, oldestTurn: 1, totalUserTurns: 8 };
+            data = { messages:snapshot, hasOlder: false, oldestTurn: 1, totalUserTurns: snapshot.filter(m=>m.role==='user'&&!m.is_hidden&&m.is_active_variant).length };
         }
-        else if (path === 'rpc/session_generation_context')
+        else if (path === 'rpc/session_generation_context') {
+            if (holdGenerationContext) await new Promise(resolve => releaseGenerationContext = resolve);
             data = { messages, summary: '', summaryLastTurn: generationSummaryTurn };
+        }
+        else if (path === 'rpc/select_session_variant') {
+            const input = request.postDataJSON();
+            const inGroup = m => m.role==='assistant'&&(m.reroll_group_id??m.id)===input.target_group;
+            const active = messages.find(m=>inGroup(m)&&m.is_active_variant);
+            if (active?.id!==input.target_message && input.expected_active && active?.id!==input.expected_active)
+                return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({code:'40001',message:'Response selection changed'})});
+            messages=messages.map(m=>inGroup(m)?{...m,reroll_group_id:input.target_group,is_active_variant:m.id===input.target_message,
+                content_version:m.content_version+(m.is_active_variant!==(m.id===input.target_message)?1:0)}:m);
+            data=null;
+        }
         else if (path === 'rpc/mutate_session_message') {
             const input = request.postDataJSON();
             let current = messages.find(message => message.id === input.target_message);
@@ -179,7 +194,7 @@ async function setup(context) {
         }
         else if (path === 'rpc/session_conversation_counts') {
             await new Promise(resolve => setTimeout(resolve, delayCounts));
-            data = [{ session_id: sessionId, conversation_count: 8 }];
+            data = [{ session_id: sessionId, conversation_count: messages.filter(m=>m.role==='user'&&!m.is_hidden&&m.is_active_variant).length }];
         }
         else if (path === 'messages') {
             if (request.method() === 'POST') {
@@ -199,8 +214,12 @@ async function setup(context) {
                 if (editing && editConnectionFailure === 'after') { editConnectionFailure = ''; return route.abort('failed'); }
                 data = single ? messages.find(m => m.id === id) : messages.filter(m => changed.some(c => c.id === m.id));
             }
-            else
+            else {
                 data = url.searchParams.has('id') ? messages.filter(m => 'eq.' + m.id === url.searchParams.get('id')) : messages;
+                if (url.searchParams.get('role')==='eq.assistant') data=data.filter(m=>m.role==='assistant');
+                const group=/reroll_group_id\.eq\.([^,]+)/.exec(url.searchParams.get('or')??'')?.[1];
+                if (group) data=data.filter(m=>(m.reroll_group_id??m.id)===group);
+            }
         }
         else if (path.startsWith('rpc/'))
             data = [];
@@ -220,8 +239,14 @@ try {
     await setup(context);
     const page = await context.newPage();
     page.on('pageerror', e => errors.push(e.message));
+    delayCreators = baseline ? 0 : 2000;
+    const worksStart=Date.now();
     await page.goto(origin + '/works');
-    await page.getByText('Test work', { exact: true }).first().waitFor();
+    await page.locator('.works-grid').getByText('Test work', { exact: true }).first().waitFor();
+    const worksMs=Date.now()-worksStart;
+    if(!baseline)assert(worksMs<1500,'work cards must not wait two seconds for author names');
+    delayCreators=0;
+    console.log(JSON.stringify({workListMs:worksMs,optionalAuthorDelayMs:baseline?0:2000}));
     await page.waitForFunction(async () => !!(await navigator.serviceWorker.getRegistration())?.active);
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     delayCounts = 2000;
@@ -601,6 +626,70 @@ try {
         assert.equal(adminSaveBody.desired.theme_prompt,'ORIGINAL THEME');assert.equal(adminSaveBody.desired.multichat_system_prompt,'ORIGINAL MULTI');
         console.log(JSON.stringify({failedAdminReadCannotErasePrompts:true,longPromptBodySave:true,otherPromptsPreserved:true}));
         await adminContext.close();
+
+        // Changing a variant in the same tab increments versions on the server.
+        // Verify the new version is used immediately, without reopening the room.
+        const selectionContext=await browser.newContext({serviceWorkers:'block'});
+        await setup(selectionContext);
+        const selectionPage=await selectionContext.newPage();
+        selectionPage.on('pageerror',e=>errors.push(e.message));
+        const snapshot=structuredClone(messages);
+        const previous=messages.findLast(m=>m.role==='assistant'&&m.is_active_variant);
+        const groupId=previous.reroll_group_id??previous.id;
+        const variant={...previous,id:'same-window-variant',reroll_group_id:groupId,reroll_index:(previous.reroll_index??1)+1,
+            content:'Second version for same-window editing',is_active_variant:false,content_version:0};
+        messages.push(variant);
+        await selectionPage.goto(origin+'/chat/'+sessionId);
+        await selectionPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await selectionPage.getByLabel('리롤 답변 선택').last().selectOption(variant.id);
+        const selected=selectionPage.locator('[data-scroll-anchor="'+variant.id+'"]');
+        await selected.getByText(variant.content,{exact:true}).waitFor();
+        await selected.getByRole('button',{name:'메시지 편집',exact:true}).click();
+        await selected.locator('textarea').fill('Edited immediately after selecting');
+        const selectionEditStart=requests.length;
+        await selected.getByRole('button',{name:'저장',exact:true}).click();
+        await selected.locator('textarea').waitFor({state:'hidden'});
+        assert.equal(messages.find(m=>m.id===variant.id).content,'Edited immediately after selecting');
+        assert.equal(requests.slice(selectionEditStart).filter(r=>r.path==='rpc/mutate_session_message').length,1,'latest server version must be reflected without a conflict/retry');
+        await selected.getByRole('button',{name:'메시지 편집',exact:true}).click();
+        messages=messages.map(m=>m.id===variant.id?{...m,content:'Actual external change',content_version:m.content_version+1}:m);
+        await selected.locator('textarea').fill('Keep my unsaved edit');
+        await selected.getByRole('button',{name:'저장',exact:true}).click();
+        await selectionPage.getByText(/저장된 메시지가 변경되었습니다/).first().waitFor();
+        assert.equal(await selected.locator('textarea').inputValue(),'Keep my unsaved edit');
+        assert.equal(messages.find(m=>m.id===variant.id).content,'Actual external change','a real conflict is not overwritten');
+        console.log(JSON.stringify({sameWindowSelectionEdit:true,latestServerVersionUsed:true,realConflictDraftPreserved:true}));
+        await selectionContext.close();messages=snapshot;
+
+        // Hold the dialogue request open. Theme preparation must still start,
+        // but the model cannot be called until the dialogue is released.
+        const parallelContext=await browser.newContext({serviceWorkers:'block'});
+        await setup(parallelContext);
+        const parallelPage=await parallelContext.newPage();
+        const previousTheme=session.theme_override;session.theme_override=null;
+        await parallelPage.goto(origin+'/chat/'+sessionId);
+        await parallelPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await parallelPage.waitForTimeout(200);
+        const parallelStart=requests.length, modelsBeforeParallel=modelRequests;
+        holdGenerationContext=true;releaseGenerationContext=undefined;
+        try {
+            await parallelPage.getByPlaceholder('메시지 입력…').fill('Parallel preparation fixture');
+            await parallelPage.getByRole('button',{name:'메시지 전송',exact:true}).click();
+            const until=Date.now()+3000;
+            while((!releaseGenerationContext||!requests.slice(parallelStart).some(r=>r.path==='themes'))&&Date.now()<until)await parallelPage.waitForTimeout(10);
+            assert(releaseGenerationContext,'dialogue request was held');
+            assert(requests.slice(parallelStart).some(r=>r.path==='themes'),'fresh themes must load while dialogue is still pending');
+            assert.equal(modelRequests,modelsBeforeParallel,'no model call before all prompt data is ready');
+        } finally { holdGenerationContext=false;releaseGenerationContext?.(); }
+        await parallelPage.waitForFunction(()=>!document.querySelector('.chat-stream'));
+        assert.equal(modelRequests,modelsBeforeParallel+1);
+        const traces=await parallelPage.evaluate(()=>JSON.parse(sessionStorage.getItem('inuchat.timings.v1')??'[]'));
+        const trace=traces.findLast(t=>t.operation==='send');
+        assert(trace&&trace.stages['model-request']!==undefined&&trace.stages['first-content']!==undefined&&trace.stages.save!==undefined);
+        assert(!JSON.stringify(traces).includes('Parallel preparation fixture'),'timings cannot contain message text');
+        console.log(JSON.stringify({parallelThemePreparation:true,noPrematureModelCall:true,firstEventAndContentTimings:true}));
+        session.theme_override=previousTheme;
+        await parallelContext.close();
 
     }
 }

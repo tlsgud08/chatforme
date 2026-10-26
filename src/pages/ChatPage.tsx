@@ -13,6 +13,8 @@ import { loadChatRoom, loadChatContext, type ChatContext } from '@/lib/chatRoomD
 import { mutateMessage } from '@/lib/messageMutations';
 import { registerAccountTask } from '@/lib/accountTasks';
 import { branchSession, fetchMessagePage, generationContext, mergeLatestPage, selectResponse } from '@/lib/sessionData';
+import { cacheSessionCount } from '@/lib/sessionCounts';
+import { startOperation, measureOperation } from '@/lib/operationTiming';
 import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '@/lib/llm/types';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
@@ -64,16 +66,6 @@ function orderMessagesByTurn(messages: Message[]): Message[] {
   });
 }
 
-async function fetchRerollVariants(sessionId: string, groupId: string): Promise<Message[]> {
-  const { data, error } = await supabase.from('messages')
-    .select('*')
-    .eq('session_id', sessionId)
-    .eq('role', 'assistant')
-    .or(`reroll_group_id.eq.${groupId},and(reroll_group_id.is.null,id.eq.${groupId})`)
-    .order('reroll_index', { ascending: true });
-  if (error) throw error;
-  return (data as Message[] | null) ?? [];
-}
 const sessionSettingsKey = (id: string) => `chatforme.session.${id}.settings`;
 interface SessionSettings { provider: Provider; model: string; reasoning: ReasoningSelection; }
 function loadSessionSettings(session: Session, profile: Profile | null): SessionSettings {
@@ -135,6 +127,7 @@ export interface ErrorEntry {
 }
 
 function classifyError(raw: string): string {
+  raw = raw.split('\n처리 시간(ms):', 1)[0];
   if (raw.includes('API 키가 없습니다')) return raw;
   if (raw.includes('(401)') || raw.includes('(403)')) return 'API 키가 유효하지 않습니다';
   if (raw.includes('(404)')) return '모델을 찾을 수 없습니다. 세션 메뉴에서 모델을 재선택하세요';
@@ -296,7 +289,7 @@ export default function ChatPage() {
     if (!sessionId) return;
     const sequence = ++latestReadSequenceRef.current;
     const signal = messageReadControllerRef.current.signal;
-    const page = await fetchMessagePage(sessionId, undefined, signal);
+    const page = await measureOperation('message-page', () => fetchMessagePage(sessionId, undefined, signal));
     if (signal.aborted || sequence !== latestReadSequenceRef.current) return;
     appliedReadSequenceRef.current = sequence;
     // A background completion must not discard older turns the reader opened.
@@ -770,6 +763,9 @@ export default function ChatPage() {
     // both observe `sending === false`. Lock before the first await and snapshot
     // the composer so a delayed context fetch cannot send a newer draft.
     sendInFlightRef.current = true;
+    const timing = startOperation('send');
+    let sendCompleted = false;
+    const reportSendError = (message: string) => addError(message + '\n처리 시간(ms): ' + timing.describe());
     const submittedInput = input.trim();
     const submittedCommand = selectedCommand;
     const restoreSubmitted = () => {
@@ -785,6 +781,7 @@ export default function ChatPage() {
     abortControllerRef.current = controller;
     if (sessionId) activeGenerations.set(sessionId, { controller, content: '', listeners: new Set() });
     const releaseSend = () => {
+      timing.finish(sendCompleted ? 'complete' : controller.signal.aborted ? 'cancelled' : 'failed');
       unregisterTask();
       sendInFlightRef.current = false;
       setSending(false);
@@ -796,8 +793,25 @@ export default function ChatPage() {
     // Independent reads start together. This promise always resolves, so an
     // early context failure cannot leave an unhandled metadata rejection.
     const liveThemeRead = readLiveThemeContext(false, controller.signal).then(
-      value => ({ value, error: null }), error => ({ value: null, error }),
+      value => { timing.mark('settings'); return { value, error: null }; }, error => ({ value: null, error }),
     );
+    // This branch depends on current room settings, not on the dialogue read.
+    // Catch immediately so an early context failure cannot leak a rejection.
+    const themePreparation = liveThemeRead.then(async result => {
+      if (result.error || !result.value) return { value: null, error: result.error, label: '테마 설정 조회 실패' };
+      try {
+        let liveTheme = result.value;
+        const workCombination = await loadWorkCombination(liveTheme.session, work, controller.signal);
+        if (liveTheme.session.theme_override == null) {
+          const knownWorks = workCombination ? [{ id: work.id, title: work.title }, ...workCombination.works] : undefined;
+          const catalog = await loadWorkThemeCatalog(liveTheme.session, session.user_id, controller.signal, knownWorks);
+          liveTheme = { ...liveTheme, ...catalog, names: liveTheme.dayNight ? dayNightCatalogNames(catalog.themes, !!catalog.scope) : [] };
+        }
+        controller.signal.throwIfAborted();
+        timing.mark('themes');
+        return { value: { liveTheme, workCombination }, error: null, label: '' };
+      } catch (error) { return { value: null, error, label: '작품 결합 확인 실패' }; }
+    });
     let completeMessages = messages;
     let contextSummary = session.summary;
     let contextSummaryTurn = session.summary_last_turn;
@@ -810,8 +824,9 @@ export default function ChatPage() {
         contextSummary = context.summary;
         contextSummaryTurn = context.summaryLastTurn;
         contextHash = context.contextHash;
+        timing.mark('context');
       } catch (error) {
-        if (!controller.signal.aborted) addError(`대화 문맥 불러오기 실패: ${describeUnknownError(error)}`);
+        if (!controller.signal.aborted) reportSendError(`대화 문맥 불러오기 실패: ${describeUnknownError(error)}`);
         controller.abort();
         restoreSubmitted();
         releaseSend();
@@ -841,7 +856,7 @@ export default function ChatPage() {
         }
       }
     } catch (error) {
-      if (!controller.signal.aborted) addError('재생성 요약 조회 실패: ' + describeUnknownError(error));
+      if (!controller.signal.aborted) reportSendError('재생성 요약 조회 실패: ' + describeUnknownError(error));
       controller.abort();
       releaseSend();
       return;
@@ -856,7 +871,7 @@ export default function ChatPage() {
     if (!rerollCommandPrompt && rerollUserMessage?.command_id) {
       const { data: command, error } = await supabase.from('commands').select('prompt').eq('id', rerollUserMessage.command_id).abortSignal(controller.signal).maybeSingle();
       if (error) {
-        if (!controller.signal.aborted) addError('재생성 명령어 조회 실패: ' + describeUnknownError(error));
+        if (!controller.signal.aborted) reportSendError('재생성 명령어 조회 실패: ' + describeUnknownError(error));
         controller.abort();
         releaseSend();
         return;
@@ -885,6 +900,7 @@ export default function ChatPage() {
     let partialText = '';
     let lastPaint = 0;
     let draftMessageId: string | null = null;
+    let startAttempted = false;
     let completionForRecovery: ResponseCommit | null = null;
     let retainedOnDisk = false;
     const draftWriter = createDraftWriter(async text => {
@@ -901,24 +917,15 @@ export default function ChatPage() {
     };
 
     if (!session || !profile) { releaseSend(); return; }
-    let liveTheme;
-    try{const result=await liveThemeRead;if(result.error||!result.value)throw result.error;liveTheme=result.value;}
-    catch(error){addError('테마 설정 조회 실패: '+describeUnknownError(error));restoreSubmitted();releaseSend();return;}
-    let workCombination;
-    try {
-      workCombination = await loadWorkCombination(liveTheme.session, work, controller.signal);
-      if(liveTheme.session.theme_override==null){
-        const knownWorks=workCombination?[{id:work.id,title:work.title},...workCombination.works]:undefined;
-        const catalog=await loadWorkThemeCatalog(liveTheme.session,session.user_id,controller.signal,knownWorks);
-        liveTheme={...liveTheme,...catalog,names:liveTheme.dayNight?dayNightCatalogNames(catalog.themes,!!catalog.scope):[]};
-      }
-      if (controller.signal.aborted) throw new Error('응답 생성을 중단했습니다.');
-    } catch (error) {
-      addError('작품 결합 확인 실패: ' + describeUnknownError(error));
+    const prepared = await themePreparation;
+    if (prepared.error || !prepared.value) {
+      if (!controller.signal.aborted) reportSendError(prepared.label + ': ' + describeUnknownError(prepared.error));
+      controller.abort();
       restoreSubmitted();
       releaseSend();
       return;
     }
+    const { liveTheme, workCombination } = prepared.value;
 
     // A reroll re-sends the original user turn as the latest message, so remove
     // that same row from history to avoid sending it twice.
@@ -941,6 +948,8 @@ export default function ChatPage() {
       latestUserMessage: promptText,
     });
     const maxOutputTokens = session.output_settings_override_enabled ? session.output_tokens_override : profile.default_output_tokens;
+      timing.mark('prompt');
+      startAttempted = true;
       const claimed = await beginResponse({
         target_session: session.id, response_id: crypto.randomUUID(),
         user_message_id: !options?.reroll && (text || commandPrompt) ? crypto.randomUUID() : null,
@@ -952,16 +961,19 @@ export default function ChatPage() {
         reroll_message: rerollTarget?.id ?? null, requested_turn: turnIndex, requested_variant: rerollIndex,
       });
       const draft = claimed.draft;
+      timing.mark('start-save');
       draftMessageId = draft.id;
       if (claimed.userMessage) {
         setMessages(current => [...current.filter(message => message.id !== claimed.userMessage!.id), claimed.userMessage!]);
-        setTotalUserTurnCount(current => current + 1);
+        const count = completeMessages.filter(message => message.role === 'user' && !message.is_hidden && message.is_active_variant !== false).length + 1;
+        setTotalUserTurnCount(count);
+        cacheSessionCount(queryClient, session.user_id, session.id, count);
       }
-      if (draft.generation_status !== 'streaming') { await loadLatestMessages(); return; }
+      if (draft.generation_status !== 'streaming') { await loadLatestMessages(); sendCompleted = draft.generation_status === 'complete'; return; }
       if (controller.signal.aborted) throw new DOMException('생성을 중단했습니다.', 'AbortError');
       themeRequestScopeRef.current={messageId:draft.id,scope:workThemeScopeKey(liveTheme.session)};
       startGenerationTimeout();
-      const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: assembled.systemParts, messages: assembled.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, signal: controller.signal });
+      const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: assembled.systemParts, messages: assembled.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, onPhase: phase => timing.mark(phase), signal: controller.signal });
       await draftWriter.stop();
       completionForRecovery = {
         target_session: session.id, target_message: draftMessageId, response_text: result.text,
@@ -978,20 +990,20 @@ export default function ChatPage() {
       applyCommittedResponse(committed);
       if (committed.contextConflict) {
         setPendingSave(completionForRecovery);
-        addError('생성 도중 대화가 바뀌어 답변을 중단본으로 보관했습니다. 보관한 답변을 확인해 주세요.');
+        reportSendError('생성 도중 대화가 바뀌어 답변을 중단본으로 보관했습니다. 보관한 답변을 확인해 주세요.');
         return;
       }
       forgetResponse(session.user_id, completionForRecovery);
       setPendingSave(null);
+      timing.mark('save');
+      sendCompleted = true;
       const aiMsg = committed.message as Message;
       setCacheDiagnostics(current => ({ ...current, [aiMsg.id]: result.cacheDiagnostic }));
       setSession(current => current?.id === session.id ? { ...current, ...committed.session } : current);
-      void queryClient.invalidateQueries({ queryKey: ['session-counts', user?.id] });
-      void queryClient.invalidateQueries({ queryKey: ['sessions', user?.id, 'sidebar'] });
     } catch (err) {
       if (completionForRecovery) {
         setPendingSave(completionForRecovery);
-        addError(`답변 저장을 확인하지 못했습니다. ${retainedOnDisk ? '답변은 이 기기에 보관했습니다.' : '브라우저 보관 공간을 사용할 수 없어 현재 화면에만 남아 있어요. TXT로 보관해 주세요.'} ${describeUnknownError(err)}`);
+        reportSendError(`답변 저장을 확인하지 못했습니다. ${retainedOnDisk ? '답변은 이 기기에 보관했습니다.' : '브라우저 보관 공간을 사용할 수 없어 현재 화면에만 남아 있어요. TXT로 보관해 주세요.'} ${describeUnknownError(err)}`);
         return;
       }
       if (!draftMessageId) restoreSubmitted();
@@ -1011,17 +1023,22 @@ export default function ChatPage() {
         try {
           const saved = await commitResponse(interrupted);
           applyCommittedResponse(saved);
-          if (saved.contextConflict) addError('생성 중 대화가 바뀌어 중단본으로 보관했습니다. 보관한 답변을 확인해 주세요.');
+          if (saved.contextConflict) reportSendError('생성 중 대화가 바뀌어 중단본으로 보관했습니다. 보관한 답변을 확인해 주세요.');
           else { forgetResponse(session.user_id, interrupted); setPendingSave(null); }
-          if (generationTimedOut) addError('모델 응답이 8분 안에 완료되지 않아 수신한 내용까지만 저장했습니다.');
-          else if (!isAbort) addError(partialText ? '연결이 중단되어 수신한 내용까지만 저장했습니다: ' + describeUnknownError(err) : 'AI 응답 생성에 실패했습니다: ' + describeUnknownError(err));
+          if (generationTimedOut) reportSendError('모델 응답이 8분 안에 완료되지 않아 수신한 내용까지만 저장했습니다.');
+          else if (!isAbort) reportSendError(partialText ? '연결이 중단되어 수신한 내용까지만 저장했습니다: ' + describeUnknownError(err) : 'AI 응답 생성에 실패했습니다: ' + describeUnknownError(err));
         } catch (saveError) {
-          addError(`수신한 답변의 저장을 확인하지 못했습니다. ${durable ? '이 기기 사본을 보관했습니다.' : '화면을 닫기 전에 TXT로 보관해 주세요.'} ${describeUnknownError(saveError)}`);
+          reportSendError(`수신한 답변의 저장을 확인하지 못했습니다. ${durable ? '이 기기 사본을 보관했습니다.' : '화면을 닫기 전에 TXT로 보관해 주세요.'} ${describeUnknownError(saveError)}`);
         }
-      } else if (!isAbort) addError(describeUnknownError(err));
+      } else if (!isAbort) reportSendError(describeUnknownError(err));
     } finally {
       await draftWriter.stop();
       if (generationTimeout) clearTimeout(generationTimeout);
+      // The user turn exists even when the model or final save failed.
+      if (startAttempted) {
+        void queryClient.invalidateQueries({ queryKey: ['session-counts', session.user_id] });
+        void queryClient.invalidateQueries({ queryKey: ['sessions', session.user_id] });
+      }
       releaseSend();
     }
   }
@@ -1039,7 +1056,11 @@ export default function ChatPage() {
       const result = await mutateMessage(target, null);
       setSession(current => current?.id === result.session.id ? { ...current, ...result.session } : current);
       setMessages(current => orderMessagesByTurn([...current.filter(message => message.id !== msgId && message.id !== result.replacement?.id), ...(result.replacement ? [result.replacement] : [])]));
-      if (target.role === 'user' && !target.is_hidden && target.is_active_variant) setTotalUserTurnCount(current => Math.max(0, current - 1));
+      if (target.role === 'user' && !target.is_hidden && target.is_active_variant) {
+        const count = Math.max(0, totalUserTurnCount - 1);
+        setTotalUserTurnCount(count);
+        cacheSessionCount(queryClient, session!.user_id, target.session_id, count);
+      }
       void queryClient.invalidateQueries({ queryKey: ['session-counts', user?.id] });
       showToast('메시지를 삭제했습니다.');
     } catch (error) { addError(`메시지 삭제 실패: ${describeUnknownError(error)}`); }
@@ -1092,15 +1113,18 @@ export default function ChatPage() {
     setSelectingVariantId(id);
     try {
       const groupId = message.reroll_group_id ?? message.id;
-      const group = await fetchRerollVariants(session.id, groupId);
+      const group = variantsFor(message);
       const groupIds = group.map(item => item.id);
       if (!groupIds.includes(id)) throw new Error('선택할 응답 버전을 찾을 수 없습니다.');
       messageReadControllerRef.current.abort();
       messageReadControllerRef.current = new AbortController();
       appliedReadSequenceRef.current = ++latestReadSequenceRef.current;
       const updated = await selectResponse(session.id, groupId, id, group.find(item => item.is_active_variant)?.id);
-      if (updated) setSession(current => current?.id === updated.id ? { ...current, ...updated } : current);
-      setMessages(current => current.map(item => groupIds.includes(item.id) ? { ...item, is_active_variant: item.id === id } : item));
+      setSession(current => current?.id === updated.session.id ? { ...current, ...updated.session } : current);
+      setMessages(current => orderMessagesByTurn([
+        ...current.filter(item => item.role !== 'assistant' || (item.reroll_group_id ?? item.id) !== groupId),
+        ...updated.messages,
+      ]));
     } catch (error) { addError('응답 버전 변경 실패: ' + describeUnknownError(error)); }
     finally { editInFlightRef.current = false; setSelectingVariantId(null); }
   }

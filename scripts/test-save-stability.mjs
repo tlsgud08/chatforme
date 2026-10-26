@@ -66,11 +66,11 @@ try{
   assert.equal(patches,scenario==='normal'?1:2);
  }
  for(const scenario of ['conflict','command-conflict']){
-  reset(scenario);await assert.rejects(saveMessageEdit({...original},patch),/다른 화면/);assert.equal(patches,1);assert.equal(commits,0);
+  reset(scenario);await assert.rejects(saveMessageEdit({...original},patch),/메시지가 변경/);assert.equal(patches,1);assert.equal(commits,0);
  }
  reset('unconfirmed');await assert.rejects(saveMessageEdit({...original},patch),/저장 여부를 확인하지 못/);assert.equal(patches,1);
  reset('denied');await assert.rejects(saveMessageEdit({...original},patch));assert.equal(patches,1);assert.equal(reads,0);
  reset('twice');await assert.rejects(saveMessageEdit({...original},patch));assert.equal(patches,2);assert.equal(commits,0);
- reset('normal');remote.content_version=2;remote.content='changed';await assert.rejects(saveMessageEdit({...original},patch),/다른 화면/);assert.equal(commits,0);
+ reset('normal');remote.content_version=2;remote.content='changed';await assert.rejects(saveMessageEdit({...original},patch),/메시지가 변경/);assert.equal(commits,0);
  console.log('Save stability: bounded draft cadence, immediate flush, lost edit acknowledgement, one guarded retry, late commit, conflicts, permissions and retained unconfirmed drafts passed');
 }finally{delete globalThis.__messageEditTest;}

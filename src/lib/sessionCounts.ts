@@ -1,6 +1,17 @@
 import { supabase } from '@/lib/supabase';
+import type { QueryClient } from '@tanstack/react-query';
 
-/** Preserve the existing completed-AI-turn count, with a safe rollout fallback. */
+/** Count the same visible active user turns as the chat and summary checkpoints. */
+export function sessionCountsKey(userId: string | undefined, ids: string[]) {
+  return ['session-counts', userId, [...new Set(ids)].sort()] as const;
+}
+
+/** Only update cached sets which actually contain this room, within its account. */
+export function cacheSessionCount(client: QueryClient, userId: string, sessionId: string, count: number) {
+  client.setQueriesData<Record<string, number>>({ queryKey: ['session-counts', userId] }, current =>
+    current && Object.prototype.hasOwnProperty.call(current, sessionId) ? { ...current, [sessionId]: count } : current);
+}
+
 export async function fetchSessionConversationCounts(sessionIds: string[], signal?: AbortSignal): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
   if (!sessionIds.length) return counts;
@@ -32,7 +43,7 @@ export async function fetchSessionConversationCounts(sessionIds: string[], signa
       await Promise.all(sessionIds.slice(offset, offset + 4).map(async id => {
         let query = supabase.from('messages')
           .select('id', { count: 'exact', head: true }).eq('session_id', id)
-          .eq('role', 'assistant').eq('is_hidden', false).eq('is_active_variant', true).gt('turn_index', 0);
+          .eq('role', 'user').eq('is_hidden', false).eq('is_active_variant', true);
         if (signal) query = query.abortSignal(signal);
         const { count, error } = await query;
         if (error) throw error;

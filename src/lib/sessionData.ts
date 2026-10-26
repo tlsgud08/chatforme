@@ -34,7 +34,7 @@ export async function generationContext(session: Session, keywordTurns: number, 
   return { messages: data.messages as Message[], summary: data.summary, summaryLastTurn: data.summaryLastTurn, ...(typeof data.contextHash === 'string' ? { contextHash: data.contextHash } : {}) };
 }
 
-export async function selectResponse(sessionId: string, group: string, messageId: string, expected?: string): Promise<Session | null> {
+export async function selectResponse(sessionId: string, group: string, messageId: string, expected?: string): Promise<{ session: Session; messages: Message[] }> {
   const { error } = await supabase.rpc('select_session_variant', {
     target_session: sessionId, target_group: group, target_message: messageId, expected_active: expected ?? null,
   });
@@ -44,9 +44,16 @@ export async function selectResponse(sessionId: string, group: string, messageId
       .eq('id', messageId).eq('session_id', sessionId).maybeSingle();
     if (readError || !selected?.is_active_variant) throw error;
   }
-  const { data, error: sessionError } = await supabase.from('sessions').select('*').eq('id', sessionId).single();
-  if (sessionError) throw sessionError;
-  return data as Session | null;
+  // Selection increments content_version on both the old and new answer.
+  // Refresh the whole group after the transaction, not its pre-write snapshot.
+  const [session, messages] = await Promise.all([
+    supabase.from('sessions').select('*').eq('id', sessionId).single(),
+    supabase.from('messages').select('*').eq('session_id', sessionId).eq('role', 'assistant')
+      .or(`reroll_group_id.eq.${group},and(reroll_group_id.is.null,id.eq.${group})`).order('reroll_index'),
+  ]);
+  if (session.error || !session.data) throw session.error ?? new Error('선택한 답변의 채팅방 정보를 확인하지 못했습니다.');
+  if (messages.error || !messages.data?.some(row => row.id === messageId)) throw messages.error ?? new Error('선택한 답변을 다시 불러오지 못했습니다.');
+  return { session: session.data as Session, messages: messages.data as Message[] };
 }
 
 export async function mutateSummary(sessionId: string, operation: 'edit' | 'delete' | 'select',

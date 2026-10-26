@@ -49,6 +49,7 @@ export interface StreamResult {
 export async function readOpenAIStream(
   body: ReadableStream<Uint8Array>,
   onChunk: (fullText: string) => void,
+  onEvent?: () => void,
 ): Promise<StreamResult> {
   let fullText = '';
   let inputTokens = 0;
@@ -64,6 +65,7 @@ export async function readOpenAIStream(
   await readLines(body, (line) => {
     const trimmed = line.trim();
     if (!trimmed.startsWith('data:')) return;
+    onEvent?.();
     const data = trimmed.slice(5).trim();
     if (data === '[DONE]') { receivedDone = true; return; }
     try {
