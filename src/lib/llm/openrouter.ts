@@ -19,7 +19,11 @@ export const openrouterAdapter: LLMAdapter = {
     const requestId = crypto.randomUUID();
 
     const streaming = !!opts.onChunk;
+    const phase = (value: Parameters<NonNullable<GenerateOptions['onPhase']>>[0]) => {
+      try { opts.onPhase?.(value); } catch { /* Timing observers cannot stop a generation. */ }
+    };
 
+    phase('model-request');
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       signal: opts.signal,
@@ -42,6 +46,7 @@ export const openrouterAdapter: LLMAdapter = {
         messages,
       }),
     });
+    phase('model-headers');
 
     if (!res.ok) {
       const err = await res.text();
@@ -51,7 +56,8 @@ export const openrouterAdapter: LLMAdapter = {
     if (streaming) {
       if (!res.body) throw new Error('OpenRouter 스트리밍 응답 본문이 없습니다.');
       const { text, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost, generationId, upstreamProvider } =
-        await readOpenAIStream(res.body, opts.onChunk!);
+        await readOpenAIStream(res.body, text => { phase('first-content'); opts.onChunk!(text); }, () => phase('model-event'));
+      phase('model-complete');
       const usage = { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost };
       return { text, usage, cacheDiagnostic: await createCacheDiagnostic({ sessionId: opts.sessionId, model: opts.model, sources, usage, requestId: res.headers.get('x-request-id') ?? requestId, generationId, upstreamProvider }) };
     }

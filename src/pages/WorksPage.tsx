@@ -6,7 +6,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import WorkPosterCard from '@/components/WorkPosterCard';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { fetchWorks } from '@/lib/works';
+import { fetchWorkList, fetchWorkCreators } from '@/lib/works';
+import { measureOperation } from '@/lib/operationTiming';
 import { showToast } from '@/lib/toast';
 import { useRef } from 'react';
 
@@ -19,11 +20,19 @@ export default function WorksPage() {
   const queryClient = useQueryClient();
   const favoriteLocks = useRef(new Set<string>());
   const { data, isLoading, error } = useQuery({
-    queryKey: ['works-list', { includePrivate: isAdmin }],
-    queryFn: () => fetchWorks(isAdmin),
+    queryKey: ['works-list', { includePrivate: isAdmin }, user?.id],
+    queryFn: ({ signal }) => measureOperation('works', () => fetchWorkList(isAdmin, signal)),
     enabled: selected === 'works',
+    staleTime: 30_000,
   });
   const latest = data ?? [];
+  const creatorIds = [...new Set(latest.map(work => work.creator_id))].sort();
+  const { data: creators = {} } = useQuery({
+    queryKey: ['work-creators', creatorIds],
+    queryFn: ({ signal }) => fetchWorkCreators(creatorIds, signal),
+    enabled: selected === 'works' && creatorIds.length > 0,
+    staleTime: 30_000,
+  });
 
   const { data: favoritedIds = [] } = useQuery({
     queryKey: ['user-favorites', user?.id],
@@ -82,7 +91,7 @@ export default function WorksPage() {
             {latest.map((work) => (
               <WorkPosterCard
                 key={work.id}
-                work={work}
+                work={{ ...work, creator_name: creators[work.creator_id] ?? '알 수 없음' }}
                 isFavorited={favoritedIds.includes(work.id)}
                 onFavoriteToggle={user ? (workId, event) => { void event; void toggleFavorite(workId); } : undefined}
               />

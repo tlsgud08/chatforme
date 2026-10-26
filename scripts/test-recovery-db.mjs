@@ -123,8 +123,35 @@ try {
  await assert.rejects(db.query('select save_platform_prompts($1,$2)',[configBefore,{...configAfter,system_prompt:'STALE'}]),/Configuration changed/);
  await db.query("select set_config('request.jwt.claim.email','',false)");
  await db.exec('reset role');
+ // Compare every returned field/hash with the pre-change context function,
+ // including hidden/legacy turns, inactive variants and live server summaries.
+ const contextSql=readFileSync(new URL('20261026002443_generation_context_single_pass.sql',dir),'utf8');
+ const reference=readFileSync(new URL('20261025051847_chat_and_editor_recovery.sql',dir),'utf8')
+   .match(/create or replace function public\.session_generation_context\([\s\S]*?end \$\$;/)[0]
+   .replace('public.session_generation_context(', 'public.session_generation_context_reference(');
+ await db.exec(reference);
+ const contextRoom='20000000-0000-0000-0000-000000000005';
+ await db.query('insert into sessions(id,user_id,work_id)values($1,$2,$3)',[contextRoom,a,work]);
+ await db.query(`insert into messages(session_id,role,content,turn_index,created_at)
+   select $1,case when n%2=0 then 'assistant' else 'user' end,'body '||n,(n+1)*2,'2026-01-01'::timestamptz from generate_series(1,40)n`,[contextRoom]);
+ await db.query(`insert into messages(session_id,role,content,turn_index,is_hidden,reroll_index,is_active_variant)
+   values($1,'user','legacy zero',0,false,1,true),($1,'user','hidden context',0,true,1,true),($1,'assistant','inactive variant',6,false,2,false)`,[contextRoom]);
+ await login(a);
+ let equivalent=0;
+ for(const cutoff of [0,1,5,20,99])for(const keywords of [0,1,3,50])for(const reroll of [false,true]){
+   await db.query("update sessions set summary='latest memory',summary_last_turn=$2 where id=$1",[contextRoom,cutoff]);
+   const expected=(await query('select session_generation_context_reference($1,0,$2,$3) v',[contextRoom,keywords,reroll]))[0].v;
+   const actual=(await query('select session_generation_context($1,0,$2,$3) v',[contextRoom,keywords,reroll]))[0].v;
+   assert.deepEqual(actual,expected,'context rows/order/omitted bodies/commands/versions/hash must stay identical');equivalent++;
+ }
+ assert.equal(equivalent,40);
+ await login(b);await assert.rejects(db.query('select session_generation_context($1)',[contextRoom]),/inaccessible/);
+ await login(null);await assert.rejects(db.query('select session_generation_context($1)',[contextRoom]),/permission denied/);
+ await db.exec('reset role');
  const before=await query('select * from messages order by id');
  await db.exec(readFileSync(new URL('20261025051847_chat_and_editor_recovery.sql',dir),'utf8'));
+ await db.exec(contextSql);
  assert.deepEqual(await query('select * from messages order by id'),before,'reapply never changes data');
  console.log('Recovery DB: work transaction rollback/replay/conflict/RLS, atomic start/replay, concurrent generation guard, old-client source conflicts, idempotent costs, expired-only recovery and additive reapply passed');
+ console.log('Single-pass context: 40 complete JSON/hash equivalence cases, logical gaps/legacy/hidden/variants/summary/keywords/reroll, owner/foreign/anon and reapply passed');
 } finally { await db.close(); }

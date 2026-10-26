@@ -70,6 +70,8 @@ export interface GenerateOptions {
   /** Explicit Gemini caching only; false/absent preserves implicit caching behavior. */
   cacheSystemOnly?: boolean;
   onChunk?: (text: string) => void;
+  /** Local observer; never serialized into the provider request. */
+  onPhase?: (phase: 'model-request' | 'model-headers' | 'model-event' | 'first-content' | 'model-complete') => void;
   signal?: AbortSignal;
 }
 
