@@ -19,7 +19,11 @@ try{
   if(file.startsWith('0003_follows')||file.startsWith('0008_'))source=source.split('insert into storage.buckets')[0];
   source=source.replace(/create extension if not exists pgcrypto;/gi,'').replace(/do \$\$ begin alter publication[\s\S]*?end \$\$;/gi,'');
   if(file.endsWith('_multichat_shared_experience.sql')) {
-   await db.exec(`insert into auth.users(id,email) values('${a}','a@example.test'),('${b}','b@example.test'),('${c}','c@example.test');
+   // Production enforces non-null cache counters on the canonical transcript.
+   // Keep that stricter schema here so nullable multichat usage cannot hide bugs.
+   await db.exec(`alter table messages alter column cache_read_tokens set default 0, alter column cache_read_tokens set not null,
+    alter column cache_write_tokens set default 0, alter column cache_write_tokens set not null;
+    insert into auth.users(id,email) values('${a}','a@example.test'),('${b}','b@example.test'),('${c}','c@example.test');
     insert into works(id,creator_id,title) values('10000000-0000-0000-0000-000000000009','${a}','Legacy work');
     insert into multichat_rooms(id,work_id,host_user_id,title,model,status,current_round,total_cost) values('20000000-0000-0000-0000-000000000009','10000000-0000-0000-0000-000000000009','${a}','Legacy room','fixture/plain','active',2,0.03);
     insert into multichat_members(room_id,user_id,slot) values('20000000-0000-0000-0000-000000000009','${a}',1);
@@ -52,12 +56,24 @@ try{
   await rpc('submit_multichat_action',[room,'guest '+round,null,null]);
   const payer=payers[round-1],other=payer===a?b:a;
   await login(other);assert.equal(await rpc('claim_multichat_response',[room,false]),null);
-  await login(payer);const ticket=await rpc('claim_multichat_response',[room,false]);assert.equal(ticket.round,round);assert.equal(await rpc('claim_multichat_response',[room,false]),null);
+  await login(payer);let ticket=await rpc('claim_multichat_response',[room,false]);assert.equal(ticket.round,round);assert.equal(await rpc('claim_multichat_response',[room,false]),null);
+  const cacheUsage=async(id)=>(await query('select cache_read_tokens,cache_write_tokens from messages where id=$1',[id]))[0];
+  assert.deepEqual(await cacheUsage(ticket.messageId),{cache_read_tokens:0,cache_write_tokens:0},'new assistant without usage mirrors zero counters');
   assert.equal((await query("select content from messages where session_id=$1 and turn_index=$2 and role='user'",[room,round]))[0].content,`누리(PC1): host ${round}\n\n소희(PC2): guest ${round}`);
+  assert.deepEqual((await query("select cache_read_tokens,cache_write_tokens from messages where session_id=$1 and turn_index=$2 and role='user'",[room,round]))[0],{cache_read_tokens:0,cache_write_tokens:0});
   if(round===3){await login(a);await rpc('set_multichat_billing',[room,'pc1',1,1,1]);await login(payer);}
   await rpc('stream_multichat_response',[ticket.messageId,ticket.token,'partial']);
+  assert.deepEqual(await cacheUsage(ticket.messageId),{cache_read_tokens:0,cache_write_tokens:0},'streaming updates do not reintroduce null counters');
+  if(round===5){
+   await rpc('finish_multichat_response',[ticket.messageId,ticket.token,'interrupted',0,0,0,null,null,true]);
+   assert.deepEqual(await cacheUsage(ticket.messageId),{cache_read_tokens:0,cache_write_tokens:0});
+   assert.equal((await query('select current_round from multichat_rooms'))[0].current_round,round,'interrupted save does not advance the round');
+   const retry=await rpc('claim_multichat_response',[room,true]);assert.equal(retry.messageId,ticket.messageId);assert.notEqual(retry.token,ticket.token);ticket=retry;
+  }
   await login(other);await assert.rejects(()=>rpc('finish_multichat_response',[ticket.messageId,ticket.token,'forged',1,1,1,null,null,false]));
-  await login(payer);await rpc('finish_multichat_response',[ticket.messageId,ticket.token,'answer '+round,10,20,0.01,2,0,false]);
+  const [readTokens,writeTokens]=[[null,null],[2,null],[null,3],[2,3],[0,0],[2,0],[2,0]][round-1];
+  await login(payer);await rpc('finish_multichat_response',[ticket.messageId,ticket.token,'answer '+round,10,20,0.01,readTokens,writeTokens,false]);
+  assert.deepEqual(await cacheUsage(ticket.messageId),{cache_read_tokens:readTokens??0,cache_write_tokens:writeTokens??0},'missing usage becomes zero and actual usage is retained');
   await rpc('finish_multichat_response',[ticket.messageId,ticket.token,'duplicate',10,20,0.01,2,0,false]);
   assert.equal((await query('select current_round from multichat_rooms'))[0].current_round,round+1);
   assert.equal((await query("select content from messages where id=$1",[ticket.messageId]))[0].content,'answer '+round);
@@ -67,6 +83,7 @@ try{
  await rpc('set_multichat_billing',[room,'pc2',1,1,1]);
  await login(a);await rpc('request_multichat_reroll',[room]);assert.equal(await rpc('claim_multichat_response',[room,false]),null);
  await login(b);const reroll=await rpc('claim_multichat_response',[room,false]);assert.equal(reroll.round,7);assert.equal(reroll.slot,2);await rpc('finish_multichat_response',[reroll.messageId,reroll.token,'rerolled',3,4,0.02,null,null,false]);
+ assert.deepEqual((await query('select cache_read_tokens,cache_write_tokens from messages where id=$1',[reroll.messageId]))[0],{cache_read_tokens:0,cache_write_tokens:0},'reroll completion with no usage mirrors zero counters');
  assert.equal((await query('select current_round from multichat_rooms'))[0].current_round,8);
  assert.equal(Number((await query('select total_cost from sessions where id=$1',[room]))[0].total_cost),0.09);
  await assert.rejects(()=>rpc('edit_multichat_item',[room,'assistant',reroll.messageId,'forged']));
