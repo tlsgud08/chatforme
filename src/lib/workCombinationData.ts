@@ -48,7 +48,7 @@ export async function saveWorkCombination(session: Session, userId: string, enab
   const previous = combinedWorkIds(session.combined_work_ids, session.work_id);
   const { data, error } = await supabase.from('sessions')
     .update({ work_combination_enabled: enabled, combined_work_ids: ids })
-    .eq('id', session.id).eq('user_id', userId).eq('work_id', session.work_id)
+    .eq('id', session.id).eq('user_id', session.multichat_room_id ? session.user_id : userId).eq('work_id', session.work_id)
     .eq('work_combination_enabled', session.work_combination_enabled ?? false)
     .eq('combined_work_ids', `{${previous.join(',')}}`)
     .select(WORK_COMBINATION_COLUMNS).single();

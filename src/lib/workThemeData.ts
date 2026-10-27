@@ -8,7 +8,7 @@ const THEME_PAGE_SIZE = 500;
 type WorkName = { id: string; title: string };
 
 /** Read references through normal RLS; never copy themes into another work. */
-export async function loadWorkThemeCatalog(session: WorkThemeScope, userId: string, signal?: AbortSignal, knownWorks?: WorkName[]) {
+export async function loadWorkThemeCatalog(session: WorkThemeScope & { multichat_room_id?: string | null }, userId: string, signal?: AbortSignal, knownWorks?: WorkName[]) {
   const ids = activeThemeWorkIds(session);
   const combined = ids.length > 1;
   const themes: SavedTheme[] = [];
@@ -44,7 +44,7 @@ export async function loadWorkThemeCatalog(session: WorkThemeScope, userId: stri
   }
   if (signal?.aborted) throw new Error('작품 테마 조회를 취소했습니다.');
   return {
-    themes: availableWorkThemes([...new Map(themes.map(theme => [theme.id, theme])).values()], ids, userId),
+    themes: session.multichat_room_id ? [...new Map(themes.filter(theme => theme.work_id && ids.includes(theme.work_id)).map(theme => [theme.id, theme])).values()] : availableWorkThemes([...new Map(themes.map(theme => [theme.id, theme])).values()], ids, userId),
     scope: combined ? { workNames } : undefined,
   };
 }

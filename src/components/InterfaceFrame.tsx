@@ -44,7 +44,7 @@ export default function InterfaceFrame({ children }: { children: ReactNode }) {
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const { data, error } = await supabase.from('sessions')
         .select('id,title,works(title,thumbnail_url)')
-        .eq('user_id', userId!).eq('is_archived', false)
+        .eq('user_id', userId!).is('multichat_room_id', null).eq('is_archived', false)
         .order('updated_at', { ascending: false }).limit(8).abortSignal(signal);
       if (error) throw error;
       return (data as unknown as SidebarSession[]) ?? [];

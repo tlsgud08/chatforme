@@ -2,7 +2,7 @@ import InterfaceIcon from '@/components/InterfaceIcon';
 import ModernPageHeading from '@/components/ModernPageHeading';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { fetchSessionConversationCounts, sessionCountsKey } from '@/lib/sessionCounts';
 import { measureOperation } from '@/lib/operationTiming';
@@ -20,7 +20,8 @@ export default function SessionsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const [viewTab, setViewTab] = useState<ViewTab>('active');
+  const [searchParams] = useSearchParams();
+  const [viewTab, setViewTab] = useState<ViewTab>(searchParams.get('tab') === 'multichat' ? 'multichat' : 'active');
   const [selectMode, setSelectMode] = useState<SelectMode>('none');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -28,8 +29,6 @@ export default function SessionsPage() {
   const [renameValue, setRenameValue] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [inviteCode, setInviteCode] = useState('');
-  const [invitePassword, setInvitePassword] = useState('');
   useEffect(() => {
     if (!menuId) return;
     const close = (event: PointerEvent) => { if (!(event.target as Element).closest('[data-popup-menu]')) setMenuId(null); };
@@ -43,7 +42,7 @@ export default function SessionsPage() {
       const { data, error } = await supabase
         .from('sessions')
         .select('id,title,works(title,thumbnail_url)')
-        .eq('user_id', user!.id)
+        .eq('user_id', user!.id).is('multichat_room_id', null)
         .eq('is_archived', viewTab === 'archived')
         .order('updated_at', { ascending: false }).abortSignal(signal);
       if (error) throw error;
@@ -61,17 +60,27 @@ export default function SessionsPage() {
     staleTime: 30_000,
   });
 
-  const { data: multichats, isLoading: multichatsLoading } = useQuery({
+  const { data: multichats, isLoading: multichatsLoading, isError: multichatsError, refetch: refetchMultichats } = useQuery({
     queryKey: ['multichats', user?.id],
-    queryFn: async () => { const { data, error } = await supabase.from('multichat_rooms').select('*,works(title,thumbnail_url),multichat_members(count)').order('updated_at',{ascending:false}); if(error) throw error; return data as unknown as Array<{id:string;host_user_id:string;title:string;status:string;current_round:number;invite_code:string;works:{title:string;thumbnail_url:string|null}|null;multichat_members:{count:number}[]}>; },
+    queryFn: async () => { const { data, error } = await supabase.from('multichat_rooms').select('*,works(title,thumbnail_url),multichat_members(user_id,slot)').order('updated_at',{ascending:false}); if(error) throw error; return data as unknown as Array<{id:string;host_user_id:string;title:string;status:string;current_round:number;invite_code:string;works:{title:string;thumbnail_url:string|null}|null;multichat_members:{user_id:string;slot:number}[]}>; },
     enabled: viewTab === 'multichat',
+    refetchInterval: viewTab === 'multichat' ? 5000 : false,
   });
 
-  async function joinMultichat(event: React.FormEvent) {
-    event.preventDefault();
-    const { data: roomId, error } = await supabase.rpc('join_multichat', { room_code: inviteCode, room_password: invitePassword });
-    if (error) { showToast('참가 실패: '+error.message); return; }
-    window.location.assign(`/multichat/${roomId}`);
+  useEffect(() => {
+    if (viewTab !== 'multichat' || !user) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const changed = () => { clearTimeout(timer); timer = setTimeout(() => { void queryClient.invalidateQueries({ queryKey: ['multichats', user.id] }); }, 100); };
+    const channel = supabase.channel(`multichat-list:${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'multichat_rooms' }, changed)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'multichat_members' }, changed).subscribe();
+    return () => { clearTimeout(timer); void supabase.removeChannel(channel); };
+  }, [viewTab, user?.id, queryClient]);
+
+  async function joinMultichat(roomId: string) {
+    const { data, error } = await supabase.rpc('join_multichat_room', { target_room: roomId });
+    if (error) { showToast('참가 실패: ' + error.message); return; }
+    window.location.assign(`/multichat/${data}`);
   }
 
   async function deleteMultichat(room: { id: string; title: string }) {
@@ -280,11 +289,23 @@ export default function SessionsPage() {
 
       <div className="flex-1 overflow-y-auto">
         {viewTab === 'multichat' && <div className="p-4">
-          <div className="flex gap-2"><Link to="/multichat/new" className="flex-1 rounded-lg bg-brand py-3 text-center text-sm font-semibold text-white">+ 멀티챗 만들기</Link></div>
-          <form onSubmit={joinMultichat} className="mt-3 grid grid-cols-[1fr_1fr_auto] gap-2"><input value={inviteCode} onChange={e=>setInviteCode(e.target.value.toUpperCase())} placeholder="초대 코드" className="min-w-0 rounded-lg bg-surface px-3 py-2 text-sm text-white"/><input type="password" value={invitePassword} onChange={e=>setInvitePassword(e.target.value)} placeholder="비밀번호" className="min-w-0 rounded-lg bg-surface px-3 py-2 text-sm text-white"/><button className="rounded-lg bg-surface2 px-3 text-sm text-white">참가</button></form>
-          {multichatsLoading&&<p className="py-6 text-slate-400">불러오는 중…</p>}
-          <ul className="mt-4 divide-y divide-surface2">{multichats?.map(r=><li key={r.id} className="flex items-center"><Link to={`/multichat/${r.id}`} className="flex min-w-0 flex-1 items-center gap-3 py-4"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2">{r.works?.thumbnail_url&&<img src={r.works.thumbnail_url} className="h-full w-full object-cover" alt=""/>}</div><div className="min-w-0"><p className="truncate font-semibold text-white">{r.title}</p><p className="text-xs text-slate-500">{r.status==='lobby'?'로비':r.status==='active'?`${r.current_round}턴 진행 중`:'종료'} · {r.multichat_members?.[0]?.count??0}/2명</p></div></Link>{r.host_user_id===user?.id&&<button type="button" onClick={()=>void deleteMultichat(r)} className="ml-2 shrink-0 rounded-lg px-3 py-2 text-xs font-semibold text-red-400 active:bg-surface2" aria-label={`${r.title} 삭제`}>삭제</button>}</li>)}</ul>
-          {!multichatsLoading&&!multichats?.length&&<p className="py-8 text-center text-sm text-slate-500">참여 중인 멀티챗이 없습니다.</p>}
+          <Link to="/multichat/new" className="block rounded-lg bg-brand py-3 text-center text-sm font-semibold text-white">+ 멀티챗 만들기</Link>
+          <p className="mt-3 text-xs text-slate-500">모든 멀티챗 방이 여기에 표시돼요. 시작 전 방에 바로 참가할 수 있어요.</p>
+          {multichatsLoading && <p className="py-6 text-slate-400">불러오는 중…</p>}
+          {multichatsError && <p role="alert" className="py-5 text-sm text-slate-400">방 목록을 불러오지 못했습니다. <button onClick={() => void refetchMultichats()} className="underline">다시 시도</button></p>}
+          {(['lobby', 'active'] as const).map(status => <section key={status} className="mt-6">
+            <h2 className="text-sm font-semibold text-white">{status === 'lobby' ? '시작 전' : '진행 중'} <span className="ml-1 text-xs text-slate-500">{multichats?.filter(room => status === 'lobby' ? room.status === 'lobby' : room.status !== 'lobby').length ?? 0}</span></h2>
+            <ul className="mt-2 divide-y divide-surface2">{multichats?.filter(room => status === 'lobby' ? room.status === 'lobby' : room.status !== 'lobby').map(room => {
+              const joined = room.multichat_members.some(member => member.user_id === user?.id), full = room.multichat_members.length >= 2;
+              return <li key={room.id} className="flex items-center gap-3 py-4">
+                <div className="h-14 w-11 shrink-0 overflow-hidden rounded-lg bg-surface">{room.works?.thumbnail_url && <img src={room.works.thumbnail_url} alt="" className="h-full w-full object-cover" />}</div>
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-white">{room.title}</p><p className="mt-1 truncate text-xs text-slate-500">{room.works?.title}</p><p className="mt-1 text-xs text-slate-500">{room.multichat_members.length}/2명 · {room.status === 'lobby' ? '참여자 모집 중' : `${Math.max(0, room.current_round - 1)}턴`}</p></div>
+                {joined ? <Link to={`/multichat/${room.id}`} className="rounded-lg bg-surface px-3 py-2 text-xs text-slate-200">열기</Link> : room.status === 'lobby' && !full ? <button className="rounded-lg bg-brand px-3 py-2 text-xs text-white" onClick={() => void joinMultichat(room.id)}>참가</button> : <span className="text-xs text-slate-500">진행 중</span>}
+                {room.host_user_id === user?.id && <button aria-label={`${room.title} 삭제`} className="text-xs text-red-400" onClick={() => void deleteMultichat(room)}>삭제</button>}
+              </li>;
+            })}</ul>
+            {!multichatsLoading && !multichatsError && !multichats?.some(room => status === 'lobby' ? room.status === 'lobby' : room.status !== 'lobby') && <p className="py-5 text-xs text-slate-500">{status === 'lobby' ? '시작 전인 방이 없어요.' : '진행 중인 방이 없어요.'}</p>}
+          </section>)}
         </div>}
         {viewTab !== 'multichat' && <>
         {isLoading && <p className="p-6 text-slate-400">불러오는 중…</p>}

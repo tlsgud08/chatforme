@@ -14,6 +14,7 @@ type Props = {
   userId: string;
   workId?: string;
   workIds?: string[];
+  multichatRoomId?: string | null;
   allowWorkCreate?: boolean;
   embedded?: boolean;
   drawer?: boolean;
@@ -39,7 +40,7 @@ function useCurrentVariant() {
   }, []);
   return variant;
 }
-export default function ThemeMenu({userId,workId,workIds,allowWorkCreate=false,embedded=false,drawer=false,scope,selectedId,onSelect,onClose}:Props){
+export default function ThemeMenu({userId,workId,workIds,multichatRoomId,allowWorkCreate=false,embedded=false,drawer=false,scope,selectedId,onSelect,onClose}:Props){
   const catalogScope=scope??(workId?'all':'global');
   const workScopeKey=(workIds??(workId?[workId]:[])).join(',');
   const scopeWorkIds=useMemo(()=>workScopeKey?workScopeKey.split(','):[],[workScopeKey]);
@@ -62,7 +63,7 @@ export default function ThemeMenu({userId,workId,workIds,allowWorkCreate=false,e
     // Page both catalogs so "전체" and "즐겨찾기" do not silently truncate.
     const fetchThemes = async () => {
       if(combinedScope){
-        const catalog=await loadWorkThemeCatalog({work_id:workId!,work_combination_enabled:true,combined_work_ids:scopeWorkIds.filter(id=>id!==workId)},userId);
+        const catalog=await loadWorkThemeCatalog({work_id:workId!,work_combination_enabled:true,combined_work_ids:scopeWorkIds.filter(id=>id!==workId),multichat_room_id:multichatRoomId},userId);
         catalogWorkNames=catalog.scope?.workNames??{};
         return catalog.themes;
       }
@@ -103,7 +104,7 @@ export default function ThemeMenu({userId,workId,workIds,allowWorkCreate=false,e
     setThemes(data);
     setWorkNames(catalogWorkNames);
     setFavorites(new Set(stars));
-  },[userId,workId,catalogScope,combinedScope,scopeWorkIds]);
+  },[userId,workId,catalogScope,combinedScope,scopeWorkIds,multichatRoomId]);
   useEffect(()=>{void load();return()=>{loadGeneration.current++;};},[load]);
   const visible=useMemo(()=>themes.filter(t=>{
     const inWorkScope=!!t.work_id&&scopeWorkIds.includes(t.work_id);

@@ -529,8 +529,8 @@ export default function WorkEditorPage() {
         {tab === 'multichat' && (
           <div>
             <h2 className="font-semibold text-white">멀티챗 추가 프롬프트</h2>
-            <p className="mt-1 text-xs text-slate-400">멀티챗에서만 메인 프롬프트 뒤에 추가됩니다. 참여자는 user1, user2로 전달되므로 이 이름을 지시문에서 직접 사용할 수 있습니다.</p>
-            <textarea value={work.multichat_prompt ?? ''} onChange={e=>patch({multichat_prompt:e.target.value})} rows={18} placeholder="예: user1과 user2의 행동을 동등하게 반영하세요." className="mt-3 w-full resize-none rounded-lg bg-surface px-4 py-3 text-sm leading-relaxed text-white outline-none" />
+            <p className="mt-1 text-xs text-slate-400">멀티챗에서만 메인 프롬프트 뒤에 추가됩니다. 참여자는 PC1, PC2로 전달되므로 이 이름을 지시문에서 직접 사용할 수 있습니다.</p>
+            <textarea value={work.multichat_prompt ?? ''} onChange={e=>patch({multichat_prompt:e.target.value})} rows={18} placeholder="예: PC1과 PC2의 행동을 동등하게 반영하세요." className="mt-3 w-full resize-none rounded-lg bg-surface px-4 py-3 text-sm leading-relaxed text-white outline-none" />
           </div>
         )}
 
