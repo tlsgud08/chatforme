@@ -67,7 +67,7 @@ export default function MultichatCreatePage() {
   return <div className="multichat-create-page mx-auto max-w-lg p-5">
     <button onClick={() => navigate('/sessions')} className="mb-5 text-sm text-slate-400"><InterfaceIcon name="back" /> 채팅방</button>
     <h1 className="text-xl font-bold text-white">멀티챗 만들기</h1>
-    <p className="mt-1 text-sm text-slate-400">정확히 두 명이 user1, user2가 되어 함께 AI와 대화합니다.</p>
+    <p className="mt-1 text-sm text-slate-400">두 명이 PC1(방장), PC2(참여자)로 함께 대화합니다. 홀수 턴은 PC1, 짝수 턴은 PC2의 API 키를 사용하므로 두 사람 모두 설정에서 키를 저장해 주세요.</p>
     <form onSubmit={create} className="mt-6 space-y-4">
       {requestedWorkId ? (
         <div className="rounded-lg bg-surface p-3">
@@ -80,7 +80,7 @@ export default function MultichatCreatePage() {
       <label className="block text-sm text-slate-300">방 이름<input maxLength={60} value={title} onChange={e=>setTitle(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white" /></label>
       <label className="block text-sm text-slate-300">비밀번호 (선택)<input type="password" value={password} onChange={e=>setPassword(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white" /></label>
       <div>
-        <p className="mb-2 text-sm text-slate-300">방장 모델</p>
+        <p className="mb-2 text-sm text-slate-300">공용 모델</p>
         <ModelSelector
           provider="openrouter"
           model={model}
