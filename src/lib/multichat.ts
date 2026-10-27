@@ -1,6 +1,30 @@
 import type { MultichatMember, MultichatRoom, Work } from '@/types/db';
 import type { SystemParts } from './llm/types';
 
+type Participants = readonly Pick<MultichatMember, 'slot' | 'profiles' | 'personas'>[];
+export function multichatParticipantName(slot: number, members: Participants): string {
+  const member = members.find(value => value.slot === slot);
+  return member?.personas?.name || member?.profiles?.display_name || (slot === 1 ? '첫 번째 인물' : '두 번째 인물');
+}
+
+/** PC references identify characters in instructions, not their in-world names. */
+export function resolveMultichatReferences(text: string, members: Participants): string {
+  return text.replace(/\{\{\s*(?:pc|user)[ _]?([12])\s*\}\}|\b(?:pc|user)[ _]?([12])\b/gi,
+    (_match, variable: string | undefined, reference: string | undefined) => multichatParticipantName(Number(variable ?? reference), members));
+}
+
+export function resolveMultichatVariables(text: string, members: Participants): string {
+  return text.replace(/\{\{\s*(?:pc|user)[ _]?([12])\s*\}\}/gi,
+    (_match, slot: string) => multichatParticipantName(Number(slot), members));
+}
+
+/** Old replies can contain input attribution markers; keep these out of prose. */
+export function multichatNarrative(text: string, members: Participants): string {
+  // A reference in an asset URL or code sample is not a character label.
+  return text.split(/(```[\s\S]*?(?:```|$)|`[^`]*`|https?:\/\/[^\s<>]+|<[^>]*>)/g)
+    .map((part, index) => index % 2 ? part : resolveMultichatReferences(part.replace(/\(\s*PC[ _]?[12]\s*\)/gi, ''), members)).join('');
+}
+
 /** A retry or reroll keeps the payer assigned to its original round. */
 export function multichatGenerationSlot(round: number, policy?: Pick<MultichatRoom, 'billing_mode' | 'billing_pc1_turns' | 'billing_pc2_turns' | 'billing_first_slot' | 'billing_start_round'>): 1 | 2 {
   if (policy?.billing_mode === 'pc1') return 1;
@@ -21,12 +45,9 @@ export function multichatSystemParts(
   work: Pick<Work, 'main_prompt' | 'multichat_prompt'>,
   members: Pick<MultichatMember, 'slot' | 'profiles' | 'personas'>[],
 ): SystemParts {
-  const core = [config.system_prompt, config.multichat_system_prompt,
-    work.main_prompt, work.multichat_prompt,
-    'Always distinguish the participants by the names PC1 and PC2.']
-    .filter(Boolean).map(multichatParticipantLabels).join('\n\n');
+  const core = [config.system_prompt, config.multichat_system_prompt, work.main_prompt, work.multichat_prompt].filter(Boolean).join('\n\n');
   const persona = [...members].sort((a, b) => a.slot - b.slot).map(member =>
     `PC${member.slot}: ${member.personas?.name || member.profiles?.display_name || `PC${member.slot}`}\n${member.personas?.description || ''}`,
   ).join('\n\n');
-  return { core, persona, userNote: '', summary: '', keywords: '' };
+  return { core: resolveMultichatReferences(core, members) + '\n\nPC1 and PC2 are internal references only. Use the mapped character names in narration and dialogue; never print the internal labels.', persona, userNote: '', summary: '', keywords: '' };
 }
