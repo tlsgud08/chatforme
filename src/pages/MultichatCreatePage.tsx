@@ -66,7 +66,7 @@ export default function MultichatCreatePage() {
   return <div className="multichat-create-page mx-auto max-w-lg p-5">
     <button onClick={() => navigate('/sessions')} className="mb-5 text-sm text-slate-400"><InterfaceIcon name="back" /> 채팅방</button>
     <h1 className="text-xl font-bold text-white">멀티챗 만들기</h1>
-    <p className="mt-1 text-sm text-slate-400">두 명이 PC1(방장), PC2(참여자)로 함께 대화합니다. 방은 목록에 바로 공개됩니다. API 키 사용은 교대하거나 한 사람의 키만 쓰도록 설정할 수 있어요.</p>
+    <p className="mt-1 text-sm text-slate-400">방장과 참여자, 두 명이 함께 대화합니다. 방은 목록에 바로 공개됩니다. API 키 사용은 교대하거나 한 사람의 키만 쓰도록 설정할 수 있어요.</p>
     <form onSubmit={create} className="mt-6 space-y-4">
       {requestedWorkId ? (
         <div className="rounded-lg bg-surface p-3">
@@ -87,7 +87,7 @@ export default function MultichatCreatePage() {
           onReasoningChange={setReasoning}
           hideReasoning
         />
-        <p className="mt-2 text-xs text-slate-500">두 PC가 함께 사용할 모델을 선택해 주세요.</p>
+        <p className="mt-2 text-xs text-slate-500">두 참여자가 함께 사용할 모델을 선택해 주세요.</p>
         {favoriteModels.length === 0 && <p className="mt-1 text-xs text-amber-400">설정한 기본 모델 또는 사용할 모델을 선택해 주세요.</p>}
       </div>
       <button disabled={busy||!workId||!model} className="w-full rounded-lg bg-brand py-3 font-semibold text-white disabled:opacity-40">{busy?'생성 중…':'로비 만들기'}</button>

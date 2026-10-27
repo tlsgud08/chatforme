@@ -7,7 +7,7 @@ import { automaticThemeEnabled, dayNightCatalogNames, dayNightModeEnabled, theme
 import { preferredThemeVariant } from './theme';
 import { resolvePromptCache } from './llm/promptCache';
 import { loadDefaultReasoning } from './modelPreferences';
-import { multichatParticipantLabels } from './multichat';
+import { multichatNarrative, multichatParticipantLabels, multichatParticipantName, resolveMultichatReferences, resolveMultichatVariables } from './multichat';
 import type { KeywordBook, Message, MultichatMember, Profile, Session, StartConfig, StoryNote, Work } from '@/types/db';
 
 export async function multichatTranscript(id: string): Promise<Message[]> {
@@ -60,15 +60,20 @@ export async function prepareMultichatContext(id: string, round: number, profile
   const auto = automaticThemeEnabled(session, catalog.themes, dayNight, !!catalog.scope);
   const cache = resolvePromptCache(session.prompt_cache_enabled ?? false, session.model_override ?? profile.default_model, session.prompt_cache_message_id ?? null, history, session.prompt_cache_auto_latest ?? false);
   const assembled = assemblePrompt({
-    systemPrompt: multichatParticipantLabels([config.system_prompt, config.multichat_system_prompt, 'PC1 and PC2 are distinct player characters. Reflect both actions together.'].filter(Boolean).join('\n\n')),
+    systemPrompt: [config.system_prompt, config.multichat_system_prompt, 'Reflect both player characters’ actions together.'].filter(Boolean).join('\n\n'),
     mainPrompt: multichatParticipantLabels([work.main_prompt, work.multichat_prompt].filter(Boolean).join('\n\n')), workCombination: combination,
     userNote: members.map(m => `PC${m.slot} User Notes\n${m.user_note ?? ''}`).join('\n\n'),
     summary, storyNotes: ((notesResult.data ?? []) as StoryNote[]).map(n => n.content), plugins: session.active_plugins,
     keywordBookContents: keywords, autoThemeEnabled: auto, dayNightThemeNames: dayNight ? dayNightCatalogNames(catalog.themes, !!catalog.scope) : [],
     themePrompt: config.theme_prompt, themeCatalog: themeCatalogPrompt(catalog.themes, dayNight, catalog.scope),
-    history: history.map(m => ({ role: m.role, content: multichatParticipantLabels(m.content), ...(m.id === cache.messageId && { cacheBreakpoint: true }) })), latestUserMessage: multichatParticipantLabels(latest.content),
+    history: history.map(m => ({ role: m.role, content: m.role === 'assistant' ? multichatNarrative(m.content, members) : resolveMultichatVariables(multichatParticipantLabels(m.content), members), ...(m.id === cache.messageId && { cacheBreakpoint: true }) })), latestUserMessage: resolveMultichatVariables(multichatParticipantLabels(latest.content), members),
   });
-  assembled.systemParts.persona = members.map(m => `# PC${m.slot} Information\nPC${m.slot} Name: ${m.personas?.name || m.profiles?.display_name || `PC${m.slot}`}\nPC${m.slot} Description: ${m.personas?.description ?? ''}`).join('\n\n');
+  for (const key of Object.keys(assembled.systemParts) as (keyof typeof assembled.systemParts)[]) {
+    const value = assembled.systemParts[key];
+    if (typeof value === 'string') assembled.systemParts[key] = resolveMultichatReferences(value, members);
+  }
+  assembled.systemParts.core += '\n\nPC1 and PC2 (and user1/user2) are internal participant references, not in-world names. Input labels such as Name(PC1) are metadata. In narration, dialogue and headings, use the mapped character names only; never print PC1, PC2, user1 or user2.';
+  assembled.systemParts.persona = members.map(m => `# Internal PC${m.slot} mapping\nCharacter name: ${multichatParticipantName(m.slot, members)}\nDescription: ${resolveMultichatReferences(m.personas?.description ?? '', members)}`).join('\n\n');
   return { session, assembled, catalog, dayNight, auto, cacheSystemOnly: cache.systemOnly,
     model: session.model_override || profile.default_model,
     reasoning: (session.output_settings_override_enabled ? session.reasoning_override : null) ?? profile.default_reasoning ?? loadDefaultReasoning('openrouter', session.model_override || profile.default_model),

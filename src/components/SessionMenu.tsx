@@ -307,7 +307,7 @@ export default function SessionMenu({
         </section>
         {user && <SessionThemeSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         <section className="inu-section">
-          <div className="inu-row"><h3><InterfaceIcon name="note" />{multichat ? `PC${multichat.slot} 유저 노트` : '유저 노트'}</h3><span className="inu-help">{note.length.toLocaleString()}자 · 제한 없음</span></div>
+          <div className="inu-row"><h3><InterfaceIcon name="note" />{multichat ? '내 유저 노트' : '유저 노트'}</h3><span className="inu-help">{note.length.toLocaleString()}자 · 제한 없음</span></div>
           <textarea aria-label="유저 노트" value={note} onChange={event => setNote(event.target.value)} rows={4} placeholder="이 채팅방에서 AI에게 전달할 메모" />
           <div className="inu-note-footer"><span className="inu-help">{note !== session.user_note ? '저장하지 않은 변경사항' : '이 채팅방에만 전달됩니다.'}</span><button type="button" className="inu-button inu-primary" onClick={() => void saveNote()} disabled={noteSaving}>{noteSaving ? '저장 중…' : '노트 저장'}</button></div>
         </section>
@@ -316,7 +316,7 @@ export default function SessionMenu({
       </div>
 
       <div className="inu-content" id="session-panel-ai" role="tabpanel" aria-labelledby="session-tab-ai" hidden={activeTab !== 'ai'}>
-        {multichat && <MultichatApiSettings room={multichat.room} onUpdate={multichat.onRoomUpdate} />}
+        {multichat && <MultichatApiSettings room={multichat.room} members={multichat.members} onUpdate={multichat.onRoomUpdate} />}
         <section className="inu-section"><h3><InterfaceIcon name="model" />OpenRouter 모델</h3><ModelSelector drawer provider="openrouter" model={sessionModel} reasoning={sessionReasoning} onModelChange={onModelChange} onReasoningChange={onReasoningChange} favoritesOnly hideReasoning /></section>
         <details className="inu-section inu-accordion" id="session-output-settings">
           <summary><div><h3><InterfaceIcon name="output" />출력 설정</h3><p className="inu-summary">{outputLabel} · {reasoningLabel}<span className="inu-dot">·</span>{hasExplicitOverride ? '이 채팅방 설정' : '전역 기본값'}</p></div><InterfaceIcon name="down" /></summary>
