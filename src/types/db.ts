@@ -67,12 +67,17 @@ export interface MultichatRoom {
   status: 'lobby' | 'active' | 'ended'; current_round: number; model: string;
   output_tokens: number | null; total_input_tokens: number; total_output_tokens: number;
   total_cost: number; started_at: string | null; created_at: string; updated_at: string;
+  billing_mode: 'alternate' | 'pc1' | 'pc2'; billing_pc1_turns: number; billing_pc2_turns: number;
+  billing_first_slot: 1 | 2; billing_start_round: number;
+  summary_request_id: string | null; summary_request: { through: number; mergeIds: string[] } | null;
+  summary_claimed_by: string | null; summary_claim_token: string | null; summary_claimed_at: string | null; summary_error: string | null;
 }
 
 export interface MultichatMember {
   room_id: string; user_id: string; slot: 1 | 2; persona_id: string | null; joined_at: string;
   profiles?: { display_name: string; avatar_url: string | null } | null;
   personas?: { name: string; description: string } | null;
+  user_note: string;
 }
 
 export interface WorkEditor {
@@ -124,6 +129,7 @@ export interface ActivePlugin {
 export type Plugin = Command;
 
 export interface Session {
+  multichat_room_id?: string | null;
   work_combination_enabled?: boolean;
   /** Ordered work IDs only. Index 0 is the highest additional-work priority. */
   combined_work_ids?: string[];

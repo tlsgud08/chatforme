@@ -41,6 +41,12 @@ function ChatRoute() {
   return <ChatPage key={`${user?.id}:${sessionId}`} />;
 }
 
+function MultichatRoute() {
+  const { roomId } = useParams();
+  const { user } = useAuth();
+  return <MultichatPage key={`${user?.id}:${roomId}`} />;
+}
+
 function WorkDetailRoute() {
   const { workId } = useParams();
   const { user } = useAuth();
@@ -79,7 +85,7 @@ export default function App() {
       <Route path="/chat/:sessionId" element={<RouteContent><ChatRoute /></RouteContent>} />
       <Route path="/search" element={<RouteContent><SearchPage /></RouteContent>} />
       <Route path="/multichat/new" element={<RouteContent><MultichatCreatePage /></RouteContent>} />
-      <Route path="/multichat/:roomId" element={<RouteContent><MultichatPage /></RouteContent>} />
+      <Route path="/multichat/:roomId" element={<RouteContent><MultichatRoute /></RouteContent>} />
 
       {/* 나머지는 탭바 레이아웃 */}
       <Route element={<Layout />}>

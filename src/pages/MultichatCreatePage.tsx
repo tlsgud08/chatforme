@@ -19,7 +19,6 @@ export default function MultichatCreatePage() {
   const [works, setWorks] = useState<WorkOption[]>([]);
   const [workId, setWorkId] = useState('');
   const [title, setTitle] = useState('멀티챗');
-  const [password, setPassword] = useState('');
   const initialModel = loadFavoriteModels()[0] ?? modelsFor('openrouter')[0] ?? 'openai/gpt-4o-mini';
   const [model, setModel] = useState(initialModel);
   const [reasoning, setReasoning] = useState<ReasoningSelection>(() => defaultReasoningFor('openrouter', initialModel));
@@ -59,7 +58,7 @@ export default function MultichatCreatePage() {
   async function create(event: React.FormEvent) {
     event.preventDefault(); if (!workId || !title.trim()) return;
     setBusy(true);
-    const { data, error } = await supabase.rpc('create_multichat', { target_work: workId, room_title: title.trim(), room_password: password, target_model: model, target_output_tokens: null });
+    const { data, error } = await supabase.rpc('create_multichat', { target_work: workId, room_title: title.trim(), room_password: '', target_model: model, target_output_tokens: null });
     setBusy(false); if (error) { showToast('방 생성 실패: '+error.message); return; }
     navigate(`/multichat/${data}`);
   }
@@ -67,7 +66,7 @@ export default function MultichatCreatePage() {
   return <div className="multichat-create-page mx-auto max-w-lg p-5">
     <button onClick={() => navigate('/sessions')} className="mb-5 text-sm text-slate-400"><InterfaceIcon name="back" /> 채팅방</button>
     <h1 className="text-xl font-bold text-white">멀티챗 만들기</h1>
-    <p className="mt-1 text-sm text-slate-400">두 명이 PC1(방장), PC2(참여자)로 함께 대화합니다. 홀수 턴은 PC1, 짝수 턴은 PC2의 API 키를 사용하므로 두 사람 모두 설정에서 키를 저장해 주세요.</p>
+    <p className="mt-1 text-sm text-slate-400">두 명이 PC1(방장), PC2(참여자)로 함께 대화합니다. 방은 목록에 바로 공개됩니다. API 키 사용은 교대하거나 한 사람의 키만 쓰도록 설정할 수 있어요.</p>
     <form onSubmit={create} className="mt-6 space-y-4">
       {requestedWorkId ? (
         <div className="rounded-lg bg-surface p-3">
@@ -78,7 +77,6 @@ export default function MultichatCreatePage() {
         <label className="block text-sm text-slate-300">작품<select value={workId} onChange={e=>setWorkId(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white">{works.map(w=><option key={w.id} value={w.id}>{w.title}</option>)}</select></label>
       )}
       <label className="block text-sm text-slate-300">방 이름<input maxLength={60} value={title} onChange={e=>setTitle(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white" /></label>
-      <label className="block text-sm text-slate-300">비밀번호 (선택)<input type="password" value={password} onChange={e=>setPassword(e.target.value)} className="mt-2 w-full rounded-lg bg-surface p-3 text-white" /></label>
       <div>
         <p className="mb-2 text-sm text-slate-300">공용 모델</p>
         <ModelSelector
@@ -87,13 +85,12 @@ export default function MultichatCreatePage() {
           reasoning={reasoning}
           onModelChange={setModel}
           onReasoningChange={setReasoning}
-          favoritesOnly
           hideReasoning
         />
-        <p className="mt-2 text-xs text-slate-500">설정에서 즐겨찾기한 모델만 선택할 수 있습니다.</p>
-        {favoriteModels.length === 0 && <p className="mt-1 text-xs text-amber-400">먼저 설정에서 사용할 모델을 즐겨찾기에 추가해 주세요.</p>}
+        <p className="mt-2 text-xs text-slate-500">두 PC가 함께 사용할 모델을 선택해 주세요.</p>
+        {favoriteModels.length === 0 && <p className="mt-1 text-xs text-amber-400">설정한 기본 모델 또는 사용할 모델을 선택해 주세요.</p>}
       </div>
-      <button disabled={busy||!workId||favoriteModels.length===0||!favoriteModels.includes(model)} className="w-full rounded-lg bg-brand py-3 font-semibold text-white disabled:opacity-40">{busy?'생성 중…':'로비 만들기'}</button>
+      <button disabled={busy||!workId||!model} className="w-full rounded-lg bg-brand py-3 font-semibold text-white disabled:opacity-40">{busy?'생성 중…':'로비 만들기'}</button>
     </form>
   </div>;
 }

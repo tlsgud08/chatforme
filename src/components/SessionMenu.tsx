@@ -1,4 +1,6 @@
 import InterfaceIcon from './InterfaceIcon';
+import MultichatApiSettings from './MultichatApiSettings';
+import type { MultichatMember, MultichatRoom } from '@/types/db';
 import { useEffect, useRef, useState } from 'react';
 import SessionMenuFrame, { SessionMenuPage } from './SessionMenuFrame';
 import { supabase } from '@/lib/supabase';
@@ -25,7 +27,10 @@ interface OpenRouterCredit {
   remaining: number | null;
 }
 
+export interface MultichatMenuContext { room: MultichatRoom; members: MultichatMember[]; slot: 1 | 2; onRoomUpdate: (room: MultichatRoom) => void; onRefresh: () => Promise<void>; }
+
 interface Props {
+  multichat?: MultichatMenuContext;
   session: Session;
   profile: Profile | null;
   onClose: () => void;
@@ -63,7 +68,7 @@ interface Props {
 }
 
 export default function SessionMenu({
-  session, profile, onClose, onUpdate, onPersonaChange,
+  session, profile, onClose, onUpdate, onPersonaChange, multichat,
   debugMode, onDebugToggle, showCost, onShowCostToggle, showCostKrw, onShowCostKrwToggle,
   showCacheTokens, onShowCacheTokensToggle, exchange,
   showImages, onShowImagesToggle,
@@ -139,10 +144,10 @@ export default function SessionMenu({
   async function saveNote() {
     if (noteSaving) return;
     setNoteSaving(true);
-    const { error } = await supabase.from('sessions').update({ user_note: note }).eq('id', session.id);
+    const { error } = multichat ? await supabase.rpc('set_multichat_note', { target_room: session.id, note }) : await supabase.from('sessions').update({ user_note: note }).eq('id', session.id);
     setNoteSaving(false);
     if (error) { flash('유저 노트 저장 실패: ' + error.message); return; }
-    onUpdate({ user_note: note });
+    if (multichat) await multichat.onRefresh(); else onUpdate({ user_note: note });
     flash('유저 노트를 저장했습니다.');
   }
 
@@ -183,9 +188,9 @@ export default function SessionMenu({
 
   async function selectPersona(persona: Persona | null) {
     const pid = persona?.id ?? null;
-    const { error } = await supabase.from('sessions').update({ persona_id: pid }).eq('id', session.id);
+    const { error } = multichat ? await supabase.rpc('set_multichat_persona', { target_room: session.id, target_persona: pid }) : await supabase.from('sessions').update({ persona_id: pid }).eq('id', session.id);
     if (error) { flash(`페르소나 변경 실패: ${error.message}`); return; }
-    onUpdate({ persona_id: pid });
+    if (multichat) await multichat.onRefresh(); else onUpdate({ persona_id: pid });
     onPersonaChange(persona);
   }
 
@@ -206,7 +211,12 @@ export default function SessionMenu({
     if (summarySaveLock.current || sending || summaryGenerating) return false;
     summarySaveLock.current = true;
     try {
-      const updated = await mutateSummary(session.id, operation, versionId, content, selectedSummaryIds);
+      let updated: Session;
+      if (multichat) {
+        const { data, error } = await supabase.rpc('mutate_multichat_summary', { target_room: session.id, operation, target_version: versionId, summary_text: content, selected_ids: selectedSummaryIds });
+        if (error || !data) throw error ?? new Error('메모리 저장 실패');
+        updated = data as Session;
+      } else updated = await mutateSummary(session.id, operation, versionId, content, selectedSummaryIds);
       onUpdate(updated);
       await loadSummaries();
       return true;
@@ -297,7 +307,7 @@ export default function SessionMenu({
         </section>
         {user && <SessionThemeSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         <section className="inu-section">
-          <div className="inu-row"><h3><InterfaceIcon name="note" />유저 노트</h3><span className="inu-help">{note.length.toLocaleString()}자 · 제한 없음</span></div>
+          <div className="inu-row"><h3><InterfaceIcon name="note" />{multichat ? `PC${multichat.slot} 유저 노트` : '유저 노트'}</h3><span className="inu-help">{note.length.toLocaleString()}자 · 제한 없음</span></div>
           <textarea aria-label="유저 노트" value={note} onChange={event => setNote(event.target.value)} rows={4} placeholder="이 채팅방에서 AI에게 전달할 메모" />
           <div className="inu-note-footer"><span className="inu-help">{note !== session.user_note ? '저장하지 않은 변경사항' : '이 채팅방에만 전달됩니다.'}</span><button type="button" className="inu-button inu-primary" onClick={() => void saveNote()} disabled={noteSaving}>{noteSaving ? '저장 중…' : '노트 저장'}</button></div>
         </section>
@@ -306,6 +316,7 @@ export default function SessionMenu({
       </div>
 
       <div className="inu-content" id="session-panel-ai" role="tabpanel" aria-labelledby="session-tab-ai" hidden={activeTab !== 'ai'}>
+        {multichat && <MultichatApiSettings room={multichat.room} onUpdate={multichat.onRoomUpdate} />}
         <section className="inu-section"><h3><InterfaceIcon name="model" />OpenRouter 모델</h3><ModelSelector drawer provider="openrouter" model={sessionModel} reasoning={sessionReasoning} onModelChange={onModelChange} onReasoningChange={onReasoningChange} favoritesOnly hideReasoning /></section>
         <details className="inu-section inu-accordion" id="session-output-settings">
           <summary><div><h3><InterfaceIcon name="output" />출력 설정</h3><p className="inu-summary">{outputLabel} · {reasoningLabel}<span className="inu-dot">·</span>{hasExplicitOverride ? '이 채팅방 설정' : '전역 기본값'}</p></div><InterfaceIcon name="down" /></summary>

@@ -34,7 +34,7 @@ export default function ThemeManager() {
       const preferredVariant=preferredThemeVariant(pref,legacyMode);
       let session: SessionTheme | null = null;
       let workDefault: WorkDefault | null = null;
-      const chatMatch = /^\/chat\/([0-9a-f-]+)$/i.exec(location.pathname);
+      const chatMatch = /^\/(?:chat|multichat)\/([0-9a-f-]+)$/i.exec(location.pathname);
       if (chatMatch) {
         const { data, error: sessionError } = await shareInFlight(`theme:session:${user.id}:${chatMatch[1]}`, () => supabase.from('sessions').select('work_id,theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids').eq('id',chatMatch[1]).maybeSingle());
         if (!current || run!==generation || sessionError) return;

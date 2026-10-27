@@ -1,9 +1,14 @@
-import type { MultichatMember, Work } from '@/types/db';
+import type { MultichatMember, MultichatRoom, Work } from '@/types/db';
 import type { SystemParts } from './llm/types';
 
 /** A retry or reroll keeps the payer assigned to its original round. */
-export function multichatGenerationSlot(round: number): 1 | 2 {
-  return round % 2 === 0 ? 2 : 1;
+export function multichatGenerationSlot(round: number, policy?: Pick<MultichatRoom, 'billing_mode' | 'billing_pc1_turns' | 'billing_pc2_turns' | 'billing_first_slot' | 'billing_start_round'>): 1 | 2 {
+  if (policy?.billing_mode === 'pc1') return 1;
+  if (policy?.billing_mode === 'pc2') return 2;
+  const first = policy?.billing_first_slot ?? 1;
+  const a = policy?.billing_pc1_turns ?? 1, b = policy?.billing_pc2_turns ?? 1;
+  const offset = Math.max(0, round - (policy?.billing_start_round ?? 1)) % (a + b);
+  return offset < (first === 1 ? a : b) ? first : first === 1 ? 2 : 1;
 }
 
 /** Keep existing rooms and saved prompt instructions compatible with PC labels. */
