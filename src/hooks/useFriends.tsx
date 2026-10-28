@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
 import { FRIEND_AWAY_MS, FRIEND_HEARTBEAT_MS, friendView, loadFriendSnapshot, registerFriendShutdown, type FriendOperation, type FriendSnapshot, type FriendView, type FriendWork } from '@/lib/friends';
+import { subscribeToFriendChanges } from '@/lib/friendRealtime';
+import { friendVisitKey } from '@/lib/friendVisit';
 
 interface FriendsState {
   userId: string; friends: FriendView[]; relationships: FriendSnapshot['relationships']; works: Record<string, FriendWork>;
@@ -11,12 +13,17 @@ interface FriendsState {
 }
 const FriendsContext = createContext<FriendsState | null>(null);
 const PlayingActivityContext = createContext<FriendsState['playing'] | null>(null);
+const CreatingActivityContext = createContext<FriendsState['playing'] | null>(null);
 export function useFriends() { return useContext(FriendsContext); }
 export function usePlayingActivity(sessionId: string | null | undefined) {
   // Chat pages subscribe only to this stable registration callback, so the
   // presence clock never rerenders an entire long conversation.
   const register = useContext(PlayingActivityContext);
   useEffect(() => { if (register && sessionId) return register(sessionId); }, [register, sessionId]);
+}
+export function useCreatingActivity(workId: string | null | undefined) {
+  const register = useContext(CreatingActivityContext);
+  useEffect(() => { if (register && workId) return register(workId); }, [register, workId]);
 }
 const message = (error: unknown) => (error as { message?: string })?.message || String(error);
 
@@ -25,7 +32,7 @@ export function FriendsProvider({ userId, children }: { userId: string; children
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [pending, setPending] = useState(false);
   const [now, setNow] = useState(Date.now), [offset, setOffset] = useState(0);
   const [profileId, openProfile] = useState<string | null>(null), [managerOpen, openManager] = useState(false);
-  const active = useRef(true), interaction = useRef(Date.now()), context = useRef<string | null>(null);
+  const active = useRef(true), interaction = useRef(Date.now()), context = useRef<{ type: 'play' | 'create'; id: string } | null>(null);
   const write = useRef<(() => void) | null>(null), registration = useRef(0), revision = useRef(0), mutation = useRef(false);
   const readController = useRef<AbortController | null>(null);
   const serverOffset = useRef(0);
@@ -33,22 +40,26 @@ export function FriendsProvider({ userId, children }: { userId: string; children
     const seq = ++revision.current;
     readController.current?.abort();
     const controller = new AbortController(); readController.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
       const result = await loadFriendSnapshot(controller.signal);
       if (!active.current || seq !== revision.current) return;
       serverOffset.current = Date.parse(result.snapshot.server_time) - Date.now();
-      setSnapshot(result.snapshot); setWorks(result.works); setOffset(serverOffset.current); setError('');
-    } catch (problem) { if (active.current && !controller.signal.aborted && seq === revision.current) setError(message(problem)); }
-    finally { if (active.current && seq === revision.current) setLoading(false); }
+      setSnapshot(result.snapshot); setWorks(result.works); setOffset(serverOffset.current); setNow(Date.now()); setError('');
+    } catch (problem) { if (active.current && seq === revision.current) setError(controller.signal.aborted ? '친구 상태를 다시 확인하고 있어요.' : message(problem)); }
+    finally { clearTimeout(timeout); if (active.current && seq === revision.current) setLoading(false); }
   }, [userId]);
-  const playing = useCallback((id: string | null) => {
-    const token = ++registration.current; context.current = id;
+  const register = useCallback((type: 'play' | 'create', id: string | null) => {
+    const token = ++registration.current; context.current = id ? { type, id } : null;
     if (document.visibilityState !== 'hidden') interaction.current = Date.now();
     write.current?.();
     return () => { if (registration.current === token) { context.current = null; write.current?.(); } };
   }, []);
+  const playing = useCallback((id: string | null) => register('play', id), [register]);
+  const creating = useCallback((id: string | null) => register('create', id), [register]);
   useEffect(() => {
     active.current = true;
+    const visit = friendVisitKey(userId);
     let connection = crypto.randomUUID();
     let stopped = false, sending = false, queued = false;
     let controller = new AbortController();
@@ -57,8 +68,9 @@ export function FriendsProvider({ userId, children }: { userId: string; children
       if (sending) { queued = true; return; }
       sending = true;
       const signal = controller.signal;
+      const activity = context.current;
       try {
-        const { error: problem } = await supabase.rpc('touch_friend_activity', { connection_key: connection, playing_session: context.current, interaction_at: new Date(interaction.current + serverOffset.current).toISOString() }).abortSignal(signal);
+        const { error: problem } = await supabase.rpc('touch_friend_activity_state', { connection_key: connection, visit_key: visit, playing_session: activity?.type === 'play' ? activity.id : null, editing_work: activity?.type === 'create' ? activity.id : null, interaction_at: new Date(interaction.current + serverOffset.current).toISOString() }).abortSignal(signal);
         if (problem && !stopped) setError(message(problem));
       } catch (problem) { if (!stopped && !signal.aborted) setError(message(problem)); }
       finally { sending = false; if (queued && !stopped) { queued = false; void heartbeat(); } }
@@ -79,7 +91,7 @@ export function FriendsProvider({ userId, children }: { userId: string; children
       if (wasAway) void heartbeat();
     };
     const revive = () => { if (stopped && active.current) { stopped = false; connection = crypto.randomUUID(); controller = new AbortController(); } };
-    const focus = () => { revive(); interact(); void heartbeat(); void refresh(); };
+    const focus = () => { revive(); interact(); void heartbeat(); };
     const visibility = () => { if (document.visibilityState === 'visible') focus(); };
     const pageHide = () => { void stop(); };
     const pageShow = focus;
@@ -88,30 +100,19 @@ export function FriendsProvider({ userId, children }: { userId: string; children
     window.addEventListener('pagehide', pageHide); window.addEventListener('pageshow', pageShow);
     document.addEventListener('visibilitychange', visibility);
     const heartbeatTimer = window.setInterval(() => { void heartbeat(); }, FRIEND_HEARTBEAT_MS);
-    const refreshTimer = window.setInterval(() => { void refresh(); }, 60_000);
     const clockTimer = window.setInterval(() => setNow(Date.now()), 5000);
-    void heartbeat(); void refresh();
+    void heartbeat();
     return () => {
       active.current = false; revision.current++; readController.current?.abort(); write.current = null; unregister();
       for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'] as const) window.removeEventListener(event, interact);
       window.removeEventListener('focus', focus); window.removeEventListener('online', focus);
       window.removeEventListener('pagehide', pageHide); window.removeEventListener('pageshow', pageShow);
       document.removeEventListener('visibilitychange', visibility);
-      window.clearInterval(heartbeatTimer); window.clearInterval(refreshTimer); window.clearInterval(clockTimer); void stop();
+      window.clearInterval(heartbeatTimer); window.clearInterval(clockTimer); void stop();
     };
   }, [userId, refresh]);
   const friendIds = (snapshot?.relationships ?? []).filter(row => row.status === 'accepted').map(row => row.user_id).sort().join(',');
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const changed = () => { clearTimeout(timer); timer = setTimeout(() => { void refresh(); }, 100); };
-    const channel = supabase.channel(`friends:${userId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `user_a=eq.${userId}` }, changed)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `user_b=eq.${userId}` }, changed);
-    const ids = [userId, ...friendIds.split(',').filter(Boolean)];
-    for (let offset = 0; offset < ids.length; offset += 90) channel.on('postgres_changes', { event: '*', schema: 'public', table: 'friend_activity_signals', filter: `user_id=in.(${ids.slice(offset, offset + 90).join(',')})` }, changed);
-    channel.subscribe(status => { if (status === 'SUBSCRIBED') changed(); });
-    return () => { clearTimeout(timer); void supabase.removeChannel(channel); };
-  }, [userId, friendIds, refresh]);
+  useEffect(() => subscribeToFriendChanges(supabase, userId, friendIds.split(',').filter(Boolean), refresh), [userId, friendIds, refresh]);
   const change = useCallback(async (id: string, operation: FriendOperation) => {
     if (mutation.current) return; mutation.current = true; setPending(true);
     try { const result = await supabase.rpc('change_friendship', { other_user: id, operation }); if (result.error) throw result.error; await refresh(); }
@@ -124,5 +125,5 @@ export function FriendsProvider({ userId, children }: { userId: string; children
   }, [refresh]);
   const friends = useMemo(() => (snapshot?.relationships ?? []).filter(row => row.status === 'accepted').map(row => friendView(row, now + offset))
     .sort((a, b) => ({ online: 0, away: 1, offline: 2, hidden: 3 }[a.presence] - { online: 0, away: 1, offline: 2, hidden: 3 }[b.presence]) || a.display_name.localeCompare(b.display_name)), [snapshot, now, offset]);
-  return <PlayingActivityContext.Provider value={playing}><FriendsContext.Provider value={{ userId, friends, relationships: snapshot?.relationships ?? [], works, sharing: snapshot?.sharing_enabled ?? true, loading, error, pending, refresh, change, setSharing, playing, profileId, openProfile, managerOpen, openManager }}>{children}</FriendsContext.Provider></PlayingActivityContext.Provider>;
+  return <PlayingActivityContext.Provider value={playing}><CreatingActivityContext.Provider value={creating}><FriendsContext.Provider value={{ userId, friends, relationships: snapshot?.relationships ?? [], works, sharing: snapshot?.sharing_enabled ?? true, loading, error, pending, refresh, change, setSharing, playing, profileId, openProfile, managerOpen, openManager }}>{children}</FriendsContext.Provider></CreatingActivityContext.Provider></PlayingActivityContext.Provider>;
 }

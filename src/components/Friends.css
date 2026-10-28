@@ -10,7 +10,7 @@
 .friend-presence-away { background:#d5a844; }
 .friend-activity-copy { display:block; min-width:0; }
 .friend-activity-name { display:block; font-size:12px; color:var(--interface-text,var(--page-text)); line-height:1.35; }
-.friend-activity-caption { display:block; font-size:11px; line-height:1.4; color:var(--interface-muted,#94a3b8); word-break:keep-all; overflow-wrap:anywhere; }
+.friend-activity-caption { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; font-size:11px; line-height:1.4; color:var(--interface-muted,#94a3b8); word-break:keep-all; overflow-wrap:anywhere; }
 .friend-manage-button { position:relative; flex-shrink:0; padding:8px; color:var(--interface-muted,#94a3b8); }
 .friend-request-dot { position:absolute; right:6px; top:5px; width:6px; height:6px; border-radius:50%; background:rgb(var(--color-brand)); }
 .friend-empty-link { font-size:12px; text-align:left; color:var(--interface-muted,#94a3b8); min-height:36px; }
