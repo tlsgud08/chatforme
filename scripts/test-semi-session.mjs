@@ -77,6 +77,18 @@ try{
  await q('update sessions set persona_id=$1 where id=$2',[pb,sb]);
  await login(a);
  context=await rpc('semi_session_context',[sa]);assert.equal(context.peer_persona.description,'LIVE MERCHANT');assert.equal(context.peer,null);
+ const dates=async()=> (await q('select sync_date_a,sync_date_b from semi_session_links where id=$1',[link.id]))[0];
+ const dateId='90000000-0000-0000-0000-000000000001';
+ await q("insert into messages(id,session_id,role,content,turn_index,generation_status) values($1,$2,'assistant','Story {{sync_date::1889년 4월 18일}}',2,'streaming')",[dateId,sa]);
+ assert.equal((await dates()).sync_date_a,null,'streaming dates are not published');
+ await q("update messages set generation_status='complete' where id=$1",[dateId]);assert.equal((await dates()).sync_date_a,'1889년 4월 18일');assert.equal((await dates()).sync_date_b,null);
+ await q("insert into messages(session_id,role,content,turn_index) values($1,'assistant','No date',3)",[sa]);assert.equal((await dates()).sync_date_a,'1889년 4월 18일','missing tag retains previous date');
+ await q("update messages set content='{{sync_date::early}}{{sync_date::late}}' where id=$1",[dateId]);assert.equal((await dates()).sync_date_a,'late');
+ await login(b);assert.equal((await dates()).sync_date_a,'late','peer sees sender date');
+ await q("insert into messages(session_id,role,content,turn_index) values($1,'user','{{sync_date::USER}}',2)",[sb]);assert.equal((await dates()).sync_date_b,null);
+ await login(a);await q('update messages set is_active_variant=false where id=$1',[dateId]);assert.equal((await dates()).sync_date_a,null);
+ await q('update messages set is_active_variant=true where id=$1',[dateId]);assert.equal((await dates()).sync_date_a,'late');
+ await q('delete from messages where id=$1',[dateId]);assert.equal((await dates()).sync_date_a,null);
  const beforeSession=(await q('select summary,summary_last_turn from sessions where id=$1',[sa]))[0];
  const beforeMessages=await q('select id,content,is_summarized from messages where session_id=$1 order by id',[sa]);
  const beforeVersions=await q('select * from summary_versions where session_id=$1',[sa]);
@@ -136,6 +148,8 @@ try{
 const server=await createServer({server:{middlewareMode:true},appType:'custom'});
 try{
  const {applySemiContext,loadSemiContext}=await server.ssrLoadModule('/src/lib/semiSession.ts');
+ const {stripSyncDateTags}=await server.ssrLoadModule('/src/lib/syncDate.ts');
+ assert.equal(stripSyncDateTags('A{{sync_date::1889년}}B'),'AB');assert.equal(stripSyncDateTags('A{{sync_da',true),'A');assert.equal(stripSyncDateTags('A{{sync_date::1889',true),'A');assert.equal(stripSyncDateTags('Plain'),'Plain');
  const {buildOpenRouterMessages}=await server.ssrLoadModule('/src/lib/llm/promptCache.ts');
  const normal={systemParts:{core:'CORE',persona:'PC SELF',summary:'OWN MEMORY',userNote:'SECRET',keywords:''},messages:[{role:'user',content:'INPUT'}]};
  assert.equal(applySemiContext(normal,null),normal,'unlinked ordinary payload is untouched');

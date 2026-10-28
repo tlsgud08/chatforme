@@ -12,7 +12,7 @@ const imports={react:hooks,'@/lib/supabase':uri('export const supabase={};'),
 const compile=ts.transpileModule(readFileSync(new URL('../src/components/SemiSessionSettings.tsx',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 const Component=(await import(uri(compile.replace(/from\s+(['"])([^'"]+)\1/g,(_,q,path)=>'from '+JSON.stringify(imports[path]??import.meta.resolve(path)))))).default;
 const snapshot={persona:{name:'레온',description:'MERCHANT'},content:'PEER MEMORY',sent_at:'2026-10-28T10:00:00Z'};
-const active={id:'link',user_a:'a',user_b:'b',session_a:'sa',session_b:'sb',title_a:'A',title_b:'B',status:'active',snapshot_a:{...snapshot,content:'OWN EXPORT'},snapshot_b:snapshot};
+const active={id:'link',user_a:'a',user_b:'b',session_a:'sa',session_b:'sb',title_a:'A',title_b:'B',status:'active',sync_date_a:'MY DATE',sync_date_b:'PEER DATE',snapshot_a:{...snapshot,content:'OWN EXPORT'},snapshot_b:snapshot};
 const calls=[],saves=[];let published=0;
 globalThis.__semiAction=async(...args)=>{calls.push(args);return {};};
 globalThis.__semiUI={index:0,values:[[active],[{user_id:'b',display_name:'친구'}],true,false,'','','',0]};
@@ -22,7 +22,7 @@ function nodes(n,p,out=[]){if(!n||typeof n!=='object')return out;if(p(n))out.pus
 const button=(tree,text)=>nodes(tree,n=>n.type==='button'&&n.props.children===text)[0];
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 let tree=render(),markup=renderToStaticMarkup(tree);
-assert.ok(markup.includes('레온'));assert.ok(!markup.includes('OWN EXPORT'));
+assert.ok(markup.includes('PEER DATE'));assert.ok(!markup.includes('MY DATE'));assert.ok(markup.includes('레온'));assert.ok(!markup.includes('OWN EXPORT'));
 button(tree,'연동 정보 열람').props.onClick();tree=render();markup=renderToStaticMarkup(tree);assert.ok(markup.includes('PEER MEMORY'));assert.ok(markup.includes('OWN EXPORT'));assert.ok(markup.includes('받은 PC2 세션 요약'));assert.ok(markup.includes('내가 보낸 페르소나·요약'));
 let editedExport=null;globalThis.__editSemiExport=async(...args)=>{editedExport=args;return{...snapshot,content:args[3],persona:{name:args[4],description:args[5]}};};
 button(tree,'내 전송 내용 편집').props.onClick();tree=render();nodes(tree,n=>n.props?.id==='semi-export-summary')[0].props.onChange({target:{value:'EDITED EXPORT'}});tree=render();button(tree,'전송 내용 저장').props.onClick();await tick();assert.equal(editedExport[0],'sa');assert.equal(editedExport[3],'EDITED EXPORT');assert.equal(editedExport[2].content,'OWN EXPORT');saves.length=0;

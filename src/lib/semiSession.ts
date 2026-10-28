@@ -20,6 +20,7 @@ export async function editSemiExport(sessionId: string, linkId: string, expected
   return data as SemiSnapshot;
 }
 export interface SemiLink {
+  sync_date_a?: string | null; sync_date_b?: string | null;
   id: string; user_a: string; user_b: string; session_a: string; session_b: string | null;
   title_a: string; title_b: string | null; status: 'pending' | 'active' | 'closed';
   snapshot_a: SemiSnapshot | null; snapshot_b: SemiSnapshot | null;
@@ -45,7 +46,7 @@ export async function semiAction(operation: 'request' | 'accept' | 'close' | 'pr
 }
 
 export async function loadSemiLinks(signal?: AbortSignal): Promise<SemiLink[]> {
-  let query = supabase.from('semi_session_links').select('id,user_a,user_b,session_a,session_b,title_a,title_b,status,snapshot_a,snapshot_b').neq('status', 'closed');
+  let query = supabase.from('semi_session_links').select('id,user_a,user_b,session_a,session_b,title_a,title_b,status,snapshot_a,snapshot_b,sync_date_a,sync_date_b').neq('status', 'closed');
   if (signal) query = query.abortSignal(signal);
   const { data, error } = await query;
   if (error) throw error;

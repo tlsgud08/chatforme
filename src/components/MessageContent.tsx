@@ -6,6 +6,7 @@ import Spoiler from './Spoiler';
 import MarkdownImage from './MarkdownImage';
 import MarkdownCodeBlock from './MarkdownCodeBlock';
 import { stripThemeDirectives } from '@/lib/themeDirectives';
+import { stripSyncDateTags } from '@/lib/syncDate';
 import type { Message } from '@/types/db';
 
 const remarkPlugins = [remarkGfm, remarkSpoiler];
@@ -56,7 +57,7 @@ const MessageContent = memo(function MessageContent({ content, role, status, sho
         ),
       }}
     >
-      {(role==='assistant'?stripThemeDirectives(content,status==='streaming'):content) || (status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
+      {(role==='assistant'?stripSyncDateTags(stripThemeDirectives(content,status==='streaming'),status==='streaming'):content) || (status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
     </ReactMarkdown>
   );
 });
