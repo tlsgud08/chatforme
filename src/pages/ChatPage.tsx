@@ -25,6 +25,7 @@ import { workThemeScopeKey } from '@/lib/workCombination';
 import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import { resolvePromptCache } from '@/lib/llm/promptCache';
 import { loadGlobalSummaryPrompt } from '@/lib/summaryPrompt';
+import { applySemiContext, loadSemiContext, semiAction, type SemiPreparation } from '@/lib/semiSession';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
 import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
@@ -658,22 +659,25 @@ export default function ChatPage() {
     });
   }
 
-  async function generateSummary(archivesToMerge: SummaryVersion[] = [], requestedThroughTurn?: number) {
-    if (!contextReady || !session || !profile || editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current || sendInFlightRef.current || activeGenerations.has(session.id) || summaryGenerating || activeSummaryGenerations.has(session.id)) return;
+  async function generateSummary(archivesToMerge: SummaryVersion[] = [], requestedThroughTurn?: number, shareTarget?: string): Promise<boolean> {
+    if (!contextReady || !session || !profile || editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current || sendInFlightRef.current || activeGenerations.has(session.id) || summaryGenerating || activeSummaryGenerations.has(session.id) || workCombinationSavingRef.current) return false;
     const apiKey = getApiKey('openrouter');
-    if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return; }
+    if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return false; }
     const summarySessionId = session.id;
     const summaryController = new AbortController();
     const unregisterTask = registerAccountTask(summaryController);
     activeSummaryGenerations.set(summarySessionId, { controller: summaryController, listeners: new Set() });
     setSummaryGenerating(true);
+    let shareTicket: SemiPreparation | null = null;
     try {
+      if (shareTarget) shareTicket = await semiAction('prepare', session.id, shareTarget) as SemiPreparation;
+      const sourceSession = shareTicket?.session ?? session;
       const liveTheme=await readLiveThemeContext(true,summaryController.signal);
       // Include the hidden initial context in the first archive so important
       // scenario setup is not lost after its short keep_turns window expires.
-      const sourceMode = session.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
-      await recoverExpiredResponses(session.id);
-      const completeSourceMessages = await fetchAllSessionMessages(session.id);
+      const sourceMode = sourceSession.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
+      await recoverExpiredResponses(sourceSession.id);
+      const completeSourceMessages = await fetchAllSessionMessages(sourceSession.id);
       const allActiveMessages = completeSourceMessages.filter((message) => message.is_active_variant !== false);
       if (allActiveMessages.some(message => message.generation_status === 'streaming')) throw new Error('응답 생성이 끝난 뒤 요약해 주세요.');
       const latestTurn = allActiveMessages.filter((message) => message.role === 'user' && !message.is_hidden).length;
@@ -683,17 +687,20 @@ export default function ChatPage() {
         ? archivesToMerge.map(version => version.content).join('\n\n--- Summary to Merge ---\n\n')
         : '';
       let previousTurn = 0;
+      let sourceNote: SummaryVersion | null = null;
       if (archivesToMerge.length === 0 && sourceMode === 'incremental' && throughTurn > 0) {
-        const { data: earlierVersions } = await supabase.from('summary_versions')
-          .select('*').eq('session_id', session.id).lt('summarized_through_turn', throughTurn)
+        const { data: earlierVersions, error: earlierError } = await supabase.from('summary_versions')
+          .select('*').eq('session_id', sourceSession.id).lt('summarized_through_turn', throughTurn)
           .order('summarized_through_turn', { ascending: false }).limit(1);
+        if (earlierError) throw earlierError;
         const earlier = ((earlierVersions as SummaryVersion[] | null) ?? [])[0];
         if (earlier) {
+          sourceNote = earlier;
           previous = earlier.content.trim();
           previousTurn = earlier.summarized_through_turn;
-        } else if (session.summary_last_turn < throughTurn) {
-          previous = session.summary.trim();
-          previousTurn = session.summary_last_turn;
+        } else if (sourceSession.summary_last_turn < throughTurn) {
+          previous = sourceSession.summary.trim();
+          previousTurn = sourceSession.summary_last_turn;
         }
       }
       const candidates = archivesToMerge.length > 0
@@ -710,16 +717,26 @@ export default function ChatPage() {
       if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
       const result = await generate('openrouter', {
         apiKey,
-        sessionId: `${session.id}:summary`,
+        sessionId: `${sourceSession.id}:summary`,
         signal: summaryController.signal,
-        model: session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
-        reasoning: normalizeReasoning(session.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', session.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
+        model: sourceSession.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
+        reasoning: normalizeReasoning(sourceSession.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', sourceSession.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
         systemParts: { core: summaryCore, persona: '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user', content: input }],
         maxOutputTokens: 4096,
       });
       if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
       if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
+      if (shareTarget && shareTicket) {
+        const accounting = await semiAction('publish', sourceSession.id, shareTarget, {
+          token: shareTicket.token, content: result.text, through_turn: throughTurn,
+          source_notes: sourceNote ? [{ id: sourceNote.id, content: sourceNote.content, through_turn: sourceNote.summarized_through_turn }] : [],
+          input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
+        });
+        shareTicket = null;
+        setSession(current => current?.id === sourceSession.id ? { ...current, ...accounting } : current);
+        return true;
+      }
       const ids = candidates.map((message) => message.id);
       const { data: updated, error } = await supabase.rpc('save_generated_summary', {
         target_session: session.id, summary_text: result.text, through_turn: throughTurn,
@@ -734,9 +751,12 @@ export default function ChatPage() {
       if (error || !updated) throw error ?? new Error('요약을 저장하지 못했습니다.');
       setMessages(current => current.map(message => ids.includes(message.id) ? { ...message, is_summarized: true } : message));
       setSession(current => current?.id === session.id ? { ...current, ...updated } : current);
+      return true;
     } catch (error) {
-      addError(`요약 생성 실패: ${describeUnknownError(error)}`);
+      addError(`${shareTarget ? '전달용 요약' : '요약'} 생성 실패: ${describeUnknownError(error)}`);
+      return false;
     } finally {
+      if (shareTarget && shareTicket) void semiAction('release', session.id, shareTarget, { token: shareTicket.token }).catch(() => {});
       unregisterTask();
       setSummaryGenerating(false);
       finishSummaryGeneration(summarySessionId);
@@ -804,7 +824,10 @@ export default function ChatPage() {
       if (result.error || !result.value) return { value: null, error: result.error, label: '테마 설정 조회 실패' };
       try {
         let liveTheme = result.value;
-        const workCombination = await loadWorkCombination(liveTheme.session, work, controller.signal);
+        const [workCombination, semiContext] = await Promise.all([
+          loadWorkCombination(liveTheme.session, work, controller.signal),
+          loadSemiContext(session.id, controller.signal),
+        ]);
         if (liveTheme.session.theme_override == null) {
           const knownWorks = workCombination ? [{ id: work.id, title: work.title }, ...workCombination.works] : undefined;
           const catalog = await loadWorkThemeCatalog(liveTheme.session, session.user_id, controller.signal, knownWorks);
@@ -812,8 +835,8 @@ export default function ChatPage() {
         }
         controller.signal.throwIfAborted();
         timing.mark('themes');
-        return { value: { liveTheme, workCombination }, error: null, label: '' };
-      } catch (error) { return { value: null, error, label: '작품 결합 확인 실패' }; }
+        return { value: { liveTheme, workCombination, semiContext }, error: null, label: '' };
+      } catch (error) { return { value: null, error, label: '대화 연결·작품 설정 확인 실패' }; }
     });
     let completeMessages = messages;
     let contextSummary = session.summary;
@@ -928,7 +951,7 @@ export default function ChatPage() {
       releaseSend();
       return;
     }
-    const { liveTheme, workCombination } = prepared.value;
+    const { liveTheme, workCombination, semiContext } = prepared.value;
 
     // A reroll re-sends the original user turn as the latest message, so remove
     // that same row from history to avoid sending it twice.
@@ -940,7 +963,7 @@ export default function ChatPage() {
       session.prompt_cache_message_id ?? null, historyMsgs, session.prompt_cache_auto_latest ?? false);
     if (promptCache.unavailable) showToast('선택한 캐시 기준 답변이 이번 문맥에 없어 명시적 캐시 없이 전송합니다.');
     try {
-    const assembled = assemblePrompt({
+    const assembled = applySemiContext(assemblePrompt({
       autoThemeEnabled:automaticThemeEnabled(liveTheme.session,liveTheme.themes,liveTheme.dayNight,!!liveTheme.scope),dayNightThemeNames:liveTheme.names,themePrompt,themeCatalog:themeCatalogPrompt(liveTheme.themes,liveTheme.dayNight,liveTheme.scope),
       systemPrompt, mainPrompt: work.main_prompt, workCombination, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
@@ -949,7 +972,7 @@ export default function ChatPage() {
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content,
         ...(m.id === promptCache.messageId && { cacheBreakpoint: true }) })),
       latestUserMessage: promptText,
-    });
+    }), semiContext);
     const maxOutputTokens = session.output_settings_override_enabled ? session.output_tokens_override : profile.default_output_tokens;
       timing.mark('prompt');
       startAttempted = true;
@@ -1384,8 +1407,9 @@ export default function ChatPage() {
           onClearErrors={() => setErrorLog([])}
           onExportConversation={exportConversation}
           exportingConversation={exportingConversation}
-          onGenerateSummary={(throughTurn) => generateSummary([], throughTurn)}
-          onMergeSummaries={(versions) => generateSummary(versions, Math.max(0, ...versions.map(version => version.summarized_through_turn)))}
+          onPublishSemiSummary={linkId => generateSummary([], undefined, linkId)}
+          onGenerateSummary={async (throughTurn) => { await generateSummary([], throughTurn); }}
+          onMergeSummaries={async (versions) => { await generateSummary(versions, Math.max(0, ...versions.map(version => version.summarized_through_turn))); }}
           summaryGenerating={summaryGenerating}
           storyNotes={storyNotes}
           onStoryNotesChange={setStoryNotes}

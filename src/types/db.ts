@@ -33,6 +33,7 @@ export interface Profile {
 }
 
 export interface PlatformConfig {
+  semi_multichat_prompt?: string;
   summary_prompt: string;
   id: number;
   system_prompt: string;
