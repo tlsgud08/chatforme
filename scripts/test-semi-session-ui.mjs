@@ -6,7 +6,7 @@ const uri=code=>'data:text/javascript;base64,'+Buffer.from(code).toString('base6
 const hooks=uri(`export const useEffect=()=>{};export function useState(initial){const h=globalThis.__semiUI,i=h.index++;if(!(i in h.values))h.values[i]=typeof initial==='function'?initial():initial;return[h.values[i],next=>h.values[i]=typeof next==='function'?next(h.values[i]):next]};export function useRef(initial){const h=globalThis.__semiUI,i=h.index++;return h.values[i]??=( {current:initial} )}`);
 const imports={react:hooks,'@/lib/supabase':uri('export const supabase={};'),
  '@/lib/friends':uri('export const loadFriendSnapshot=async()=>({snapshot:{relationships:[]}});'),
- '@/lib/semiSession':uri('export const loadSemiContext=async()=>null;export const loadSemiLinks=async()=>[];export const semiAction=(...args)=>globalThis.__semiAction(...args);'),
+ '@/lib/semiSession':uri('export const editSemiExport=(...args)=>globalThis.__editSemiExport(...args);export const loadSemiContext=async()=>null;export const loadSemiLinks=async()=>[];export const semiAction=(...args)=>globalThis.__semiAction(...args);'),
  './SessionMenuFrame':uri('import {createElement} from '+JSON.stringify(import.meta.resolve('react'))+';export const SessionMenuPage=({children})=>createElement("section",null,children);'),
  './InterfaceIcon':uri('export default ()=>null;')};
 const compile=ts.transpileModule(readFileSync(new URL('../src/components/SemiSessionSettings.tsx',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
@@ -24,6 +24,8 @@ const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 let tree=render(),markup=renderToStaticMarkup(tree);
 assert.ok(markup.includes('레온'));assert.ok(!markup.includes('OWN EXPORT'));
 button(tree,'연동 정보 열람').props.onClick();tree=render();markup=renderToStaticMarkup(tree);assert.ok(markup.includes('PEER MEMORY'));assert.ok(markup.includes('OWN EXPORT'));assert.ok(markup.includes('받은 PC2 세션 요약'));assert.ok(markup.includes('내가 보낸 페르소나·요약'));
+let editedExport=null;globalThis.__editSemiExport=async(...args)=>{editedExport=args;return{...snapshot,content:args[3],persona:{name:args[4],description:args[5]}};};
+button(tree,'내 전송 내용 편집').props.onClick();tree=render();nodes(tree,n=>n.props?.id==='semi-export-summary')[0].props.onChange({target:{value:'EDITED EXPORT'}});tree=render();button(tree,'전송 내용 저장').props.onClick();await tick();assert.equal(editedExport[0],'sa');assert.equal(editedExport[3],'EDITED EXPORT');assert.equal(editedExport[2].content,'OWN EXPORT');saves.length=0;
 const publish=button(tree,'요약 생성하여 동기화');publish.props.onClick();publish.props.onClick();await tick();assert.equal(published,1,'double-click requests only one generation');
 tree=render();assert.ok(renderToStaticMarkup(tree).includes('내 요약 노트는 유지'));
 button(tree,'연결 해제').props.onClick();await tick();assert.deepEqual(calls.at(-1).slice(0,3),['close','sa','link']);assert.deepEqual(saves,[true,false]);
