@@ -21,14 +21,9 @@ export interface Profile {
   preferred_theme_mode?: 'dark' | 'light' | 'custom' | null;
   preferred_theme_id?: string | null;
   preferred_theme_variant?: 'dark' | 'light';
-  summary_prompt: string | null;
   summary_model: string | null;
   summary_reasoning: import('@/lib/llm/types').ReasoningSelection | null;
   summary_interval: number;
-  summary_level: number;
-  summary_allow_omission: boolean;
-  summary_parameters_enabled: boolean;
-  summary_extra_note: string;
   summary_source_mode: 'incremental' | 'full';
   summary_cost_enabled: boolean;
   summary_cost_currency: 'USD' | 'KRW';
@@ -38,6 +33,7 @@ export interface Profile {
 }
 
 export interface PlatformConfig {
+  summary_prompt: string;
   id: number;
   system_prompt: string;
   multichat_system_prompt: string;
@@ -170,9 +166,6 @@ export interface Session {
   summary_model_override: string | null;
   summary_reasoning_override: import('@/lib/llm/types').ReasoningSelection | null;
   summary_interval_override: number | null;
-  summary_level_override: number | null;
-  summary_allow_omission_override: boolean | null;
-  summary_parameters_enabled_override: boolean | null;
   summary_source_mode_override: 'incremental' | 'full' | null;
   summary_cost_enabled_override: boolean | null;
   summary_cost_currency_override: 'USD' | 'KRW' | null;

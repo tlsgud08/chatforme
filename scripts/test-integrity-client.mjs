@@ -54,7 +54,7 @@ const complete=Array.from({length:30},(_,i)=>({id:'u'+i,role:'user',content:'tur
 let summaryThemeContext={session:{theme_override:'builtin'},themes:[],names:[],dayNight:false};
 const summaryTasks=new Map();
 const merging=vm.runInNewContext(fn('messagesThroughTurn')+'\n'+fn('generateSummary')+'\ngenerateSummary',{
-  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'custom core'},
+  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'IGNORED PRIVATE',summary_extra_note:'IGNORED EXTRA'},loadGlobalSummaryPrompt:async()=> 'global summary core',
   messages:complete.slice(-5),sendInFlightRef:{current:false},summaryGenerating:false,
   activeGenerations:new Map(),activeSummaryGenerations:summaryTasks,AbortController,
   getApiKey:()=> 'mock-key',registerAccountTask:()=>()=>{},
@@ -70,7 +70,7 @@ await merging([
   {id:'note10',content:'memory through ten',summarized_through_turn:10},
   {id:'note20',content:'memory through twenty',summarized_through_turn:20},
 ],20);
-assert.deepEqual(summaryErrors,[]);
+assert.deepEqual(summaryErrors,[]);assert.equal(summaryRequests[0].systemParts.core,'global summary core');
 assert.equal(commits[0]?.args.through_turn,20,'summary merge must not replace the checkpoint with the viewport count');
 assert.ok(summaryRequests[0].messages[0].content.includes('memory through twenty'));
 assert.equal(commits[0].args.source_versions[1].id,'note20');
@@ -79,7 +79,7 @@ for(const count of [0,1,2]){
   const notes=[{id:'tagged',content:'memory {{theme::scene0}}',summarized_through_turn:20}];
   const snapshot=JSON.stringify(notes);
   await merging(notes,20);
-  assert.deepEqual(summaryErrors,[]);
+  assert.deepEqual(summaryErrors,[]);assert.equal(summaryRequests[0].systemParts.core,'global summary core');
   assert.equal(summaryRequests.at(-1).messages[0].content.includes('{{theme::'),count>1,'actual summary request must use the same theme-count gate');
   assert.equal(JSON.stringify(notes),snapshot);
 }

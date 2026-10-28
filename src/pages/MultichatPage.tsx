@@ -11,7 +11,7 @@ import { useMultichatEditing, type MultichatItemKind } from '@/hooks/useMulticha
 import { showConfirmDialog } from '@/lib/dialog';
 import { multichatTranscript, prepareMultichatContext } from '@/lib/multichatContext';
 import { registerAccountTask } from '@/lib/accountTasks';
-import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
+import { loadGlobalSummaryPrompt } from '@/lib/summaryPrompt';
 import { normalizeReasoning } from '@/lib/modelPreferences';
 import { finalThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives } from '@/lib/themeDirectives';
 import { requestThemeRefresh, paletteFor } from '@/lib/theme';
@@ -190,7 +190,7 @@ export default function MultichatPage() {
       const body = merging.length ? '' : source.filter(m => !previous || m.turn_index > s.summary_last_turn || m.is_hidden).map(m => `[${m.role === 'user' ? 'PC' : 'AI'}]\n${stripThemeDirectives(m.content)}`).join('\n\n');
       const model = s.summary_model_override || profile.summary_model || profile.default_model;
       const result = await generate('openrouter', { apiKey: key, model, sessionId: `${s.id}:summary`, signal: abort.signal, reasoning: normalizeReasoning(s.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', model), maxOutputTokens: 4096,
-        systemParts: { core: [profile.summary_prompt || DEFAULT_SUMMARY_PROMPT, `SUMMARY_LEVEL=${s.summary_level_override ?? profile.summary_level ?? 5}\nALLOW_OMISSION=${(s.summary_allow_omission_override ?? profile.summary_allow_omission) ? 'ON' : 'OFF'}`, profile.summary_extra_note].filter(Boolean).join('\n\n'), persona: '', userNote: '', summary: '', keywords: '' },
+        systemParts: { core: await loadGlobalSummaryPrompt(abort.signal), persona: '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user', content: [previous && `Previous Summary:\n${previous}`, body && `Dialogue:\n${body}`].filter(Boolean).join('\n\n') }],
       });
       if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');

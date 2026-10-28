@@ -12,7 +12,7 @@ import ModelSelector from '@/components/ModelSelector';
 import ThemePreferences from '@/components/ThemePreferences';
 import InterfacePreferences from '@/components/InterfacePreferences';
 import type { Profile, Provider } from '@/types/db';
-import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
+import GlobalSummaryPromptSettings from '@/components/GlobalSummaryPromptSettings';
 import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/OutputSettingsEditor';
 import { useUsdKrwRate } from '@/lib/exchangeRate';
 import { loadTurnPriceWarning, saveTurnPriceWarning, type TurnPriceWarningCurrency } from '@/lib/turnPriceWarning';
@@ -190,13 +190,8 @@ export default function SettingsPage() {
         default_frequency_penalty_enabled: output?.frequencyPenaltySend ?? false,
         default_reasoning_enabled: output?.reasoning.send !== false,
         default_reasoning: output?.reasoning ?? defaultReasoning,
-        summary_prompt: profile.summary_prompt,
         summary_model: profile.summary_model,
         summary_reasoning: summaryReasoning,
-        summary_level: profile.summary_level,
-        summary_allow_omission: profile.summary_allow_omission,
-        summary_parameters_enabled: profile.summary_parameters_enabled,
-        summary_extra_note: profile.summary_extra_note,
         summary_source_mode: profile.summary_source_mode,
       })
       .eq('id', profile.id);
@@ -423,16 +418,10 @@ export default function SettingsPage() {
 
       {profile && (
         <section data-settings-section="summary">
-          <h2 className="mb-1 font-semibold text-white">요약 메모리 프롬프트</h2>
-          <p className="mb-3 text-xs text-slate-500">모든 채팅방의 요약 노트 생성에 사용됩니다. 비워 저장하면 기본 프롬프트를 사용합니다.</p>
-          <textarea
-            rows={18}
-            value={profile.summary_prompt ?? DEFAULT_SUMMARY_PROMPT}
-            onChange={(event) => setProfile({ ...profile, summary_prompt: event.target.value })}
-            className="w-full rounded-xl bg-surface p-3 font-mono text-xs leading-relaxed text-slate-200 outline-none"
-          />
+          <h2 className="mb-1 font-semibold text-white">요약 설정</h2>
+          <p className="mb-3 text-xs text-slate-500">요약 지시문은 관리자 설정의 전역 요약 프롬프트를 공통으로 사용합니다.</p>
           <div className="mt-4 flex flex-col gap-3 rounded-xl bg-surface p-3">
-            <p className="text-sm font-semibold text-slate-200">전역 요약 설정</p>
+            <p className="text-sm font-semibold text-slate-200">요약 모델 · 입력 범위</p>
             <ModelSelector
               provider="openrouter"
               model={profile.summary_model || profile.default_model || modelsFor('openrouter')[0]}
@@ -446,20 +435,8 @@ export default function SettingsPage() {
                 <option value="full">이전 요약 제외 + 세션 전체 메시지</option>
               </select>
             </label>
-            <label className="text-xs text-slate-400">Summary level (0~10)
-              <input type="number" min={0} max={10} value={profile.summary_level ?? 5} onChange={(e) => setProfile({ ...profile, summary_level: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
-            </label>
-            <label className="flex items-center justify-between text-xs text-slate-300"><span>Allow omission</span><input type="checkbox" checked={profile.summary_allow_omission ?? true} onChange={(e) => setProfile({ ...profile, summary_allow_omission: e.target.checked })} /></label>
-            <label className="flex items-center justify-between text-xs text-slate-300"><span>요약 파라미터 함께 전송</span><input type="checkbox" disabled={!profile.summary_prompt?.trim()} checked={profile.summary_parameters_enabled ?? true} onChange={(e) => setProfile({ ...profile, summary_parameters_enabled: e.target.checked })} /></label>
-            {!profile.summary_prompt?.trim() && <p className="text-[11px] text-slate-500">기본 프롬프트에서는 파라미터가 항상 전송됩니다. 커스텀 프롬프트를 저장하면 끌 수 있습니다.</p>}
-            <label className="text-xs text-slate-400">요약 생성 시 함께 전송할 추가 메모
-              <textarea rows={4} value={profile.summary_extra_note ?? ''} onChange={(e) => setProfile({ ...profile, summary_extra_note: e.target.value })} className="mt-1 w-full rounded-lg bg-surface2 p-3 text-sm text-white outline-none" placeholder="요약 모델에 추가로 전달할 지침" />
-            </label>
           </div>
-          <div className="mt-2 flex gap-2">
-            <button type="button" onClick={() => setProfile({ ...profile, summary_prompt: null })} className="flex-1 rounded-lg bg-surface2 py-2.5 text-sm text-slate-200">기본 프롬프트로 복귀</button>
-            <button type="button" onClick={() => void saveProfile()} className="flex-1 rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">요약 프롬프트 저장</button>
-          </div>
+          <button type="button" onClick={() => void saveProfile()} className="mt-2 w-full rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">요약 설정 저장</button>
         </section>
       )}
 
@@ -497,6 +474,8 @@ export default function SettingsPage() {
       )}
 
       {/* 관리자 전용: 전역 시스템 프롬프트 */}
+      {isAdmin && <GlobalSummaryPromptSettings />}
+
       {isAdmin && systemPromptLoaded && (
         <section data-settings-section="admin" className="rounded-lg border border-yellow-600/30 bg-yellow-950/20 p-4">
           <h2 className="mb-1 font-semibold text-yellow-400">관리자 — 전역 시스템 프롬프트</h2>
