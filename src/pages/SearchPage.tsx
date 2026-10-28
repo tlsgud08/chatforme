@@ -1,7 +1,7 @@
 import InterfaceIcon from '@/components/InterfaceIcon';
 import ModernPageHeading from '@/components/ModernPageHeading';
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import type { Profile } from '@/types/db';
 import { WORK_LIST_COLUMNS, type WorkCard, type WorkListItem } from '@/lib/works';
@@ -10,10 +10,11 @@ type SearchTab = 'works' | 'users';
 
 export default function SearchPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [query, setQuery] = useState('');
-  const [tab, setTab] = useState<SearchTab>('works');
+  const [tab, setTab] = useState<SearchTab>(params.get('tab') === 'users' ? 'users' : 'works');
   const [works, setWorks] = useState<WorkCard[]>([]);
   const [users, setUsers] = useState<(Pick<Profile, 'id' | 'display_name' | 'avatar_url'> & { work_count: number })[]>([]);
   const [loading, setLoading] = useState(false);

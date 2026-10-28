@@ -21,7 +21,7 @@ const imports = {
   '@/components/InterfaceIcon': presentationUri('InterfaceIcon'),
   '@/components/ModernPageHeading': presentationUri('ModernPageHeading'),
   react: hooks,
-  'react-router-dom': uri(`import {createElement} from ${JSON.stringify(import.meta.resolve('react'))};export const useNavigate=()=>()=>{};export function Link({to,children,...props}){return createElement('a',{...props,href:to},children);}`),
+  'react-router-dom': uri(`import {createElement} from ${JSON.stringify(import.meta.resolve('react'))};export const useNavigate=()=>()=>{};export const useSearchParams=()=>[new URLSearchParams()];export function Link({to,children,...props}){return createElement('a',{...props,href:to},children);}`),
   '@tanstack/react-query': uri(`export const useQueryClient=()=>({invalidateQueries:async value=>globalThis.__auditInvalidations.push(value),setQueriesData:()=>{}});export const useQuery=()=>({data:[],isLoading:false,refetch:async()=>{}});`),
   '@/hooks/useAuth': uri(`export const useAuth=()=>({user:{id:'owner'},isAdmin:false});`),
   '@/lib/supabase': uri(`export const supabase={from:table=>globalThis.__auditFrom(table),rpc:(name,args)=>globalThis.__auditRpc(name,args)};`),

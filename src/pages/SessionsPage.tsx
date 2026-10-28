@@ -1,5 +1,6 @@
 import InterfaceIcon from '@/components/InterfaceIcon';
 import ModernPageHeading from '@/components/ModernPageHeading';
+import { FriendActivityStrip } from '@/components/Friends';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -220,7 +221,8 @@ export default function SessionsPage() {
 
   return (
     <div className="sessions-page flex flex-col h-full">
-      <ModernPageHeading title="채팅방" description="진행 중인 대화를 이어가거나 보관한 대화를 찾아보세요." />
+      <ModernPageHeading title="채팅방" />
+      <FriendActivityStrip />
       {/* 상단 탭 + 버튼 영역 */}
       {selectMode === 'none' ? (
         <div className="sessions-tabs flex items-center border-b border-surface2">

@@ -4,6 +4,9 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import AvatarCircle from '@/components/AvatarCircle';
+import { FriendshipActions } from '@/components/Friends';
+import { useFriends } from '@/hooks/useFriends';
+import { friendActivityLabel, friendPresenceLabel } from '@/lib/friends';
 import type { Profile } from '@/types/db';
 import { WORK_LIST_COLUMNS, type WorkListItem } from '@/lib/works';
 
@@ -11,6 +14,8 @@ export default function UserPage() {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const social = useFriends();
+  const friend = social?.friends.find(value => value.user_id === userId);
 
   const [profile, setProfile] = useState<Pick<Profile, 'id' | 'display_name' | 'avatar_url' | 'bio'> | null>(null);
   const [works, setWorks] = useState<WorkListItem[]>([]);
@@ -54,6 +59,8 @@ export default function UserPage() {
           )}
         </div>
 
+        {friend && social && <p className="text-xs text-slate-400">{friendPresenceLabel(friend)} · {friendActivityLabel(friend, social.works)}</p>}
+        {userId && <FriendshipActions userId={userId} />}
         {isOwnProfile && (
           <button
             onClick={() => navigate('/my')}

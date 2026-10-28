@@ -25,6 +25,8 @@ import MessageContent from '@/components/MessageContent';
 import Spoiler from '@/components/Spoiler';
 import CommandMenu from '@/components/CommandMenu';
 import InterfaceIcon from '@/components/InterfaceIcon';
+import { SameWorkFriends } from '@/components/Friends';
+import { usePlayingActivity } from '@/hooks/useFriends';
 import type { ErrorEntry } from './ChatPage';
 import type { Command, MultichatMember, MultichatRoom, Persona, Profile, Session, StartConfig, StoryNote, SummaryVersion } from '@/types/db';
 import './ChatPage.css';
@@ -72,6 +74,7 @@ export default function MultichatPage() {
   const me = data?.members.find(member => member.user_id === user?.id), isHost = data?.room.host_user_id === user?.id;
   const otherEditors = useMultichatEditing(me ? roomId : undefined, me ? user?.id : undefined, editing);
   const room = data?.room, session = data?.session;
+  usePlayingActivity(me && room?.status === 'active' ? room.id : null);
   const streaming = data?.game.find(message => message.role === 'assistant' && message.generation_status === 'streaming');
   const expired = !!streaming?.generation_user_id && Date.now() - Date.parse(streaming.claimed_at ?? '') > 8 * 60_000;
   const summaryQueued = !!data?.room.summary_request_id;
@@ -320,7 +323,7 @@ export default function MultichatPage() {
   ].sort((a, b) => a.time.localeCompare(b.time) || a.id.localeCompare(b.id));
   const lastAI = [...data.game].filter(m => m.role === 'assistant' && m.round_number === room.current_round - 1 && m.is_active_variant).sort((a, b) => b.reroll_index - a.reroll_index)[0];
   return <div className="chat-page mx-auto flex h-full min-h-0 max-w-app flex-col bg-bg">
-    <header className="chat-header flex items-center gap-2 border-b border-surface2 px-3 py-2.5"><button aria-label="채팅방 목록으로" onClick={() => navigate('/sessions?tab=multichat')} className="text-slate-400"><InterfaceIcon name="back" /></button><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-white">{room.title}</p><p className="text-xs text-slate-500">{data.members.map(m => `${participantName(m.slot)}`).join(' · ')}{room.status === 'active' ? ` · ${room.current_round}턴` : ' · 시작 전'}</p></div>{me && <button aria-label="세션 메뉴 열기" onClick={() => session && room.status !== 'lobby' ? setMenuOpen(true) : setBillingOpen(true)} className="px-2 text-slate-300"><InterfaceIcon name="menu" /></button>}</header>
+    <header className="chat-header flex items-center gap-2 border-b border-surface2 px-3 py-2.5"><button aria-label="채팅방 목록으로" onClick={() => navigate('/sessions?tab=multichat')} className="text-slate-400"><InterfaceIcon name="back" /></button><div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><p className="min-w-0 truncate text-sm font-semibold text-white">{room.title}</p><SameWorkFriends workId={room.work_id} /></div><p className="text-xs text-slate-500">{data.members.map(m => `${participantName(m.slot)}`).join(' · ')}{room.status === 'active' ? ` · ${room.current_round}턴` : ' · 시작 전'}</p></div>{me && <button aria-label="세션 메뉴 열기" onClick={() => session && room.status !== 'lobby' ? setMenuOpen(true) : setBillingOpen(true)} className="px-2 text-slate-300"><InterfaceIcon name="menu" /></button>}</header>
     {room.status === 'lobby' ? <div className="min-h-0 flex-1 overflow-y-auto p-5">
       <p className="mb-5 text-sm text-slate-400">목록에 공개된 방이에요. 빈자리에 바로 참가할 수 있어요.</p>
       {data.members.map(m => <div key={m.user_id} className="mb-3 flex items-center gap-3 rounded-xl bg-surface p-4"><span className="flex-1 text-sm text-white">{participantName(m.slot)}{m.slot === 1 ? ' · 방장' : ' · 참여자'}</span>{isHost && m.slot === 2 && <button className="text-xs text-red-400" onClick={() => void supabase.rpc('kick_multichat_member', { target_room: room.id, target_user: m.user_id }).then(({ error }) => error ? report(error) : refresh())}>추방</button>}</div>)}
