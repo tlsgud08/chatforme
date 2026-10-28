@@ -13,7 +13,12 @@ export interface SemiLink {
   title_a: string; title_b: string | null; status: 'pending' | 'active' | 'closed';
   snapshot_a: SemiSnapshot | null; snapshot_b: SemiSnapshot | null;
 }
-export interface SemiContext { prompt: string; peer: SemiSnapshot | null; }
+export interface SemiContext {
+  prompt: string;
+  /** Current selected peer persona, independent of whether a summary was sent. */
+  peer_persona: Pick<Persona, 'name' | 'description'> | null;
+  peer: SemiSnapshot | null;
+}
 
 export async function semiAction(operation: 'request' | 'accept' | 'close' | 'prepare' | 'publish' | 'release', sessionId: string, linkId?: string, details?: Record<string, unknown>, otherUser?: string) {
   const args = {
@@ -38,27 +43,27 @@ export async function loadSemiLinks(signal?: AbortSignal): Promise<SemiLink[]> {
 
 /** Re-read on each model request. Unlinking never depends on a stale sidebar. */
 export async function loadSemiContext(sessionId: string, signal?: AbortSignal): Promise<SemiContext | null> {
-  let query = supabase.from('semi_session_links').select('session_a,snapshot_a,snapshot_b').eq('status', 'active').or(`session_a.eq.${sessionId},session_b.eq.${sessionId}`);
-  if (signal) query = query.abortSignal(signal);
-  const { data, error } = await query.maybeSingle();
+  const request = supabase.rpc('semi_session_context', { target_session: sessionId }, { get: true });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw error;
   if (!data) return null;
-  let config = supabase.from('platform_config').select('semi_multichat_prompt').eq('id', 1);
-  if (signal) config = config.abortSignal(signal);
-  const result = await config.single();
-  if (result.error || typeof result.data?.semi_multichat_prompt !== 'string') throw result.error ?? new Error('세미 멀티챗 프롬프트를 불러오지 못했습니다.');
-  return { prompt: result.data.semi_multichat_prompt, peer: (data.session_a === sessionId ? data.snapshot_b : data.snapshot_a) as SemiSnapshot | null };
+  if (typeof data.prompt !== 'string' || !('peer_persona' in data) || !('peer' in data)) throw new Error('세미 멀티챗 연결 정보를 불러오지 못했습니다.');
+  return data as SemiContext;
 }
 
 /** PC is the current session; PC2 is always the peer, never a second user input. */
 export function applySemiContext(assembled: AssembledPrompt, context: SemiContext | null): AssembledPrompt {
   if (!context) return assembled;
-  const { peer } = context;
+  const { peer, peer_persona: persona } = context;
+  const personaBlock = `# PC2 Information\nPC2 Name: ${persona?.name ?? '페르소나 미선택'}\nPC2 Description: ${persona?.description ?? ''}`;
+  const peerMemory = peer
+    ? `# PC2 Sync Metadata\nSnapshot Persona Name: ${peer.persona?.name ?? '페르소나 미선택'}\nSynced At (real time): ${peer.sent_at}\nSource Session Turn: ${peer.through_turn}\n\n# PC2 Session Summary\n${peer.content}`
+    : '# PC2 Session Summary\n[아직 전달받은 요약 없음]';
   return { ...assembled, systemParts: { ...assembled.systemParts,
     core: [assembled.systemParts.core, context.prompt].filter(Boolean).join('\n\n'),
-    persona: [assembled.systemParts.persona, peer ? `# PC2 Information\nPC2 Name: ${peer.persona?.name ?? ''}\nPC2 Description: ${peer.persona?.description ?? ''}` : ''].filter(Boolean).join('\n\n'),
-    summary: [assembled.systemParts.summary, peer ? `# PC2 Session Summary\n${peer.content}` : ''].filter(Boolean).join('\n\n'),
+    persona: [assembled.systemParts.persona, personaBlock].filter(Boolean).join('\n\n'),
+    summary: [assembled.systemParts.summary, peerMemory].filter(Boolean).join('\n\n'),
   } };
 }
 
-export interface SemiPreparation { token: string; session: Session; }
+export interface SemiPreparation { token: string; session: Session; persona: Pick<Persona, 'name' | 'description'> | null; }

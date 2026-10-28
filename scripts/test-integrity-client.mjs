@@ -55,12 +55,12 @@ let summaryThemeContext={session:{theme_override:'builtin'},themes:[],names:[],d
 const summaryTasks=new Map();
 const sharedActions=[];let summaryMessageWrites=0;
 const merging=vm.runInNewContext(fn('messagesThroughTurn')+'\n'+fn('generateSummary')+'\ngenerateSummary',{
-  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'IGNORED PRIVATE',summary_extra_note:'IGNORED EXTRA'},loadGlobalSummaryPrompt:async()=> 'global summary core',
+  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'IGNORED PRIVATE',summary_extra_note:'IGNORED EXTRA'},loadGlobalSummaryPrompt:async()=> 'global summary core',loadSemiSyncSummaryPrompt:async()=> 'sync summary core',
   messages:complete.slice(-5),sendInFlightRef:{current:false},summaryGenerating:false,
   activeGenerations:new Map(),activeSummaryGenerations:summaryTasks,workCombinationSavingRef:{current:false},AbortController,
   getApiKey:()=> 'mock-key',registerAccountTask:()=>()=>{},
   setSummaryGenerating:()=>{},finishSummaryGeneration:id=>summaryTasks.delete(id),setMessages:()=>summaryMessageWrites++,setSession:()=>{},
-  semiAction:async(operation,sessionId,linkId,details)=>{sharedActions.push({operation,details});return operation==='prepare'?{token:'share-token',session:{id:'s',summary:'current memory',summary_last_turn:25,summary_source_mode_override:'full'}}:{total_cost:0.01};},
+  semiAction:async(operation,sessionId,linkId,details)=>{sharedActions.push({operation,details});return operation==='prepare'?{token:'share-token',session:{id:'s',summary:'current memory',summary_last_turn:25,summary_source_mode_override:'full'},persona:{name:'SOURCE NAME',description:'SOURCE DESCRIPTION'}}:{total_cost:0.01};},
   readLiveThemeContext:async()=>summaryThemeContext, recoverExpiredResponses:async()=>0,
   fetchAllSessionMessages:async()=>complete,automaticThemeEnabled,normalizeThemePeriods,stripThemeDirectives,
   modelsFor:()=>['mock-model'],normalizeReasoning:()=>({send:false}),
@@ -93,6 +93,7 @@ assert.deepEqual(sharedActions.map(action=>action.operation),['prepare','publish
 assert.equal(sharedActions[1].details.content,'merged memory');
 assert.equal(commits.length,beforeShareCommits,'export must not save a local summary version');
 assert.equal(summaryMessageWrites,beforeShareWrites,'export must not mark messages summarized');
-assert.equal(summaryRequests.at(-1).systemParts.core,'global summary core');
+assert.equal(summaryRequests.at(-1).systemParts.core,'sync summary core');
+assert.ok(summaryRequests.at(-1).systemParts.persona.includes('SOURCE NAME'));assert.ok(summaryRequests.at(-1).systemParts.persona.includes('SOURCE DESCRIPTION'));
 assert.equal(summaryRequests.at(-1).systemParts.summary,'','no peer context is passed to the summary model');
-console.log('Real summary export: same global prompt/model path, separate publish, no local summary or message mutation passed');
+console.log('Real summary export: independent sync prompt, captured source persona, existing model/input path, separate publish, no local summary or message mutation passed');
