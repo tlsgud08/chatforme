@@ -36,6 +36,8 @@ import { showConfirmDialog } from '@/lib/dialog';
 import { automaticThemeEnabled, availableWorkThemes, dayNightCatalogNames, dayNightModeEnabled, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
 import { paletteFor, preferredThemeVariant, requestThemeRefresh, type SavedTheme } from '@/lib/theme';
 import InterfaceIcon from '@/components/InterfaceIcon';
+import { SameWorkFriends } from '@/components/Friends';
+import { usePlayingActivity } from '@/hooks/useFriends';
 import './ChatPage.css';
 
 function SpoilerBoundary({ concealed, children }: { concealed: boolean; children: ReactNode }) {
@@ -198,6 +200,7 @@ export default function ChatPage() {
   const queryClient = useQueryClient();
 
   const [session, setSession] = useState<Session | null>(null);
+  usePlayingActivity(session?.id);
   const [loadError, setLoadError] = useState('');
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [contextReady, setContextReady] = useState(false);
@@ -1191,9 +1194,9 @@ export default function ChatPage() {
     <div className="chat-page mx-auto flex h-full min-h-0 max-w-app flex-col bg-bg">
       <header className="chat-header flex items-center gap-2 border-b border-surface2 px-3 py-2.5">
         <button onClick={() => navigate('/sessions')} aria-label="채팅방 목록으로" className="text-slate-400"><InterfaceIcon name="back" /></button>
-        <button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 flex-1 text-left">
+        <div className="flex min-w-0 flex-1 items-center gap-2"><button onClick={() => navigate(`/works/${work.id}`)} className="min-w-0 text-left">
           <p className="truncate text-sm font-semibold text-white">{currentSession.title || work.title}</p>
-        </button>
+        </button><SameWorkFriends workId={work.id} /></div>
         <button disabled={!contextReady} onClick={() => setMenuOpen(true)} aria-label="세션 메뉴 열기" className="px-2 text-xl text-slate-300"><InterfaceIcon name="menu" /></button>
       </header>
 

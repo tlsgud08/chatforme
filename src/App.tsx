@@ -9,6 +9,8 @@ import AppToast from './components/AppToast';
 import AppConfirmDialog from './components/AppConfirmDialog';
 import ThemeManager from './components/ThemeManager';
 import InterfaceFrame from './components/InterfaceFrame';
+import { FriendsProvider } from './hooks/useFriends';
+import { FriendDialogs } from './components/Friends';
 
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const WorksPage = lazy(() => import('./pages/WorksPage'));
@@ -72,14 +74,14 @@ export default function App() {
 
   if (!user) return <RouteContent><LoginPage /></RouteContent>;
 
-  return (<>
+  return (<FriendsProvider key={user.id} userId={user.id}>
     <AppToast />
     <AppConfirmDialog />
     <ThemeManager />
     <InterfaceFrame key={user.id}>
+    <FriendDialogs />
     <Routes>
-      {/* 로그인 화면 (CreatePage에서 로그인 유도 시 이동) */}
-      <Route path="/login" element={<RouteContent><LoginPage /></RouteContent>} />
+      <Route path="/login" element={<Navigate to="/works" replace />} />
 
       {/* 전체화면 (탭바 없음) */}
       <Route path="/chat/:sessionId" element={<RouteContent><ChatRoute /></RouteContent>} />
@@ -103,5 +105,5 @@ export default function App() {
       </Route>
     </Routes>
     </InterfaceFrame>
-  </>);
+  </FriendsProvider>);
 }

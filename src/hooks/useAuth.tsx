@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { Session as AuthSession, User } from '@supabase/supabase-js';
 import { supabase, ADMIN_EMAIL } from '@/lib/supabase';
 import { abortAccountTasks } from '@/lib/accountTasks';
+import { stopCurrentFriendActivity } from '@/lib/friends';
 
 interface AuthState {
   user: User | null;
@@ -46,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { mounted = false; sub.subscription.unsubscribe(); };
   }, [queryClient]);
 
-  const user = session?.user ?? null;
+  const user = session?.user?.is_anonymous ? null : session?.user ?? null;
   const isAdmin = Boolean(user?.email && ADMIN_EMAIL && user.email === ADMIN_EMAIL);
 
   const value: AuthState = {
@@ -68,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
     },
     async signOut() {
+      await stopCurrentFriendActivity();
       await supabase.auth.signOut();
     },
   };

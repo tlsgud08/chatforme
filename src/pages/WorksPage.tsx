@@ -77,9 +77,9 @@ export default function WorksPage() {
           {labels[value]}
         </button>)}
       </nav>
-      {selected === 'commands' && (user ? <CommandMenu userId={user.id} embedded /> : <p className="p-4 text-sm text-slate-400">로그인 후 명령어를 관리할 수 있어요.</p>)}
-      {selected === 'plugins' && (user ? <PluginMenu userId={user.id} embedded /> : <p className="p-4 text-sm text-slate-400">로그인 후 플러그인을 관리할 수 있어요.</p>)}
-      {selected === 'themes' && (user ? <ThemeMenu userId={user.id} embedded /> : <p className="p-4 text-sm text-slate-400">로그인 후 테마를 관리할 수 있어요.</p>)}
+      {selected === 'commands' && <CommandMenu userId={user!.id} embedded />}
+      {selected === 'plugins' && <PluginMenu userId={user!.id} embedded />}
+      {selected === 'themes' && <ThemeMenu userId={user!.id} embedded />}
       {selected === 'works' && <>
         {isLoading && <p className="p-6 text-slate-400">불러오는 중…</p>}
         {error && <p className="p-6 text-amber-400">목록을 불러오지 못했습니다.</p>}
@@ -93,7 +93,7 @@ export default function WorksPage() {
                 key={work.id}
                 work={{ ...work, creator_name: creators[work.creator_id] ?? '알 수 없음' }}
                 isFavorited={favoritedIds.includes(work.id)}
-                onFavoriteToggle={user ? (workId, event) => { void event; void toggleFavorite(workId); } : undefined}
+                onFavoriteToggle={(workId, event) => { void event; void toggleFavorite(workId); }}
               />
             ))}
           </div>

@@ -1,5 +1,6 @@
 import InterfaceIcon from '@/components/InterfaceIcon';
 import ModernPageHeading from '@/components/ModernPageHeading';
+import { FriendsEntry } from '@/components/Friends';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -231,6 +232,7 @@ export default function MyPage() {
         </div>
       </section>
 
+      <FriendsEntry />
       {/* OpenRouter 크레딧 */}
       {credit && (
         <section className="my-credit rounded-xl bg-surface p-4">

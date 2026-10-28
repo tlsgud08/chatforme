@@ -31,7 +31,7 @@ try{
   }
   try{await db.exec(source);}catch(error){throw new Error(file+': '+error.message);}
  }
- await db.exec(`grant usage on schema public,auth to authenticated,anon;grant select,insert,update,delete on all tables in schema public to authenticated,anon;
+ await db.exec(`grant usage on schema public,auth to authenticated,anon;grant select,insert,update,delete on all tables in schema public to authenticated;
  insert into auth.users(id,email) values('${a}','a@example.test'),('${b}','b@example.test'),('${c}','c@example.test') on conflict(id) do nothing;
  insert into works(id,creator_id,title,visibility,main_prompt,multichat_prompt) values('${work}','${a}','Main','private','MAIN','MULTI');
  insert into multichat_rooms(id,work_id,host_user_id,title,model) values('${room}','${work}','${a}','Public room','fixture/plain');
@@ -152,7 +152,7 @@ try{
  await assert.rejects(()=>rpc('delete_multichat_item',[foreignRoom,'party',foreignMessage]));
  await login(c);assert.equal((await query('select content from multichat_party_messages where id=$1',[foreignMessage]))[0].content,'FOREIGN PRIVATE');
  await login(null);await assert.rejects(()=>rpc('delete_multichat_item',[room,'submission',currentInput.id]));
- await login(null);assert.equal((await query('select id from multichat_rooms')).length,0);
+ await login(null);await assert.rejects(()=>query('select id from multichat_rooms'),/permission denied/);
  console.log('Shared multichat DB: public lobby, direct join, independent notes, weighted/single payer and live changes, frozen claims, host-only rerolls, shared editing, canonical context, streaming, memory, no branching, idempotent costs passed');
 }finally{await db.close();}
 const server=await createServer({server:{middlewareMode:true},appType:'custom'});
