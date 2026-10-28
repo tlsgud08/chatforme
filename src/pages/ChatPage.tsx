@@ -24,7 +24,7 @@ import { loadWorkCombination } from '@/lib/workCombinationData';
 import { workThemeScopeKey } from '@/lib/workCombination';
 import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import { resolvePromptCache } from '@/lib/llm/promptCache';
-import { DEFAULT_SUMMARY_PROMPT } from '@/lib/summaryPrompt';
+import { loadGlobalSummaryPrompt } from '@/lib/summaryPrompt';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
 import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
@@ -706,12 +706,7 @@ export default function ChatPage() {
       const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${autoThemeEnabled?normalizeThemePeriods(message.content,liveTheme.names):stripThemeDirectives(message.content)}`).join('\n\n');
       const summaryInput = `${previous ? `=== Previous Summary Notes${archivesToMerge.length > 1 ? ' (merge the selected notes into one)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== Dialogue to Summarize ===\n${dialogue}` : '=== Request ===\nMerge the selected summary notes into one up-to-date summary without omissions or discontinuities.'}`;
       const input=autoThemeEnabled?normalizeThemePeriods(summaryInput,liveTheme.names):stripThemeDirectives(summaryInput);
-      const summaryLevel = session.summary_level_override ?? profile.summary_level ?? 5;
-      const allowOmission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
-      const parametersEnabled = !profile.summary_prompt?.trim() || (session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true);
-      const parameterBlock = parametersEnabled ? `[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = ${summaryLevel}\nALLOW_OMISSION = ${allowOmission ? 'ON' : 'OFF'}` : '';
-      const extraNote = profile.summary_extra_note?.trim() ? `[ADDITIONAL NOTE]\n${profile.summary_extra_note.trim()}` : '';
-      const summaryCore = [profile.summary_prompt?.trim() || DEFAULT_SUMMARY_PROMPT, parameterBlock, extraNote].filter(Boolean).join('\n\n');
+      const summaryCore = await loadGlobalSummaryPrompt(summaryController.signal);
       if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
       const result = await generate('openrouter', {
         apiKey,

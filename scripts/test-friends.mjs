@@ -174,7 +174,7 @@ try{
   const view=friendView(transition.snapshot.relationships.find(row=>row.user_id===b),Date.parse(transition.snapshot.server_time));
   assert.equal(friendActivityLabel(view,{[work]:{title:'빅토리아 3'}}),labels[i],transition.step);
  }
- const creationLabels=['제작 작품 제작 중','접속 중 · 마지막 제작 · 제작 작품','방금 전 접속 · 마지막 제작 · 제작 작품','접속 중 · 마지막 제작 · 제작 작품','빅토리아 3 · 1분 미만 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3 · 1분 미만 플레이','자리 비움'];
+ const creationLabels=['제작 작품 · 1분 미만 제작 중','접속 중 · 마지막 제작 · 제작 작품 · 1분 미만 제작','방금 전 접속 · 마지막 제작 · 제작 작품 · 1분 미만 제작','접속 중 · 마지막 제작 · 제작 작품 · 1분 미만 제작','빅토리아 3 · 1분 미만 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3 · 1분 미만 플레이','자리 비움'];
  for(const [i,transition] of creationTransitions.entries()){
   const view=friendView(transition.snapshot.relationships.find(row=>row.user_id===b),Date.parse(transition.snapshot.server_time));
   assert.equal(friendActivityLabel(view,{[work]:{title:'빅토리아 3'},['10000000-0000-0000-0000-000000000003']:{title:'제작 작품'}}),creationLabels[i],transition.step);
