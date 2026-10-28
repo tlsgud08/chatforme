@@ -1,4 +1,6 @@
-/** Reserved display metadata; raw messages and model payloads are preserved. */
+import type { GenerateOptions, SystemParts } from './llm/types';
+
+/** Reserved display metadata; stored messages are preserved. */
 export function stripSyncDateTags(content: string, streaming = false): string {
   let visible = content.replace(/\{\{sync_date::([^{}\r\n]{0,200})\}\}/g, '');
   if (streaming) {
@@ -9,4 +11,13 @@ export function stripSyncDateTags(content: string, streaming = false): string {
     }
   }
   return visible;
+}
+
+/** Disconnected requests must not inherit sync tags from any context section. */
+export function withoutSyncDateTags<T extends Pick<GenerateOptions, 'systemParts' | 'messages'>>(request: T): T {
+  const clean = (text: string) => text.replace(/\{\{sync_date::[^{}]*(?:\}\}|$)/g, '');
+  return { ...request,
+    systemParts: Object.fromEntries(Object.entries(request.systemParts).map(([key, value]) => [key, typeof value === 'string' ? clean(value) : value])) as unknown as SystemParts,
+    messages: request.messages.map(message => ({ ...message, content: clean(message.content) })),
+  };
 }

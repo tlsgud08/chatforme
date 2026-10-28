@@ -25,6 +25,7 @@ import { workThemeScopeKey } from '@/lib/workCombination';
 import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import { resolvePromptCache } from '@/lib/llm/promptCache';
 import { loadGlobalSummaryPrompt, loadSemiSyncSummaryPrompt } from '@/lib/summaryPrompt';
+import { withoutSyncDateTags } from '@/lib/syncDate';
 import { applySemiContext, loadSemiContext, semiAction, type SemiPreparation } from '@/lib/semiSession';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
 import SessionMenu from '@/components/SessionMenu';
@@ -715,16 +716,18 @@ export default function ChatPage() {
       const input=autoThemeEnabled?normalizeThemePeriods(summaryInput,liveTheme.names):stripThemeDirectives(summaryInput);
       const summaryCore = shareTarget ? await loadSemiSyncSummaryPrompt(summaryController.signal) : await loadGlobalSummaryPrompt(summaryController.signal);
       if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
-      const result = await generate('openrouter', {
+      const summaryRequest = {
         apiKey,
         sessionId: `${sourceSession.id}:summary`,
         signal: summaryController.signal,
         model: sourceSession.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
         reasoning: normalizeReasoning(sourceSession.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', sourceSession.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
         systemParts: { core: summaryCore, persona: shareTarget ? `# Source Persona\nName: ${shareTicket?.persona?.name ?? '페르소나 미선택'}\nDescription: ${shareTicket?.persona?.description ?? ''}` : '', userNote: '', summary: '', keywords: '' },
-        messages: [{ role: 'user', content: input }],
+        messages: [{ role: 'user' as const, content: input }],
         maxOutputTokens: 4096,
-      });
+      };
+      const connected = shareTarget || await loadSemiContext(sourceSession.id, summaryController.signal);
+      const result = await generate('openrouter', connected ? summaryRequest : withoutSyncDateTags(summaryRequest));
       if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
       if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
       if (shareTarget && shareTicket) {
@@ -999,7 +1002,8 @@ export default function ChatPage() {
       if (controller.signal.aborted) throw new DOMException('생성을 중단했습니다.', 'AbortError');
       themeRequestScopeRef.current={messageId:draft.id,scope:workThemeScopeKey(liveTheme.session)};
       startGenerationTimeout();
-      const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: assembled.systemParts, messages: assembled.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, onPhase: phase => timing.mark(phase), signal: controller.signal });
+      const outgoing = semiContext ? assembled : withoutSyncDateTags(assembled);
+      const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: outgoing.systemParts, messages: outgoing.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, onPhase: phase => timing.mark(phase), signal: controller.signal });
       await draftWriter.stop();
       completionForRecovery = {
         target_session: session.id, target_message: draftMessageId, response_text: result.text,
