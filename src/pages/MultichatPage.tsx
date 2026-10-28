@@ -6,7 +6,7 @@ import { useChatScroll } from '@/hooks/useChatScroll';
 import { getApiKey } from '@/lib/apiKeys';
 import { generate, type CacheDiagnostic } from '@/lib/llm';
 import { createDraftWriter } from '@/lib/draftWriter';
-import { multichatGenerationSlot, multichatNarrative, multichatParticipantName } from '@/lib/multichat';
+import { multichatGenerationSlot, multichatRoundReady, type MultichatTurnState, multichatNarrative, multichatParticipantName } from '@/lib/multichat';
 import { useMultichatEditing, type MultichatItemKind } from '@/hooks/useMultichatEditing';
 import { showConfirmDialog } from '@/lib/dialog';
 import { multichatTranscript, prepareMultichatContext } from '@/lib/multichatContext';
@@ -35,7 +35,7 @@ interface GameMessage { id: string; room_id: string; round_number: number; role:
 interface Submission { optimistic?: boolean; id: string; round_number: number; user_id: string; slot: 1 | 2; content: string; persona_name: string; is_skip: boolean; command_name: string | null; created_at: string; }
 interface PartyMessage { id: string; sender_user_id: string; content: string; created_at: string; }
 interface RoomData { room: MultichatRoom; members: MultichatMember[]; session: Session | null; profile: Profile | null; game: GameMessage[]; submissions: Submission[]; party: PartyMessage[]; notes: StoryNote[]; }
-interface Ticket { messageId: string; round: number; slot: 1 | 2; token: string; }
+interface Ticket extends MultichatTurnState { messageId: string; round: number; slot: 1 | 2; token: string; }
 interface SummaryTicket { id: string; token: string; through: number; mergeIds: string[]; }
 interface Completion { target_message: string; token: string; response_text: string; in_tokens: number; out_tokens: number; response_cost: number; read_tokens: number | null; write_tokens: number | null; failed: boolean; }
 const errorText = (error: unknown) => (error as { message?: string })?.message || String(error);
@@ -72,7 +72,7 @@ export default function MultichatPage() {
   const exchange = useUsdKrwRate();
   const { scrollRef, rememberScroll } = useChatScroll(roomId, !!data);
   const me = data?.members.find(member => member.user_id === user?.id), isHost = data?.room.host_user_id === user?.id;
-  const otherEditors = useMultichatEditing(me ? roomId : undefined, me ? user?.id : undefined, editing);
+  const { others: otherEditors, connectedUserIds, presenceReady } = useMultichatEditing(me ? roomId : undefined, me ? user?.id : undefined, editing);
   const room = data?.room, session = data?.session;
   usePlayingActivity(me && room?.status === 'active' ? room.id : null);
   const streaming = data?.game.find(message => message.role === 'assistant' && message.generation_status === 'streaming');
@@ -80,7 +80,7 @@ export default function MultichatPage() {
   const summaryQueued = !!data?.room.summary_request_id;
   const writing = !!streaming || generating || summaryGenerating || summaryQueued;
   const participantName = (slot: number) => multichatParticipantName(slot, data?.members ?? []);
-  const patchRoom = useCallback((value: MultichatRoom) => setData(old => old ? { ...old, room: value } : old), []);
+  const patchRoom = useCallback((value: MultichatRoom) => { readSequence.current++; setData(old => old && value.id === old.room.id && value.progress_revision >= old.room.progress_revision ? { ...old, room: value } : old); }, []);
   const patchSession = useCallback((patch: Partial<Session>) => { setData(old => old?.session ? { ...old, session: { ...old.session, ...patch } } : old); requestThemeRefresh(); }, []);
   const report = useCallback((error: unknown) => { const text = errorText(error); showToast(text); setErrors(old => [{ id: crypto.randomUUID(), short: text, detail: text, at: new Date().toISOString() }, ...old].slice(0, 30)); }, []);
   const refresh = useCallback(async () => {
@@ -108,7 +108,7 @@ export default function MultichatPage() {
       }
       rest = { session: s.data as Session, profile: p.data as Profile, game, submissions, party, notes };
     }
-    if (mounted.current && revision === readSequence.current) { setData({ room: r.data as MultichatRoom, members, ...rest }); setLoadError(''); }
+    if (mounted.current && revision === readSequence.current) { setData(old => ({ room: old && old.room.id === r.data.id && old.room.progress_revision > r.data.progress_revision ? old.room : r.data as MultichatRoom, members, ...rest })); setLoadError(''); }
   }, [roomId, user?.id]);
   useEffect(() => {
     mounted.current = true; void refresh().catch(error => setLoadError(errorText(error)));
@@ -122,7 +122,7 @@ export default function MultichatPage() {
     if (!roomId) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const schedule = () => { clearTimeout(timer); timer = setTimeout(() => { void refresh().catch(report); }, 100); };
-    const channel = supabase.channel(`multichat-v2:${roomId}`);
+    const channel = supabase.channel(`multichat-v2:${roomId}:${crypto.randomUUID()}`);
     channel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'multichat_rooms', filter: `id=eq.${roomId}` }, payload => { patchRoom(payload.new as MultichatRoom); schedule(); });
     channel.on('postgres_changes', { event: '*', schema: 'public', table: 'multichat_members', filter: `room_id=eq.${roomId}` }, schedule);
     channel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sessions', filter: `id=eq.${roomId}` }, payload => patchSession(payload.new as Session));
@@ -213,7 +213,7 @@ export default function MultichatPage() {
     try {
       const claim = await supabase.rpc('claim_multichat_response', { target_room: data.room.id, retry });
       if (claim.error) throw claim.error; if (!claim.data) return; ticket = claim.data as Ticket;
-      const prepared = await prepareMultichatContext(data.room.id, ticket.round, data.profile);
+      const prepared = await prepareMultichatContext(data.room.id, ticket.round, data.profile, ticket);
       abort.signal.throwIfAborted();
       writer = createDraftWriter(async text => { const { error } = await supabase.rpc('stream_multichat_response', { target_message: ticket!.messageId, token: ticket!.token, partial_text: text }); if (error) throw error; });
       await refresh();
@@ -245,8 +245,8 @@ export default function MultichatPage() {
     if (!data || !me || data.room.status !== 'active' || generating || pending || editing || busy || data.room.summary_request_id) return;
     const queued = data.game.find(message => message.role === 'assistant' && message.generation_status === 'streaming' && !message.generation_user_id);
     const currentResponse = data.game.some(message => message.role === 'assistant' && message.round_number === data.room.current_round);
-    const twoSubmitted = data.submissions.filter(s => !s.optimistic && s.round_number === data.room.current_round).length === 2;
-    if (!queued && (currentResponse || !twoSubmitted)) return;
+    const ready = multichatRoundReady(data.room, data.submissions);
+    if (!queued && (currentResponse || !ready)) return;
     const payer = queued?.generation_slot ?? multichatGenerationSlot(data.room.current_round, data.room);
     if (payer !== me.slot) return;
     const attempt = `${queued?.id ?? data.room.current_round}:${data.room.updated_at}`;
@@ -257,7 +257,7 @@ export default function MultichatPage() {
     if (!data?.room.summary_request_id || !me || data.room.summary_error || summaryLock.current || lock.current || summaryPending) return;
     if (multichatGenerationSlot(data.room.current_round, data.room) !== me.slot) return;
     if (data.room.summary_claimed_by && Date.now() - Date.parse(data.room.summary_claimed_at ?? '') < 8 * 60_000) return;
-    const attempt = `${data.room.summary_request_id}:${data.room.billing_mode}:${data.room.billing_start_round}`;
+    const attempt = `${data.room.summary_request_id}:${data.room.billing_mode}:${data.room.billing_start_round}:${data.room.progress_revision}`;
     if (summaryAttempt.current === attempt) return; summaryAttempt.current = attempt;
     void (async () => {
       const { data: ticket, error } = await supabase.rpc('claim_multichat_summary', { target_room: data.room.id });
@@ -266,6 +266,7 @@ export default function MultichatPage() {
   }, [data, me?.slot, summaryPending]);
   async function send(party = false) {
     if (!data || !me || submitLock.current || combinationLock.current) return;
+    if (!party && (data.room.progress_mode === 'solo' && data.room.solo_slot !== me.slot || writing)) return;
     const submitted = input.trim(); if (party && !submitted) return;
     const submissionId = crypto.randomUUID();
     const originalCommand = command;
@@ -277,7 +278,7 @@ export default function MultichatPage() {
     submitLock.current = true; setBusy(true);
     try {
       const result = party ? await supabase.from('multichat_party_messages').insert({ id: submissionId, room_id: data.room.id, sender_user_id: user!.id, content: submitted }).select('*').single()
-        : await supabase.rpc('submit_multichat_action', { target_room: data.room.id, submission_content: submitted, command_label: command?.name ?? null, command_body: command?.prompt ?? null, submission_id: submissionId });
+        : await supabase.rpc('submit_multichat_action_checked', { target_room: data.room.id, expected_round: data.room.current_round, expected_progress_revision: data.room.progress_revision, submission_content: submitted, command_label: command?.name ?? null, command_body: command?.prompt ?? null, submission_id: submissionId });
       if (result.error) {
         const confirmation = await supabase.from(party ? 'multichat_party_messages' : 'multichat_submissions').select('id').eq('id', submissionId).maybeSingle();
         if (confirmation.error || !confirmation.data) throw result.error;
@@ -287,7 +288,7 @@ export default function MultichatPage() {
     } catch (error) {
       optimistic.current.delete(submissionId);
       setData(old => old ? { ...old, submissions: old.submissions.filter(s => s.id !== submissionId), party: old.party.filter(p => p.id !== submissionId) } : old);
-      setInput(old => old ? `${submitted}\n${old}` : submitted); report(error);
+      setInput(old => old ? `${submitted}\n${old}` : submitted); report(error); await refresh().catch(report);
     } finally { submitLock.current = false; setBusy(false); }
   }
   async function requestReroll() {
@@ -313,6 +314,7 @@ export default function MultichatPage() {
   async function join() { if (!room || busy) return; setBusy(true); const { error } = await supabase.rpc('join_multichat_room', { target_room: room.id }); if (error) report(error); else await refresh(); setBusy(false); }
   if (!data || !room) return <div className="p-6 text-sm text-slate-400" role="status">{loadError || '불러오는 중…'}{loadError && <button className="ml-3 underline" onClick={() => void refresh().catch(report)}>다시 시도</button>}</div>;
   const nextPayer = streaming?.generation_slot ?? multichatGenerationSlot(Math.max(1, room.current_round), room);
+  const soloBlocked = room.progress_mode === 'solo' && room.solo_slot !== me?.slot;
   const mine = data.submissions.some(s => s.round_number === room.current_round && s.user_id === user?.id);
   const changeDisplay = (name: keyof Display) => (value: boolean) => setDisplay(old => ({ ...old, [name]: value }));
   const menuSession = session && me ? { ...session, persona_id: me.persona_id, user_note: me.user_note ?? '' } : null;
@@ -323,7 +325,7 @@ export default function MultichatPage() {
   ].sort((a, b) => a.time.localeCompare(b.time) || a.id.localeCompare(b.id));
   const lastAI = [...data.game].filter(m => m.role === 'assistant' && m.round_number === room.current_round - 1 && m.is_active_variant).sort((a, b) => b.reroll_index - a.reroll_index)[0];
   return <div className="chat-page mx-auto flex h-full min-h-0 max-w-app flex-col bg-bg">
-    <header className="chat-header flex items-center gap-2 border-b border-surface2 px-3 py-2.5"><button aria-label="채팅방 목록으로" onClick={() => navigate('/sessions?tab=multichat')} className="text-slate-400"><InterfaceIcon name="back" /></button><div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><p className="min-w-0 truncate text-sm font-semibold text-white">{room.title}</p><SameWorkFriends workId={room.work_id} /></div><p className="text-xs text-slate-500">{data.members.map(m => `${participantName(m.slot)}`).join(' · ')}{room.status === 'active' ? ` · ${room.current_round}턴` : ' · 시작 전'}</p></div>{me && <button aria-label="세션 메뉴 열기" onClick={() => session && room.status !== 'lobby' ? setMenuOpen(true) : setBillingOpen(true)} className="px-2 text-slate-300"><InterfaceIcon name="menu" /></button>}</header>
+    <header className="chat-header flex items-center gap-2 border-b border-surface2 px-3 py-2.5"><button aria-label="채팅방 목록으로" onClick={() => navigate('/sessions?tab=multichat')} className="text-slate-400"><InterfaceIcon name="back" /></button><div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><p className="min-w-0 truncate text-sm font-semibold text-white">{room.title}</p><SameWorkFriends workId={room.work_id} /></div><p className="text-xs text-slate-500">{data.members.map(m => `${participantName(m.slot)}`).join(' · ')}{room.status === 'active' ? ` · ${room.current_round}턴${room.progress_mode === 'solo' ? ` · ${participantName(room.solo_slot!)} 혼자 진행 중` : ''}` : ' · 시작 전'}</p></div>{me && <button aria-label="세션 메뉴 열기" onClick={() => session && room.status !== 'lobby' ? setMenuOpen(true) : setBillingOpen(true)} className="px-2 text-slate-300"><InterfaceIcon name="menu" /></button>}</header>
     {room.status === 'lobby' ? <div className="min-h-0 flex-1 overflow-y-auto p-5">
       <p className="mb-5 text-sm text-slate-400">목록에 공개된 방이에요. 빈자리에 바로 참가할 수 있어요.</p>
       {data.members.map(m => <div key={m.user_id} className="mb-3 flex items-center gap-3 rounded-xl bg-surface p-4"><span className="flex-1 text-sm text-white">{participantName(m.slot)}{m.slot === 1 ? ' · 방장' : ' · 참여자'}</span>{isHost && m.slot === 2 && <button className="text-xs text-red-400" onClick={() => void supabase.rpc('kick_multichat_member', { target_room: room.id, target_user: m.user_id }).then(({ error }) => error ? report(error) : refresh())}>추방</button>}</div>)}
@@ -346,13 +348,13 @@ export default function MultichatPage() {
           {display.debug && item.message && <details className="rounded-lg bg-surface p-2 text-xs text-slate-400"><summary>생성·캐시 진단</summary><pre className="mt-2 whitespace-pre-wrap break-all">{JSON.stringify(diagnostics[item.id] ?? { round: item.round, cacheReadTokens: item.message.cache_read_tokens, cacheWriteTokens: item.message.cache_write_tokens, generationStatus: item.message.generation_status }, null, 2)}</pre></details>}<div className="chat-message-actions flex min-w-0 items-center gap-2 text-slate-500"><button disabled={busy || (item.kind !== 'party' && writing) || optimistic.current.has(item.id)} aria-label="메시지 편집" onClick={() => setEditing({ kind: item.kind, id: item.id, content: item.kind === 'submission' ? item.sourceContent : item.content, original: item.sourceContent })} className="chat-message-action disabled:opacity-40"><InterfaceIcon name="edit" /></button><button disabled={busy || (item.kind !== 'party' && writing) || optimistic.current.has(item.id)} aria-label="메시지 삭제" onClick={() => void deleteItem(item.kind, item.id, item.sourceContent)} className="chat-message-action text-red-400 disabled:opacity-40"><InterfaceIcon name="delete" /></button>{item.message && <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-[10px]">{display.cost && <span>{display.krw ? formatKrw(item.message.cost, exchange.rate) : `$${item.message.cost.toFixed(6)}`} · 출력 {item.message.output_tokens} tokens</span>}{display.cache && <span>캐시 읽기 {item.message.cache_read_tokens ?? '미보고'} · 쓰기 {item.message.cache_write_tokens ?? '미보고'}</span>}<span>{item.round}턴</span>{isHost && data.game.filter(m => m.role === 'assistant' && m.round_number === item.round && m.generation_status === 'complete').length > 1 && <select aria-label="리롤 답변 선택" disabled={writing} value={item.id} onChange={event => void supabase.rpc('select_multichat_variant', { target_room: room.id, target_message: event.target.value }).then(({ error }) => error ? report(error) : refresh())} className="max-w-28 bg-transparent text-xs text-slate-400">{data.game.filter(m => m.role === 'assistant' && m.round_number === item.round && m.generation_status === 'complete').sort((a, b) => a.reroll_index - b.reroll_index).map((m, index) => <option value={m.id} key={m.id}>답변 {index + 1}</option>)}</select>}{isHost && item.id === lastAI?.id && <button disabled={writing || busy} aria-label="다시 생성" onClick={() => void requestReroll()} className="text-brand disabled:opacity-40"><InterfaceIcon name="reroll" /></button>}</div>}</div>
         </article>)}</div>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-surface2 px-3 py-2 text-xs text-slate-400"><span>{[1, 2].map(slot => `${participantName(slot)} ${data.submissions.some(s => s.slot === slot && s.round_number === room.current_round) ? '제출 완료' : '입력 중'}`).join(' · ')}</span><button onClick={() => setBillingOpen(true)}>호출 · {participantName(nextPayer)} 키</button>{((!streaming || expired) && data.game.some(m => m.role === 'assistant' && m.generation_status === 'interrupted' && m.round_number >= room.current_round - 1) || expired) && <button disabled={generating || !!pending} onClick={() => void runGeneration(true)} className="text-brand">생성 다시 시도</button>}{streaming?.generation_user_id === user?.id && generating && <button onClick={() => controller.current?.abort()} className="text-red-400">중단</button>}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-surface2 px-3 py-2 text-xs text-slate-400"><span>{(room.progress_mode === 'solo' ? [room.solo_slot!] : [1, 2]).map(slot => `${participantName(slot)} ${data.submissions.some(s => s.slot === slot && s.round_number === room.current_round) ? '제출 완료' : '입력 중'}`).join(' · ')}</span><button onClick={() => setBillingOpen(true)}>호출 · {participantName(nextPayer)} 키</button>{((!streaming || expired) && data.game.some(m => m.role === 'assistant' && m.generation_status === 'interrupted' && m.round_number >= room.current_round - 1) || expired) && <button disabled={generating || !!pending} onClick={() => void runGeneration(true)} className="text-brand">생성 다시 시도</button>}{streaming?.generation_user_id === user?.id && generating && <button onClick={() => controller.current?.abort()} className="text-red-400">중단</button>}</div>
       {command && <div className="flex items-center justify-between bg-surface px-3 py-2 text-xs text-brand"><span>/{command.name}</span><button onClick={() => setCommand(null)}>해제</button></div>}
-      <div className="chat-composer flex shrink-0 items-end gap-2 border-t border-surface2 p-2"><button aria-label="명령어 메뉴 열기" onClick={() => setCommandOpen(true)} className="chat-command-button flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface text-brand">/</button><textarea aria-label="메시지 입력" value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !navigator.maxTouchPoints) { event.preventDefault(); if (!mine) void send(); } }} rows={1} placeholder={`${participantName(me.slot)}의 메시지…`} className="max-h-32 min-w-0 flex-1 resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm text-white outline-none" /><button aria-label="유저 간 대화로 전송" disabled={busy || !input.trim()} onClick={() => void send(true)} title="AI에 전달하지 않는 유저 간 대화" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-slate-500 text-slate-400 disabled:opacity-40"><InterfaceIcon name="users" /></button><button aria-label="행동 전송" disabled={busy || mine || !!streaming || summaryQueued || summaryGenerating || !!pending} onClick={() => void send()} className="chat-send-button rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40">전송</button></div>
+      <div className="chat-composer flex shrink-0 items-end gap-2 border-t border-surface2 p-2"><button aria-label="명령어 메뉴 열기" onClick={() => setCommandOpen(true)} className="chat-command-button flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface text-brand">/</button><textarea aria-label="메시지 입력" value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !navigator.maxTouchPoints) { event.preventDefault(); if (!mine && !soloBlocked) void send(); } }} rows={1} placeholder={soloBlocked ? '유저 간 대화 · 함께 진행하려면 메뉴에서 변경해 주세요' : `${participantName(me.slot)}의 메시지…`} className="max-h-32 min-w-0 flex-1 resize-none rounded-2xl bg-surface px-4 py-2.5 text-sm text-white outline-none" /><button aria-label="유저 간 대화로 전송" disabled={busy || !input.trim()} onClick={() => void send(true)} title="AI에 전달하지 않는 유저 간 대화" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-slate-500 text-slate-400 disabled:opacity-40"><InterfaceIcon name="users" /></button><button aria-label="행동 전송" disabled={busy || mine || soloBlocked || !!streaming || summaryQueued || summaryGenerating || !!pending} onClick={() => void send()} className="chat-send-button rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40">전송</button></div>
     </>}
     {commandOpen && user && <CommandMenu userId={user.id} workId={room.work_id} onClose={() => setCommandOpen(false)} onSelect={value => { setCommand(value); setCommandOpen(false); }} />}
     {billingOpen && me && <SessionMenuFrame subtitle="멀티챗 · 두 참여자 모두 변경 가능" onClose={() => setBillingOpen(false)}><div className="inu-content"><MultichatApiSettings room={room} members={data.members} onUpdate={patchRoom} /></div></SessionMenuFrame>}
-    {menuOpen && menuSession && me && <SessionMenu key={`${room.id}:${me.slot}`} session={menuSession} profile={data.profile} onClose={() => setMenuOpen(false)} onUpdate={patchSession} onPersonaChange={() => { void refresh().catch(report); }} multichat={{ room, members: data.members, slot: me.slot, onRoomUpdate: patchRoom, onRefresh: refresh }}
+    {menuOpen && menuSession && me && <SessionMenu key={`${room.id}:${me.slot}`} session={menuSession} profile={data.profile} onClose={() => setMenuOpen(false)} onUpdate={patchSession} onPersonaChange={() => { void refresh().catch(report); }} multichat={{ room, members: data.members, slot: me.slot, otherPresent: data.members.some(member => member.user_id !== user?.id && connectedUserIds.includes(member.user_id)), presenceReady, onRoomUpdate: patchRoom, onRefresh: refresh }}
       debugMode={display.debug} onDebugToggle={changeDisplay('debug')} showCost={display.cost} onShowCostToggle={changeDisplay('cost')} showCostKrw={display.krw} onShowCostKrwToggle={changeDisplay('krw')} showCacheTokens={display.cache} onShowCacheTokensToggle={changeDisplay('cache')} showImages={display.images} onShowImagesToggle={changeDisplay('images')} showOffMode={display.spoiler} onShowOffModeToggle={changeDisplay('spoiler')} exchange={exchange}
       sessionModel={session?.model_override || data.profile?.default_model || room.model} onModelChange={model => { void supabase.from('sessions').update({ model_override: model }).eq('id', room.id).then(({ error }) => error ? report(error) : patchSession({ model_override: model })); }} sessionReasoning={session?.reasoning_override ?? data.profile?.default_reasoning ?? {}} onReasoningChange={reasoning => { void supabase.from('sessions').update({ reasoning_override: reasoning }).eq('id', room.id).then(({ error }) => error ? report(error) : patchSession({ reasoning_override: reasoning })); }}
       errorLog={errors} onClearErrors={() => setErrors([])} onExportConversation={exportConversation} exportingConversation={exporting} onGenerateSummary={summarize} onMergeSummaries={versions => summarize(undefined, versions)} summaryGenerating={summaryGenerating} storyNotes={data.notes} onStoryNotesChange={notes => setData(old => old ? { ...old, notes } : old)} sessionTurnCount={Math.max(0, room.current_round - 1)} sending={writing} onWorkCombinationSavingChange={saving => { if (saving && (lock.current || submitLock.current || combinationLock.current)) return false; combinationLock.current = saving; return true; }} />}

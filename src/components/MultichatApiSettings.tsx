@@ -33,7 +33,7 @@ export default function MultichatApiSettings({ room, members, onUpdate }: { room
       <div className="inu-two-fields"><label className="inu-field-label">{names[1]} 연속 턴 수<input aria-label={`${names[1]} 연속 턴 수`} type="number" min={1} max={1000} value={pc1} onChange={event => setPc1(Number(event.target.value))} /></label><label className="inu-field-label">{names[2]} 연속 턴 수<input aria-label={`${names[2]} 연속 턴 수`} type="number" min={1} max={1000} value={pc2} onChange={event => setPc2(Number(event.target.value))} /></label></div>
       <label className="inu-field-label">먼저 사용할 키<select aria-label="먼저 사용할 키" value={first} onChange={event => setFirst(Number(event.target.value) as 1 | 2)}><option value={1}>{names[1]}</option><option value={2}>{names[2]}</option></select></label>
     </>}
-    <p className="inu-help">현재 규칙의 {Math.max(1, room.current_round)}턴 담당: {names[multichatGenerationSlot(Math.max(1, room.current_round), room)]}. 생성 중인 응답은 기존 담당자가 마무리해요.</p>
+    <p className="inu-help">{room.progress_mode === 'solo' && '혼자 진행 중에는 진행자의 키를 사용해요. 아래 규칙은 함께 진행할 때 적용돼요. '}현재 규칙의 {Math.max(1, room.current_round)}턴 담당: {names[multichatGenerationSlot(Math.max(1, room.current_round), room)]}. 생성 중인 응답은 기존 담당자가 마무리해요.</p>
     <button className="inu-button inu-primary inu-full" type="button" disabled={saving} onClick={() => void save()}>{saving ? '저장 중…' : 'API 키 사용 규칙 저장'}</button>
   </section>;
 }

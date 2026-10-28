@@ -213,6 +213,19 @@ try{
   assert.equal(outgoing.body.messages.at(-1).role,'user');
   assert.ok(outgoing.body.messages.every(message=>['system','user','assistant'].includes(message.role)));
   assert.ok(!requested.some(path=>path.includes('party')),'party messages are never read by the prompt pipeline');
+  for(const slot of [1,2]){
+   const previous=transcript.at(-1).content;
+   transcript.at(-1).content=`${slot===1?'누리':'소희'}(PC${slot}): solo action`;
+   const solo=await prepareMultichatContext(room,2,profile,{progressMode:'solo',activeSlot:slot});
+   assert.ok(solo.assembled.systemParts.persona.includes('Internal PC1 mapping')&&solo.assembled.systemParts.persona.includes('Internal PC2 mapping'));
+   assert.ok(solo.assembled.systemParts.keywords.includes(`multichat_mode=solo\nmultichat_active_pc=PC${slot}`));
+   await generate('openrouter',{apiKey:`PC${slot} LOCAL KEY`,model:solo.model,sessionId:room,...solo.assembled,reasoning:solo.reasoning,maxOutputTokens:solo.maxOutputTokens,onChunk:()=>{}});
+   assert.equal(outgoing.headers.authorization,`Bearer PC${slot} LOCAL KEY`);
+   assert.ok(outgoing.body.messages.at(-1).content.endsWith(`${slot===1?'누리':'소희'}(PC${slot}): solo action`));
+   assert.ok(JSON.stringify(outgoing.body.messages).includes(`multichat_active_pc=PC${slot}`));
+   assert.ok(!solo.assembled.systemParts.core.includes('Reflect both player'));
+   transcript.at(-1).content=previous;
+  }
   console.log('Shared multichat actual SDK → common assembler → HTTP adapter: both personas/notes, combination, themes, keyword books, memory, plugins, summary cutoff and valid PC input wire role passed');
  }finally{globalThis.fetch=originalFetch;globalThis.localStorage=originalStorage;}
 
