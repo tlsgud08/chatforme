@@ -309,7 +309,6 @@ export default function SessionMenu({
           {personas.length === 0 && <p className="inu-help">My 탭에서 페르소나를 추가하세요.</p>}
         </section>
         {multichat && <MultichatProgressSettings room={multichat.room} members={multichat.members} slot={multichat.slot} otherPresent={multichat.otherPresent} presenceReady={multichat.presenceReady} onUpdate={multichat.onRoomUpdate} onRefresh={multichat.onRefresh} />}
-        {!multichat && user && onPublishSemiSummary && <SemiSessionSettings sessionId={session.id} userId={user.id} busy={sending || summaryGenerating} onPublish={onPublishSemiSummary} onSavingChange={onWorkCombinationSavingChange} />}
         {user && <SessionThemeSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         <section className="inu-section">
           <div className="inu-row"><h3><InterfaceIcon name="note" />{multichat ? '내 유저 노트' : '유저 노트'}</h3><span className="inu-help">{note.length.toLocaleString()}자 · 제한 없음</span></div>
@@ -318,6 +317,7 @@ export default function SessionMenu({
         </section>
         {user && <SessionPluginSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         {user && <SessionWorkCombinationSettings key={session.id} session={session} userId={user.id} includeUnlisted={isAdmin} busy={sending || summaryGenerating} onUpdate={onUpdate} onSavingChange={onWorkCombinationSavingChange} />}
+        {!multichat && user && onPublishSemiSummary && <SemiSessionSettings sessionId={session.id} userId={user.id} busy={sending || summaryGenerating} onPublish={onPublishSemiSummary} onSavingChange={onWorkCombinationSavingChange} />}
       </div>
 
       <div className="inu-content" id="session-panel-ai" role="tabpanel" aria-labelledby="session-tab-ai" hidden={activeTab !== 'ai'}>
