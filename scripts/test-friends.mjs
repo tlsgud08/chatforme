@@ -124,26 +124,57 @@ try{
  await rpc('stop_friend_activity',[coeditorConnection]);
  const legacyAfterCreation='30000000-0000-0000-0000-000000000025';await rpc('touch_friend_activity',[legacyAfterCreation,sb,new Date().toISOString()]);
  assert.equal((await q('select last_activity_type from friend_activity where user_id=$1',[b]))[0].last_activity_type,'play','older play clients keep activity types correct');await rpc('stop_friend_activity',[legacyAfterCreation]);
+ // Last connection time survives cleanup and is independent of last work/input.
+ const seen=async()=>(await q('select last_seen_at from friend_activity where user_id=$1',[b]))[0].last_seen_at;
+ const previousSeen=await seen();
+ const idleSeen='30000000-0000-0000-0000-000000000031';
+ await rpc('touch_friend_activity',[idleSeen,null,older]);const heartbeatSeen=await seen();
+ assert.ok(Date.parse(heartbeatSeen)>=Date.parse(previousSeen));
+ assert.ok(Date.parse(heartbeatSeen)>Date.parse(older),'last seen uses server heartbeat, not old interaction time');
+ await rpc('stop_friend_activity',[idleSeen]);const stoppedSeen=await seen();
+ assert.ok(Date.parse(stoppedSeen)>=Date.parse(heartbeatSeen));
+ await rpc('stop_friend_activity',[idleSeen]);await rpc('touch_friend_activity',[idleSeen,sb,new Date().toISOString()]);
+ assert.deepEqual(await seen(),stoppedSeen,'late requests cannot move last seen for a closed connection');
+ await rpc('stop_friend_activity',['30000000-0000-0000-0000-000000000032']);
+ assert.deepEqual(await seen(),stoppedSeen,'a stop-before-first-heartbeat tombstone is not a visit');
+ await db.exec('reset role');await q('delete from friend_connections where user_id=$1',[b]);await login(b);
+ assert.deepEqual(await seen(),stoppedSeen,'connection cleanup retains persistent last seen');
+ await login(a);assert.equal(Date.parse((await rpc('get_friend_social_state')).relationships[0].last_seen_at),stoppedSeen.getTime());
+ await login(b);await rpc('set_friend_activity_sharing',[false]);await login(a);
+ assert.equal((await rpc('get_friend_social_state')).relationships[0].last_seen_at,null,'hidden last seen stays private');
+ await rpc('change_friendship',[b,'remove']);await rpc('change_friendship',[b,'request']);
+ assert.equal((await rpc('get_friend_social_state')).relationships[0].last_seen_at,null,'pending friends receive no last seen');
+ await login(null);await assert.rejects(()=>rpc('get_friend_social_state'));
+ assert.equal((await q("select has_function_privilege('authenticated','public.record_friend_last_seen()','execute') allowed"))[0].allowed,false);
+ console.log('Last seen DB: server timestamps, idle heartbeat, stop/late requests, persistent cleanup, pending/hidden/anonymous privacy passed');
  console.log('Creation activity DB: new/existing editable works, leave/offline/reload history, play transitions, 3-minute idle, coeditor grants/revocation, private sharing, closed requests and older-client compatibility passed');
  console.log('Friend visits DB: enter/leave/offline/new visit, reload/reconnect persistence, lifetime history, rapid switches, closed requests, account isolation and private activity passed');
  console.log('Friends DB: mutual requests/accept/reject/cancel/remove, member-only data, private signals, validated session activity, multi-tab ordering, privacy, offline persistence, late-heartbeat protection and signup compatibility passed');
 }finally{await db.close();}
 const server=await createServer({server:{middlewareMode:true},appType:'custom'});
 try{
- const {friendView,friendActivityLabel,friendActivityDescription,FRIEND_AWAY_MS,FRIEND_CONNECTION_TTL_MS}=await server.ssrLoadModule('/src/lib/friends.ts');
+ const {friendView,friendActivityLabel,friendActivityDescription,friendLastSeenLabel,FRIEND_AWAY_MS,FRIEND_CONNECTION_TTL_MS}=await server.ssrLoadModule('/src/lib/friends.ts');
  const now=Date.now(),iso=stamp=>new Date(stamp).toISOString();
  const base={user_id:b,display_name:'Friend',status:'accepted',requested_by:a,sharing_enabled:true,last_work_id:work,last_played_at:iso(now-60_000),connections:[{seen_at:iso(now),active_at:iso(now-FRIEND_AWAY_MS+1),work_id:work}]};
+ for(const [elapsed,label] of [[0,'방금 전 접속'],[59999,'방금 전 접속'],[60000,'1분 전 접속'],[3599999,'59분 전 접속'],[3600000,'1시간 전 접속'],[86399999,'23시간 전 접속'],[86400000,'1일 전 접속'],[172800000,'2일 전 접속'],[-60000,'방금 전 접속']])assert.equal(friendLastSeenLabel(iso(now-elapsed),now),label);
+ assert.equal(friendLastSeenLabel('invalid',now),null);assert.equal(friendLastSeenLabel(null,now),null);
+ const recent={...base,last_seen_at:iso(now-180000),connections:[]};
+ assert.equal(friendActivityLabel(friendView(recent,now),{[work]:{title:'빅토리아 3'}}),'3분 전 접속 · 마지막 플레이 · 빅토리아 3');
+ assert.equal(friendActivityLabel(friendView(recent,now+60000),{[work]:{title:'빅토리아 3'}}),'4분 전 접속 · 마지막 플레이 · 빅토리아 3','clock ticks advance labels without fetching');
+ assert.equal(friendActivityLabel(friendView({...recent,last_work_id:null},now),{}),'3분 전 접속');
+ assert.equal(friendActivityLabel(friendView({...recent,last_activity_type:'create'},now),{[work]:{title:'빅토리아 3'}}),'3분 전 접속 · 마지막 제작 · 빅토리아 3');
+ assert.equal(friendActivityLabel(friendView({...recent,sharing_enabled:false},now),{}),'활동 비공개');
  assert.equal(friendView(base,now).presence,'online');
  const away=friendView({...base,connections:[{...base.connections[0],active_at:iso(now-FRIEND_AWAY_MS)}]},now);
  assert.equal(away.presence,'away');assert.equal(away.currentWorkId,work);assert.equal(friendActivityLabel(away,{[work]:{title:'빅토리아 3'}}),'빅토리아 3 플레이 중');
  const offline=friendView({...base,connections:[{...base.connections[0],seen_at:iso(now-FRIEND_CONNECTION_TTL_MS)}]},now);
  assert.equal(offline.presence,'offline');assert.equal(friendActivityLabel(offline,{[work]:{title:'빅토리아 3'}}),'오프라인 · 마지막 플레이 · 빅토리아 3');
- const labels=['접속 중','빅토리아 3 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3','오프라인 · 마지막 플레이 · 빅토리아 3','접속 중 · 마지막 플레이 · 빅토리아 3','접속 중 · 마지막 플레이 · 빅토리아 3','접속 중'];
+ const labels=['접속 중','빅토리아 3 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3','방금 전 접속 · 마지막 플레이 · 빅토리아 3','접속 중 · 마지막 플레이 · 빅토리아 3','접속 중 · 마지막 플레이 · 빅토리아 3','접속 중'];
  for(const [i,transition] of transitions.entries()){
   const view=friendView(transition.snapshot.relationships.find(row=>row.user_id===b),Date.parse(transition.snapshot.server_time));
   assert.equal(friendActivityLabel(view,{[work]:{title:'빅토리아 3'}}),labels[i],transition.step);
  }
- const creationLabels=['제작 작품 제작 중','접속 중 · 마지막 제작 · 제작 작품','오프라인 · 마지막 제작 · 제작 작품','접속 중 · 마지막 제작 · 제작 작품','빅토리아 3 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3','자리 비움'];
+ const creationLabels=['제작 작품 제작 중','접속 중 · 마지막 제작 · 제작 작품','방금 전 접속 · 마지막 제작 · 제작 작품','접속 중 · 마지막 제작 · 제작 작품','빅토리아 3 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3','자리 비움'];
  for(const [i,transition] of creationTransitions.entries()){
   const view=friendView(transition.snapshot.relationships.find(row=>row.user_id===b),Date.parse(transition.snapshot.server_time));
   assert.equal(friendActivityLabel(view,{[work]:{title:'빅토리아 3'},['10000000-0000-0000-0000-000000000003']:{title:'제작 작품'}}),creationLabels[i],transition.step);

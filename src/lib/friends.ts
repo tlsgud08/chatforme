@@ -10,29 +10,42 @@ export interface FriendConnection { seen_at: string; active_at: string; work_id:
 export interface FriendRelationship {
   user_id: string; display_name: string; avatar_url: string | null;
   status: 'pending' | 'accepted'; requested_by: string; sharing_enabled: boolean;
-  last_work_id: string | null; last_activity_type?: FriendActivityType | null; last_played_at: string | null; connections: FriendConnection[];
+  last_seen_at?: string | null; last_work_id: string | null; last_activity_type?: FriendActivityType | null; last_played_at: string | null; connections: FriendConnection[];
 }
 export interface FriendSnapshot { server_time: string; sharing_enabled: boolean; relationships: FriendRelationship[]; }
 export interface FriendWork { id: string; title: string; thumbnail_url: string | null; }
 export interface FriendView extends FriendRelationship {
   presence: 'online' | 'away' | 'offline' | 'hidden'; currentWorkId: string | null; displayWorkId: string | null;
-  currentActivityType: FriendActivityType | null; displayActivityType: FriendActivityType | null;
+  currentActivityType: FriendActivityType | null; displayActivityType: FriendActivityType | null; lastSeenLabel: string | null;
+}
+
+/** Relative time is derived locally from the server timestamp, never written back. */
+export function friendLastSeenLabel(timestamp: string | null | undefined, now: number): string | null {
+  if (!timestamp) return null;
+  const stamp = Date.parse(timestamp);
+  if (!Number.isFinite(stamp) || !Number.isFinite(now)) return null;
+  const minutes = Math.floor(Math.max(0, now - stamp) / 60_000);
+  if (minutes < 1) return '방금 전 접속';
+  if (minutes < 60) return `${minutes}분 전 접속`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}시간 전 접속` : `${Math.floor(hours / 24)}일 전 접속`;
 }
 
 /** Liveness and inactivity are separate: an idle player keeps their work. */
 export function friendView(friend: FriendRelationship, now: number): FriendView {
   const live = (friend.connections ?? []).filter(connection => Number.isFinite(Date.parse(connection.seen_at)) && now - Date.parse(connection.seen_at) < FRIEND_CONNECTION_TTL_MS)
     .sort((a, b) => Date.parse(b.active_at) - Date.parse(a.active_at) || Date.parse(b.seen_at) - Date.parse(a.seen_at));
-  if (!friend.sharing_enabled) return { ...friend, presence: 'hidden', currentWorkId: null, displayWorkId: null, currentActivityType: null, displayActivityType: null };
+  if (!friend.sharing_enabled) return { ...friend, presence: 'hidden', currentWorkId: null, displayWorkId: null, currentActivityType: null, displayActivityType: null, lastSeenLabel: null };
   const latest = live[0];
   const presence = !latest ? 'offline' : now - Date.parse(latest.active_at) >= FRIEND_AWAY_MS ? 'away' : 'online';
   const currentWorkId = latest?.work_id ?? null;
   const displayWorkId = latest ? latest.work_id ?? latest.last_work_id ?? null : friend.last_work_id;
   const currentActivityType = currentWorkId ? latest?.activity_type ?? 'play' : null;
   const displayActivityType = displayWorkId ? currentActivityType ?? (latest ? latest.last_activity_type : friend.last_activity_type) ?? 'play' : null;
-  return { ...friend, presence, currentWorkId, displayWorkId, currentActivityType, displayActivityType };
+  return { ...friend, presence, currentWorkId, displayWorkId, currentActivityType, displayActivityType, lastSeenLabel: presence === 'offline' ? friendLastSeenLabel(friend.last_seen_at, now) : null };
 }
 export function friendPresenceLabel(friend: FriendView): string {
+  if (friend.presence === 'offline' && friend.lastSeenLabel) return friend.lastSeenLabel;
   return { online: '접속 중', away: '자리 비움', offline: '오프라인', hidden: '활동 비공개' }[friend.presence];
 }
 export function friendActivityLabel(friend: FriendView, works: Record<string, FriendWork>): string {
