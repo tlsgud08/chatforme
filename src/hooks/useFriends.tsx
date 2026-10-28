@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
 import { FRIEND_AWAY_MS, FRIEND_HEARTBEAT_MS, friendView, loadFriendSnapshot, registerFriendShutdown, type FriendOperation, type FriendSnapshot, type FriendView, type FriendWork } from '@/lib/friends';
+import { subscribeToFriendChanges } from '@/lib/friendRealtime';
 
 interface FriendsState {
   userId: string; friends: FriendView[]; relationships: FriendSnapshot['relationships']; works: Record<string, FriendWork>;
@@ -33,13 +34,14 @@ export function FriendsProvider({ userId, children }: { userId: string; children
     const seq = ++revision.current;
     readController.current?.abort();
     const controller = new AbortController(); readController.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
       const result = await loadFriendSnapshot(controller.signal);
       if (!active.current || seq !== revision.current) return;
       serverOffset.current = Date.parse(result.snapshot.server_time) - Date.now();
-      setSnapshot(result.snapshot); setWorks(result.works); setOffset(serverOffset.current); setError('');
-    } catch (problem) { if (active.current && !controller.signal.aborted && seq === revision.current) setError(message(problem)); }
-    finally { if (active.current && seq === revision.current) setLoading(false); }
+      setSnapshot(result.snapshot); setWorks(result.works); setOffset(serverOffset.current); setNow(Date.now()); setError('');
+    } catch (problem) { if (active.current && seq === revision.current) setError(controller.signal.aborted ? '친구 상태를 다시 확인하고 있어요.' : message(problem)); }
+    finally { clearTimeout(timeout); if (active.current && seq === revision.current) setLoading(false); }
   }, [userId]);
   const playing = useCallback((id: string | null) => {
     const token = ++registration.current; context.current = id;
@@ -79,7 +81,7 @@ export function FriendsProvider({ userId, children }: { userId: string; children
       if (wasAway) void heartbeat();
     };
     const revive = () => { if (stopped && active.current) { stopped = false; connection = crypto.randomUUID(); controller = new AbortController(); } };
-    const focus = () => { revive(); interact(); void heartbeat(); void refresh(); };
+    const focus = () => { revive(); interact(); void heartbeat(); };
     const visibility = () => { if (document.visibilityState === 'visible') focus(); };
     const pageHide = () => { void stop(); };
     const pageShow = focus;
@@ -88,30 +90,19 @@ export function FriendsProvider({ userId, children }: { userId: string; children
     window.addEventListener('pagehide', pageHide); window.addEventListener('pageshow', pageShow);
     document.addEventListener('visibilitychange', visibility);
     const heartbeatTimer = window.setInterval(() => { void heartbeat(); }, FRIEND_HEARTBEAT_MS);
-    const refreshTimer = window.setInterval(() => { void refresh(); }, 60_000);
     const clockTimer = window.setInterval(() => setNow(Date.now()), 5000);
-    void heartbeat(); void refresh();
+    void heartbeat();
     return () => {
       active.current = false; revision.current++; readController.current?.abort(); write.current = null; unregister();
       for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'] as const) window.removeEventListener(event, interact);
       window.removeEventListener('focus', focus); window.removeEventListener('online', focus);
       window.removeEventListener('pagehide', pageHide); window.removeEventListener('pageshow', pageShow);
       document.removeEventListener('visibilitychange', visibility);
-      window.clearInterval(heartbeatTimer); window.clearInterval(refreshTimer); window.clearInterval(clockTimer); void stop();
+      window.clearInterval(heartbeatTimer); window.clearInterval(clockTimer); void stop();
     };
   }, [userId, refresh]);
   const friendIds = (snapshot?.relationships ?? []).filter(row => row.status === 'accepted').map(row => row.user_id).sort().join(',');
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const changed = () => { clearTimeout(timer); timer = setTimeout(() => { void refresh(); }, 100); };
-    const channel = supabase.channel(`friends:${userId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `user_a=eq.${userId}` }, changed)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `user_b=eq.${userId}` }, changed);
-    const ids = [userId, ...friendIds.split(',').filter(Boolean)];
-    for (let offset = 0; offset < ids.length; offset += 90) channel.on('postgres_changes', { event: '*', schema: 'public', table: 'friend_activity_signals', filter: `user_id=in.(${ids.slice(offset, offset + 90).join(',')})` }, changed);
-    channel.subscribe(status => { if (status === 'SUBSCRIBED') changed(); });
-    return () => { clearTimeout(timer); void supabase.removeChannel(channel); };
-  }, [userId, friendIds, refresh]);
+  useEffect(() => subscribeToFriendChanges(supabase, userId, friendIds.split(',').filter(Boolean), refresh), [userId, friendIds, refresh]);
   const change = useCallback(async (id: string, operation: FriendOperation) => {
     if (mutation.current) return; mutation.current = true; setPending(true);
     try { const result = await supabase.rpc('change_friendship', { other_user: id, operation }); if (result.error) throw result.error; await refresh(); }
