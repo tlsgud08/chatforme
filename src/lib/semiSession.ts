@@ -3,10 +3,21 @@ import type { Persona, Session } from '@/types/db';
 import type { AssembledPrompt } from './prompt/assemble';
 
 export interface SemiSnapshot {
+  edited_at?: string;
+  persona_override?: boolean;
   content: string;
   persona: Pick<Persona, 'name' | 'description'>;
   sent_at: string;
   through_turn: number;
+}
+
+export async function editSemiExport(sessionId: string, linkId: string, expected: SemiSnapshot, content: string, name: string, description: string): Promise<SemiSnapshot> {
+  const { data, error } = await supabase.rpc('edit_semi_session_export', {
+    target_session: sessionId, target_link: linkId, expected_snapshot: expected,
+    summary_text: content, persona_name: name, persona_description: description,
+  });
+  if (error || !data) throw error ?? new Error('전송 내용 저장 결과를 확인하지 못했습니다.');
+  return data as SemiSnapshot;
 }
 export interface SemiLink {
   id: string; user_a: string; user_b: string; session_a: string; session_b: string | null;
@@ -55,7 +66,7 @@ export async function loadSemiContext(sessionId: string, signal?: AbortSignal): 
 export function applySemiContext(assembled: AssembledPrompt, context: SemiContext | null): AssembledPrompt {
   if (!context) return assembled;
   const { peer, peer_persona: persona } = context;
-  const personaBlock = `# PC2 Information\nPC2 Name: ${persona?.name ?? '페르소나 미선택'}\nPC2 Description: ${persona?.description ?? ''}`;
+  const personaBlock = `# PC2 Information\nPC2 Name: ${persona?.name ?? '페르소나 미선택'}\nPC2 Description: ${persona?.description ?? ''}${peer?.persona_override ? '\nPC2 Persona Source: sender-edited shared information' : ''}`;
   const peerMemory = peer
     ? `# PC2 Sync Metadata\nSnapshot Persona Name: ${peer.persona?.name ?? '페르소나 미선택'}\nSynced At (real time): ${peer.sent_at}\nSource Session Turn: ${peer.through_turn}\n\n# PC2 Session Summary\n${peer.content}`
     : '# PC2 Session Summary\n[아직 전달받은 요약 없음]';
