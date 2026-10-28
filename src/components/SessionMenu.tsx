@@ -1,5 +1,6 @@
 import InterfaceIcon from './InterfaceIcon';
 import MultichatApiSettings from './MultichatApiSettings';
+import MultichatProgressSettings from './MultichatProgressSettings';
 import type { MultichatMember, MultichatRoom } from '@/types/db';
 import { useEffect, useRef, useState } from 'react';
 import SessionMenuFrame, { SessionMenuPage } from './SessionMenuFrame';
@@ -27,7 +28,7 @@ interface OpenRouterCredit {
   remaining: number | null;
 }
 
-export interface MultichatMenuContext { room: MultichatRoom; members: MultichatMember[]; slot: 1 | 2; onRoomUpdate: (room: MultichatRoom) => void; onRefresh: () => Promise<void>; }
+export interface MultichatMenuContext { room: MultichatRoom; members: MultichatMember[]; slot: 1 | 2; otherPresent: boolean; presenceReady: boolean; onRoomUpdate: (room: MultichatRoom) => void; onRefresh: () => Promise<void>; }
 
 interface Props {
   multichat?: MultichatMenuContext;
@@ -305,6 +306,7 @@ export default function SessionMenu({
           {personas.find(item => item.id === session.persona_id) && <p className="inu-help">{personas.find(item => item.id === session.persona_id)?.description}</p>}
           {personas.length === 0 && <p className="inu-help">My 탭에서 페르소나를 추가하세요.</p>}
         </section>
+        {multichat && <MultichatProgressSettings room={multichat.room} members={multichat.members} slot={multichat.slot} otherPresent={multichat.otherPresent} presenceReady={multichat.presenceReady} onUpdate={multichat.onRoomUpdate} onRefresh={multichat.onRefresh} />}
         {user && <SessionThemeSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         <section className="inu-section">
           <div className="inu-row"><h3><InterfaceIcon name="note" />{multichat ? '내 유저 노트' : '유저 노트'}</h3><span className="inu-help">{note.length.toLocaleString()}자 · 제한 없음</span></div>

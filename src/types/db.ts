@@ -69,6 +69,7 @@ export interface MultichatRoom {
   total_cost: number; started_at: string | null; created_at: string; updated_at: string;
   billing_mode: 'alternate' | 'pc1' | 'pc2'; billing_pc1_turns: number; billing_pc2_turns: number;
   billing_first_slot: 1 | 2; billing_start_round: number;
+  progress_mode: 'together' | 'solo'; solo_slot: 1 | 2 | null; progress_revision: number;
   summary_request_id: string | null; summary_request: { through: number; mergeIds: string[] } | null;
   summary_claimed_by: string | null; summary_claim_token: string | null; summary_claimed_at: string | null; summary_error: string | null;
 }

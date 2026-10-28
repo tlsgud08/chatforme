@@ -7,7 +7,7 @@ import { automaticThemeEnabled, dayNightCatalogNames, dayNightModeEnabled, theme
 import { preferredThemeVariant } from './theme';
 import { resolvePromptCache } from './llm/promptCache';
 import { loadDefaultReasoning } from './modelPreferences';
-import { multichatNarrative, multichatParticipantLabels, multichatParticipantName, resolveMultichatReferences, resolveMultichatVariables } from './multichat';
+import { applyMultichatTurnState, type MultichatTurnState, multichatNarrative, multichatParticipantLabels, multichatParticipantName, resolveMultichatReferences, resolveMultichatVariables } from './multichat';
 import type { KeywordBook, Message, MultichatMember, Profile, Session, StartConfig, StoryNote, Work } from '@/types/db';
 
 export async function multichatTranscript(id: string): Promise<Message[]> {
@@ -20,7 +20,7 @@ export async function multichatTranscript(id: string): Promise<Message[]> {
   }
 }
 
-export async function prepareMultichatContext(id: string, round: number, profile: Profile) {
+export async function prepareMultichatContext(id: string, round: number, profile: Profile, turnState: MultichatTurnState = { progressMode: 'together', activeSlot: null }) {
   const [sessionResult, configResult, membersResult, transcript] = await Promise.all([
     supabase.from('sessions').select('*').eq('id', id).single(),
     supabase.from('platform_config').select('system_prompt,multichat_system_prompt,theme_prompt').eq('id', 1).single(),
@@ -49,7 +49,7 @@ export async function prepareMultichatContext(id: string, round: number, profile
   }
   const active = transcript.filter(m => m.is_active_variant !== false && m.generation_status === 'complete');
   const latest = transcript.find(m => m.role === 'user' && !m.is_hidden && m.turn_index === round);
-  if (!latest) throw new Error('두 PC의 입력 묶음을 불러오지 못했습니다.');
+  if (!latest) throw new Error('이번 턴의 입력을 불러오지 못했습니다.');
   const history = active.filter(m => m.turn_index < round && (m.is_hidden ? round <= (start?.keep_turns ?? 3) : (m.turn_index > cutoff || m.turn_index === 0 && cutoff === 0)));
   const books = (booksResult.data ?? []) as KeywordBook[];
   const keywords = books.filter(book => {
@@ -60,7 +60,7 @@ export async function prepareMultichatContext(id: string, round: number, profile
   const auto = automaticThemeEnabled(session, catalog.themes, dayNight, !!catalog.scope);
   const cache = resolvePromptCache(session.prompt_cache_enabled ?? false, session.model_override ?? profile.default_model, session.prompt_cache_message_id ?? null, history, session.prompt_cache_auto_latest ?? false);
   const assembled = assemblePrompt({
-    systemPrompt: [config.system_prompt, config.multichat_system_prompt, 'Reflect both player characters’ actions together.'].filter(Boolean).join('\n\n'),
+    systemPrompt: [config.system_prompt, config.multichat_system_prompt].filter(Boolean).join('\n\n'),
     mainPrompt: multichatParticipantLabels([work.main_prompt, work.multichat_prompt].filter(Boolean).join('\n\n')), workCombination: combination,
     userNote: members.map(m => `PC${m.slot} User Notes\n${m.user_note ?? ''}`).join('\n\n'),
     summary, storyNotes: ((notesResult.data ?? []) as StoryNote[]).map(n => n.content), plugins: session.active_plugins,
@@ -74,6 +74,7 @@ export async function prepareMultichatContext(id: string, round: number, profile
   }
   assembled.systemParts.core += '\n\nPC1 and PC2 (and user1/user2) are internal participant references, not in-world names. Input labels such as Name(PC1) are metadata. In narration, dialogue and headings, use the mapped character names only; never print PC1, PC2, user1 or user2.';
   assembled.systemParts.persona = members.map(m => `# Internal PC${m.slot} mapping\nCharacter name: ${multichatParticipantName(m.slot, members)}\nDescription: ${resolveMultichatReferences(m.personas?.description ?? '', members)}`).join('\n\n');
+  applyMultichatTurnState(assembled.systemParts, turnState);
   return { session, assembled, catalog, dayNight, auto, cacheSystemOnly: cache.systemOnly,
     model: session.model_override || profile.default_model,
     reasoning: (session.output_settings_override_enabled ? session.reasoning_override : null) ?? profile.default_reasoning ?? loadDefaultReasoning('openrouter', session.model_override || profile.default_model),
