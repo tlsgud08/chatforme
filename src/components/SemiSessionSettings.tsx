@@ -93,7 +93,7 @@ export default function SemiSessionSettings({ sessionId, userId, busy, onPublish
     {link ? <>
       <p className="inu-help">{peerName(link.user_a === userId ? link.user_b : link.user_a)} · {link.user_a === userId ? link.title_b || '상대 세션 선택 대기' : link.title_a}</p>
       {link.status === 'active' ? <>
-        <p className="inu-help">내 세션은 PC, 상대는 PC2로 전달돼요.</p>
+        <p className="inu-help" aria-live="polite">상대 세션 날짜 · {(link.user_a === userId ? link.sync_date_b : link.sync_date_a) || '아직 전달받은 날짜 없음'}</p>
         <p className="inu-help">PC2 페르소나: {peerPersona?.name || '페르소나 없음'}</p>
         <p className="inu-help">상대 마지막 전송: {peer ? new Date(peer.sent_at).toLocaleString('ko-KR') : '아직 없음'}</p>
         <button type="button" className="inu-button inu-full" onClick={() => setViewOpen(true)}>연동 정보 열람</button>
