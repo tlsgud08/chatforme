@@ -14,6 +14,7 @@ import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 
 type SessionRow = Pick<Session, 'id' | 'title'> & { works: { title: string; thumbnail_url: string | null } | null };
+type RoomActionTarget = { id: string; title: string; multichat?: boolean };
 type ViewTab = 'active' | 'multichat' | 'archived';
 type SelectMode = 'none' | 'archive' | 'delete';
 
@@ -26,7 +27,7 @@ export default function SessionsPage() {
   const [selectMode, setSelectMode] = useState<SelectMode>('none');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menuId, setMenuId] = useState<string | null>(null);
-  const [renameTarget, setRenameTarget] = useState<{ id: string; title: string } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<RoomActionTarget | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -77,12 +78,6 @@ export default function SessionsPage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'multichat_members' }, changed).subscribe();
     return () => { clearTimeout(timer); void supabase.removeChannel(channel); };
   }, [viewTab, user?.id, queryClient]);
-
-  async function joinMultichat(roomId: string) {
-    const { data, error } = await supabase.rpc('join_multichat_room', { target_room: roomId });
-    if (error) { showToast('참가 실패: ' + error.message); return; }
-    window.location.assign(`/multichat/${data}`);
-  }
 
   async function deleteMultichat(room: { id: string; title: string }) {
     const confirmed = await showConfirmDialog(
@@ -141,7 +136,7 @@ export default function SessionsPage() {
     showToast(`${ids.length}개 채팅방과 연결 데이터를 삭제했습니다.`);
   }
 
-  function openRename(target: { id: string; title: string }) {
+  function openRename(target: RoomActionTarget) {
     setMenuId(null);
     setRenameTarget(target);
     setRenameValue(target.title);
@@ -150,9 +145,11 @@ export default function SessionsPage() {
   async function saveRename() {
     if (!renameTarget || !renameValue.trim()) return;
     const title = renameValue.trim().slice(0, 60);
-    const { error } = await supabase.from('sessions').update({ title, updated_at: new Date().toISOString() }).eq('id', renameTarget.id);
+    const { error } = renameTarget.multichat
+      ? await supabase.rpc('rename_multichat', { target_room: renameTarget.id, new_title: title })
+      : await supabase.from('sessions').update({ title, updated_at: new Date().toISOString() }).eq('id', renameTarget.id);
     if (error) { showToast('이름 변경 실패: ' + error.message); return; }
-    await queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
+    await queryClient.invalidateQueries({ queryKey: [renameTarget.multichat ? 'multichats' : 'sessions', user?.id] });
     setRenameTarget(null);
   }
 
@@ -167,7 +164,7 @@ export default function SessionsPage() {
     showToast('채팅방을 삭제했습니다.');
   }
 
-  function rowMenu(target: { id: string; title: string }) {
+  function rowMenu(target: RoomActionTarget, canDelete = true) {
     return (
       <div data-popup-menu className="relative pr-2">
         <button
@@ -182,7 +179,7 @@ export default function SessionsPage() {
         {menuId === target.id && (
           <div className="absolute right-2 top-11 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">
             <button type="button" onClick={() => openRename(target)} className="w-full px-4 py-3 text-left text-sm text-slate-200 active:bg-surface2">이름 바꾸기</button>
-            <button type="button" onClick={() => { setMenuId(null); setDeleteTarget(target); }} className="w-full px-4 py-3 text-left text-sm text-red-400 active:bg-surface2">삭제</button>
+            {canDelete && <button type="button" onClick={() => { setMenuId(null); if (target.multichat) void deleteMultichat(target); else setDeleteTarget(target); }} className="w-full px-4 py-3 text-left text-sm text-red-400 active:bg-surface2">삭제</button>}
           </div>
         )}
       </div>
@@ -297,13 +294,14 @@ export default function SessionsPage() {
           {multichatsError && <p role="alert" className="py-5 text-sm text-slate-400">방 목록을 불러오지 못했습니다. <button onClick={() => void refetchMultichats()} className="underline">다시 시도</button></p>}
           {(['lobby', 'active'] as const).map(status => <section key={status} className="mt-6">
             <h2 className="text-sm font-semibold text-white">{status === 'lobby' ? '시작 전' : '진행 중'} <span className="ml-1 text-xs text-slate-500">{multichats?.filter(room => status === 'lobby' ? room.status === 'lobby' : room.status !== 'lobby').length ?? 0}</span></h2>
-            <ul className="mt-2 divide-y divide-surface2">{multichats?.filter(room => status === 'lobby' ? room.status === 'lobby' : room.status !== 'lobby').map(room => {
-              const joined = room.multichat_members.some(member => member.user_id === user?.id), full = room.multichat_members.length >= 2;
-              return <li key={room.id} className="flex items-center gap-3 py-4">
-                <div className="h-14 w-11 shrink-0 overflow-hidden rounded-lg bg-surface">{room.works?.thumbnail_url && <img src={room.works.thumbnail_url} alt="" className="h-full w-full object-cover" />}</div>
-                <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-white">{room.title}</p><p className="mt-1 truncate text-xs text-slate-500">{room.works?.title}</p><p className="mt-1 text-xs text-slate-500">{room.multichat_members.length}/2명 · {room.status === 'lobby' ? '참여자 모집 중' : `${Math.max(0, room.current_round - 1)}턴`}</p></div>
-                {joined ? <Link to={`/multichat/${room.id}`} className="rounded-lg bg-surface px-3 py-2 text-xs text-slate-200">열기</Link> : room.status === 'lobby' && !full ? <button className="rounded-lg bg-brand px-3 py-2 text-xs text-white" onClick={() => void joinMultichat(room.id)}>참가</button> : <span className="text-xs text-slate-500">진행 중</span>}
-                {room.host_user_id === user?.id && <button aria-label={`${room.title} 삭제`} className="text-xs text-red-400" onClick={() => void deleteMultichat(room)}>삭제</button>}
+            <ul className="session-list -mx-4 mt-2 divide-y divide-surface2">{multichats?.filter(room => status === 'lobby' ? room.status === 'lobby' : room.status !== 'lobby').map(room => {
+              const joined = room.multichat_members.some(member => member.user_id === user?.id);
+              return <li key={room.id} className="flex items-center">
+                <Link to={`/multichat/${room.id}`} className="flex min-w-0 flex-1 items-center gap-3 p-4 active:bg-surface">
+                  <div className="session-list-thumb h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2">{room.works?.thumbnail_url && <img src={room.works.thumbnail_url} alt="" className="h-full w-full object-cover" />}</div>
+                  <div className="min-w-0 flex-1"><p className="truncate font-semibold text-white">{room.title}</p><p className="mt-1 truncate text-xs text-slate-500">{room.works?.title}</p><p className="mt-1 text-xs text-slate-500">{room.multichat_members.length}/2명 · {room.status === 'lobby' ? '참여자 모집 중' : `${Math.max(0, room.current_round - 1)}턴`}</p></div>
+                </Link>
+                {joined && rowMenu({ id: room.id, title: room.title, multichat: true }, room.host_user_id === user?.id)}
               </li>;
             })}</ul>
             {!multichatsLoading && !multichatsError && !multichats?.some(room => status === 'lobby' ? room.status === 'lobby' : room.status !== 'lobby') && <p className="py-5 text-xs text-slate-500">{status === 'lobby' ? '시작 전인 방이 없어요.' : '진행 중인 방이 없어요.'}</p>}

@@ -44,7 +44,14 @@ try{
  await assert.rejects(()=>rpc('set_multichat_billing',[room,'pc1',1,1,1]));
  await login(b);assert.equal(await rpc('join_multichat_room',[room]),room);assert.equal(await rpc('join_multichat_room',[room]),room,'join is idempotent');
  assert.equal((await query('select id from sessions where id=$1',[room])).length,1);
- await rpc('set_multichat_note',[room,'PC2 NOTE']);await rpc('set_multichat_billing',[room,'alternate',2,3,2]);
+ await login(b);await rpc('rename_multichat',[room,'참여자 이름']);
+ assert.equal((await query('select title from multichat_rooms where id=$1',[room]))[0].title,'참여자 이름');
+ assert.equal((await query('select title from sessions where id=$1',[room]))[0].title,'참여자 이름');
+ await assert.rejects(()=>rpc('rename_multichat',[room,'   ']));await assert.rejects(()=>rpc('rename_multichat',[room,'x'.repeat(61)]));
+ await login(a);await rpc('rename_multichat',[room,'  방장 이름  ']);assert.equal((await query('select title from sessions where id=$1',[room]))[0].title,'방장 이름');
+ await login(c);await assert.rejects(()=>rpc('rename_multichat',[room,'외부 변경']));
+ await login(null);await assert.rejects(()=>rpc('rename_multichat',[room,'비회원 변경']));
+ await login(b); await rpc('set_multichat_note',[room,'PC2 NOTE']);await rpc('set_multichat_billing',[room,'alternate',2,3,2]);
  assert.equal((await query('select billing_first_slot from multichat_rooms'))[0].billing_first_slot,2);
  await assert.rejects(()=>rpc('set_multichat_billing',[room,'alternate',0,3,1]));
  await login(a);await rpc('set_multichat_note',[room,'PC1 NOTE']);await rpc('set_multichat_billing',[room,'alternate',2,3,1]);await rpc('start_multichat',[room]);
