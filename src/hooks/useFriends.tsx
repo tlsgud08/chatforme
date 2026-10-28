@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabase } from '@/lib/supabase';
 import { FRIEND_AWAY_MS, FRIEND_HEARTBEAT_MS, friendView, loadFriendSnapshot, registerFriendShutdown, type FriendOperation, type FriendSnapshot, type FriendView, type FriendWork } from '@/lib/friends';
 import { subscribeToFriendChanges } from '@/lib/friendRealtime';
+import { friendVisitKey } from '@/lib/friendVisit';
 
 interface FriendsState {
   userId: string; friends: FriendView[]; relationships: FriendSnapshot['relationships']; works: Record<string, FriendWork>;
@@ -12,12 +13,17 @@ interface FriendsState {
 }
 const FriendsContext = createContext<FriendsState | null>(null);
 const PlayingActivityContext = createContext<FriendsState['playing'] | null>(null);
+const CreatingActivityContext = createContext<FriendsState['playing'] | null>(null);
 export function useFriends() { return useContext(FriendsContext); }
 export function usePlayingActivity(sessionId: string | null | undefined) {
   // Chat pages subscribe only to this stable registration callback, so the
   // presence clock never rerenders an entire long conversation.
   const register = useContext(PlayingActivityContext);
   useEffect(() => { if (register && sessionId) return register(sessionId); }, [register, sessionId]);
+}
+export function useCreatingActivity(workId: string | null | undefined) {
+  const register = useContext(CreatingActivityContext);
+  useEffect(() => { if (register && workId) return register(workId); }, [register, workId]);
 }
 const message = (error: unknown) => (error as { message?: string })?.message || String(error);
 
@@ -26,7 +32,7 @@ export function FriendsProvider({ userId, children }: { userId: string; children
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [pending, setPending] = useState(false);
   const [now, setNow] = useState(Date.now), [offset, setOffset] = useState(0);
   const [profileId, openProfile] = useState<string | null>(null), [managerOpen, openManager] = useState(false);
-  const active = useRef(true), interaction = useRef(Date.now()), context = useRef<string | null>(null);
+  const active = useRef(true), interaction = useRef(Date.now()), context = useRef<{ type: 'play' | 'create'; id: string } | null>(null);
   const write = useRef<(() => void) | null>(null), registration = useRef(0), revision = useRef(0), mutation = useRef(false);
   const readController = useRef<AbortController | null>(null);
   const serverOffset = useRef(0);
@@ -43,14 +49,17 @@ export function FriendsProvider({ userId, children }: { userId: string; children
     } catch (problem) { if (active.current && seq === revision.current) setError(controller.signal.aborted ? '친구 상태를 다시 확인하고 있어요.' : message(problem)); }
     finally { clearTimeout(timeout); if (active.current && seq === revision.current) setLoading(false); }
   }, [userId]);
-  const playing = useCallback((id: string | null) => {
-    const token = ++registration.current; context.current = id;
+  const register = useCallback((type: 'play' | 'create', id: string | null) => {
+    const token = ++registration.current; context.current = id ? { type, id } : null;
     if (document.visibilityState !== 'hidden') interaction.current = Date.now();
     write.current?.();
     return () => { if (registration.current === token) { context.current = null; write.current?.(); } };
   }, []);
+  const playing = useCallback((id: string | null) => register('play', id), [register]);
+  const creating = useCallback((id: string | null) => register('create', id), [register]);
   useEffect(() => {
     active.current = true;
+    const visit = friendVisitKey(userId);
     let connection = crypto.randomUUID();
     let stopped = false, sending = false, queued = false;
     let controller = new AbortController();
@@ -59,8 +68,9 @@ export function FriendsProvider({ userId, children }: { userId: string; children
       if (sending) { queued = true; return; }
       sending = true;
       const signal = controller.signal;
+      const activity = context.current;
       try {
-        const { error: problem } = await supabase.rpc('touch_friend_activity', { connection_key: connection, playing_session: context.current, interaction_at: new Date(interaction.current + serverOffset.current).toISOString() }).abortSignal(signal);
+        const { error: problem } = await supabase.rpc('touch_friend_activity_state', { connection_key: connection, visit_key: visit, playing_session: activity?.type === 'play' ? activity.id : null, editing_work: activity?.type === 'create' ? activity.id : null, interaction_at: new Date(interaction.current + serverOffset.current).toISOString() }).abortSignal(signal);
         if (problem && !stopped) setError(message(problem));
       } catch (problem) { if (!stopped && !signal.aborted) setError(message(problem)); }
       finally { sending = false; if (queued && !stopped) { queued = false; void heartbeat(); } }
@@ -115,5 +125,5 @@ export function FriendsProvider({ userId, children }: { userId: string; children
   }, [refresh]);
   const friends = useMemo(() => (snapshot?.relationships ?? []).filter(row => row.status === 'accepted').map(row => friendView(row, now + offset))
     .sort((a, b) => ({ online: 0, away: 1, offline: 2, hidden: 3 }[a.presence] - { online: 0, away: 1, offline: 2, hidden: 3 }[b.presence]) || a.display_name.localeCompare(b.display_name)), [snapshot, now, offset]);
-  return <PlayingActivityContext.Provider value={playing}><FriendsContext.Provider value={{ userId, friends, relationships: snapshot?.relationships ?? [], works, sharing: snapshot?.sharing_enabled ?? true, loading, error, pending, refresh, change, setSharing, playing, profileId, openProfile, managerOpen, openManager }}>{children}</FriendsContext.Provider></PlayingActivityContext.Provider>;
+  return <PlayingActivityContext.Provider value={playing}><CreatingActivityContext.Provider value={creating}><FriendsContext.Provider value={{ userId, friends, relationships: snapshot?.relationships ?? [], works, sharing: snapshot?.sharing_enabled ?? true, loading, error, pending, refresh, change, setSharing, playing, profileId, openProfile, managerOpen, openManager }}>{children}</FriendsContext.Provider></CreatingActivityContext.Provider></PlayingActivityContext.Provider>;
 }

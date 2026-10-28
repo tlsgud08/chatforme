@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFriends } from '@/hooks/useFriends';
-import { friendActivityLabel, friendPresenceLabel, type FriendOperation, type FriendView } from '@/lib/friends';
+import { friendActivityLabel, friendActivityDescription, friendPresenceLabel, type FriendOperation, type FriendView } from '@/lib/friends';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 import InterfaceIcon from './InterfaceIcon';
@@ -21,7 +21,7 @@ export function FriendActivityStrip() {
   if (!social) return null;
   return <div className="friend-activity-strip" aria-label="친구 활동">
     <div className="friend-activity-people">
-      {social.friends.map(friend => <button key={friend.user_id} type="button" className="friend-activity-person" onClick={() => social.openProfile(friend.user_id)} aria-label={`${friend.display_name} · ${friendPresenceLabel(friend)} · ${friendActivityLabel(friend, social.works)}`}>
+      {social.friends.map(friend => <button key={friend.user_id} type="button" className="friend-activity-person" onClick={() => social.openProfile(friend.user_id)} aria-label={`${friend.display_name} · ${friendActivityDescription(friend, social.works)}`}>
         <FriendAvatar friend={friend} /><span className="friend-activity-copy"><span className="friend-activity-name">{friend.display_name || '(이름 없음)'}</span><span className="friend-activity-caption">{friendActivityLabel(friend, social.works)}</span></span>
       </button>)}
       {!social.friends.length && <button type="button" className="friend-empty-link" onClick={() => social.openManager(true)}>{social.loading ? '친구 활동을 불러오는 중…' : social.error ? '친구 상태를 확인해 주세요' : '친구를 추가해 플레이 소식을 확인하세요'}</button>}
@@ -31,7 +31,7 @@ export function FriendActivityStrip() {
 }
 export function SameWorkFriends({ workId }: { workId: string | null | undefined }) {
   const social = useFriends();
-  const friends = social?.friends.filter(friend => !!workId && friend.currentWorkId === workId && (friend.presence === 'online' || friend.presence === 'away')) ?? [];
+  const friends = social?.friends.filter(friend => !!workId && friend.currentWorkId === workId && friend.currentActivityType === 'play' && (friend.presence === 'online' || friend.presence === 'away')) ?? [];
   if (!friends.length || !social) return null;
   return <div className="same-work-friends" aria-label="같은 작품을 플레이 중인 친구">
     {friends.slice(0, 3).map(friend => <button key={friend.user_id} type="button" onClick={() => social.openProfile(friend.user_id)} aria-label={`${friend.display_name} · ${friendPresenceLabel(friend)} · 같은 작품 플레이 중`}><FriendAvatar friend={friend} small /></button>)}

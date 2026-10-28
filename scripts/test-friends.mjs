@@ -7,6 +7,7 @@ const a='00000000-0000-0000-0000-000000000001', b='00000000-0000-0000-0000-00000
 const work='10000000-0000-0000-0000-000000000001', secret='10000000-0000-0000-0000-000000000002';
 const sa='20000000-0000-0000-0000-000000000001', sb='20000000-0000-0000-0000-000000000002', privateSession='20000000-0000-0000-0000-000000000003';
 const ca='30000000-0000-0000-0000-000000000001', cb='30000000-0000-0000-0000-000000000002', cb2='30000000-0000-0000-0000-000000000003';
+const transitions=[], creationTransitions=[];
 const q=async(sql,args=[])=>(await db.query(sql,args)).rows;
 async function login(id){await db.exec('reset role');await q("select set_config('request.jwt.claim.sub',$1,false)",[id??'']);await db.exec(id?'set role authenticated':'set role anon');}
 async function rpc(name,args=[]){return (await q(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) value`,args))[0]?.value;}
@@ -70,18 +71,90 @@ try{
  await login(a);await rpc('change_friendship',[b,'remove']);assert.equal((await rpc('get_friend_social_state')).relationships.length,0);
  assert.equal((await q('select user_id from friend_activity_signals where user_id=$1',[b])).length,0,'friend removal revokes activity access');
  await rpc('change_friendship',[b,'request']);await login(b);await rpc('change_friendship',[a,'request']);assert.equal((await rpc('get_friend_social_state')).relationships[0].status,'accepted','crossed requests produce one mutual friendship');
+ const visit='40000000-0000-0000-0000-000000000001', nextVisit='40000000-0000-0000-0000-000000000002';
+ const initial='30000000-0000-0000-0000-000000000011', reloaded='30000000-0000-0000-0000-000000000012', restored='30000000-0000-0000-0000-000000000013', fresh='30000000-0000-0000-0000-000000000014';
+ async function observe(step){await login(a);const snapshot=await rpc('get_friend_social_state');transitions.push({step,snapshot});await login(b);return snapshot.relationships.find(row=>row.user_id===b);}
+ await rpc('touch_friend_visit',[initial,visit,null,new Date().toISOString()]);await observe('initial');
+ await rpc('touch_friend_visit',[initial,visit,sb,new Date().toISOString()]);await observe('playing');
+ const playedAt=(await q('select last_played_at from friend_visits where visit_id=$1',[visit]))[0].last_played_at;
+ await rpc('touch_friend_visit',[initial,visit,null,new Date().toISOString()]);const left=await observe('left-room');
+ assert.equal(left.connections[0].work_id,null);assert.equal(left.connections[0].last_work_id,work);
+ assert.deepEqual((await q('select last_played_at from friend_visits where visit_id=$1',[visit]))[0].last_played_at,playedAt,'leaving a room keeps its visit history timestamp');
+ await assert.rejects(()=>rpc('touch_friend_visit',[initial,nextVisit,null,new Date().toISOString()]),/다른 접속/);
+ await rpc('stop_friend_activity',[initial]);await observe('offline');
+ await rpc('touch_friend_visit',[reloaded,visit,null,new Date().toISOString()]);await observe('reload');
+ await rpc('touch_friend_visit',[initial,visit,privateSession,new Date().toISOString()]);
+ assert.equal((await q('select last_work_id from friend_visits where visit_id=$1',[visit]))[0].last_work_id,work,'a late request from the closed document cannot change visit history');
+ await rpc('stop_friend_activity',[reloaded]);await rpc('touch_friend_visit',[restored,visit,null,new Date().toISOString()]);await observe('reconnect');
+ await rpc('stop_friend_activity',[restored]);await rpc('touch_friend_visit',[fresh,nextVisit,null,new Date().toISOString()]);const newVisit=await observe('new-visit');
+ assert.equal(newVisit.connections[0].last_work_id,null,'a new visit hides the previous visit\'s last work');assert.equal(newVisit.last_work_id,work,'the lifetime last work is preserved');
+ await login(a);assert.equal((await q('select visit_id from friend_visits')).length,0,'peer visit identifiers are private');
+ await assert.rejects(()=>rpc('touch_friend_visit',[ca,visit,sa,new Date().toISOString()]),/다른 접속/);
+ await login(b);const tied=new Date().toISOString();
+ await rpc('touch_friend_visit',[fresh,nextVisit,sb,tied]);await rpc('touch_friend_visit',[fresh,nextVisit,privateSession,tied]);
+ assert.equal((await q('select last_work_id from friend_visits where visit_id=$1',[nextVisit]))[0].last_work_id,secret,'rapid room switches update visit history even at equal interaction timestamps');
+ assert.equal((await q('select last_work_id from friend_activity where user_id=$1',[b]))[0].last_work_id,secret,'offline history matches the latest validated work');
+ await rpc('set_friend_activity_sharing',[false]);await login(a);const hidden=(await rpc('get_friend_social_state')).relationships[0];assert.equal(hidden.connections.length,0);assert.equal(hidden.last_work_id,null);
+ await login(b);await rpc('set_friend_activity_sharing',[true]);await rpc('stop_friend_activity',[fresh]);
+ const creationWork='10000000-0000-0000-0000-000000000003', creationVisit='40000000-0000-0000-0000-000000000003';
+ const creationConnection='30000000-0000-0000-0000-000000000021', creationReload='30000000-0000-0000-0000-000000000022', idleConnection='30000000-0000-0000-0000-000000000023';
+ await q("insert into works(id,creator_id,title,visibility) values($1,$2,'제작 작품','public')",[creationWork,b]);
+ async function observeCreation(step){await login(a);const snapshot=await rpc('get_friend_social_state');creationTransitions.push({step,snapshot});await login(b);return snapshot.relationships.find(row=>row.user_id===b);}
+ await assert.rejects(()=>rpc('touch_friend_activity_state',[creationConnection,creationVisit,null,work,new Date().toISOString()]),/수정할 권한/);
+ await assert.rejects(()=>rpc('touch_friend_activity_state',[creationConnection,creationVisit,sb,creationWork,new Date().toISOString()]),/하나만/);
+ await rpc('touch_friend_activity_state',[creationConnection,creationVisit,null,creationWork,new Date().toISOString()]);await observeCreation('creating');
+ await rpc('touch_friend_activity_state',[creationConnection,creationVisit,null,null,new Date().toISOString()]);const leftCreation=await observeCreation('left-editor');
+ assert.equal(leftCreation.connections[0].work_id,null);assert.equal(leftCreation.connections[0].last_activity_type,'create');
+ await rpc('stop_friend_activity',[creationConnection]);await observeCreation('offline-after-creation');
+ await rpc('touch_friend_activity_state',[creationReload,creationVisit,null,null,new Date().toISOString()]);await observeCreation('reload-after-creation');
+ await rpc('touch_friend_activity_state',[creationReload,creationVisit,sb,null,new Date().toISOString()]);await observeCreation('playing-after-creation');
+ await rpc('touch_friend_activity_state',[creationConnection,creationVisit,null,creationWork,new Date().toISOString()]);
+ assert.equal((await q('select last_activity_type from friend_activity where user_id=$1',[b]))[0].last_activity_type,'play','a closed creator connection cannot replace newer play history');
+ await rpc('touch_friend_activity_state',[creationReload,creationVisit,null,null,new Date().toISOString()]);await observeCreation('left-chat-after-creation');
+ await rpc('stop_friend_activity',[creationReload]);
+ await rpc('touch_friend_activity_state',[idleConnection,'40000000-0000-0000-0000-000000000004',null,null,new Date(Date.now()-181000).toISOString()]);await observeCreation('idle-three-minutes');
+ await rpc('stop_friend_activity',[idleConnection]);
+ await login(a);await q('insert into work_editors(work_id,user_id,granted_by) values($1,$2,$3)',[work,b,a]);await login(b);
+ const coeditorConnection='30000000-0000-0000-0000-000000000024', coeditorVisit='40000000-0000-0000-0000-000000000005';
+ await rpc('touch_friend_activity_state',[coeditorConnection,coeditorVisit,null,work,new Date().toISOString()]);
+ assert.equal((await q('select activity_type from friend_connections where connection_id=$1',[coeditorConnection]))[0].activity_type,'create','coeditors can share creation activity');
+ await rpc('set_friend_activity_sharing',[false]);await login(a);const privateCreation=(await rpc('get_friend_social_state')).relationships[0];assert.equal(privateCreation.last_activity_type,null);assert.equal(privateCreation.connections.length,0);
+ await q('delete from work_editors where work_id=$1 and user_id=$2',[work,b]);await login(b);await rpc('set_friend_activity_sharing',[true]);
+ await assert.rejects(()=>rpc('touch_friend_activity_state',[coeditorConnection,coeditorVisit,null,work,new Date().toISOString()]),/수정할 권한/);
+ await rpc('stop_friend_activity',[coeditorConnection]);
+ const legacyAfterCreation='30000000-0000-0000-0000-000000000025';await rpc('touch_friend_activity',[legacyAfterCreation,sb,new Date().toISOString()]);
+ assert.equal((await q('select last_activity_type from friend_activity where user_id=$1',[b]))[0].last_activity_type,'play','older play clients keep activity types correct');await rpc('stop_friend_activity',[legacyAfterCreation]);
+ console.log('Creation activity DB: new/existing editable works, leave/offline/reload history, play transitions, 3-minute idle, coeditor grants/revocation, private sharing, closed requests and older-client compatibility passed');
+ console.log('Friend visits DB: enter/leave/offline/new visit, reload/reconnect persistence, lifetime history, rapid switches, closed requests, account isolation and private activity passed');
  console.log('Friends DB: mutual requests/accept/reject/cancel/remove, member-only data, private signals, validated session activity, multi-tab ordering, privacy, offline persistence, late-heartbeat protection and signup compatibility passed');
 }finally{await db.close();}
 const server=await createServer({server:{middlewareMode:true},appType:'custom'});
 try{
- const {friendView,friendActivityLabel,FRIEND_AWAY_MS,FRIEND_CONNECTION_TTL_MS}=await server.ssrLoadModule('/src/lib/friends.ts');
+ const {friendView,friendActivityLabel,friendActivityDescription,FRIEND_AWAY_MS,FRIEND_CONNECTION_TTL_MS}=await server.ssrLoadModule('/src/lib/friends.ts');
  const now=Date.now(),iso=stamp=>new Date(stamp).toISOString();
  const base={user_id:b,display_name:'Friend',status:'accepted',requested_by:a,sharing_enabled:true,last_work_id:work,last_played_at:iso(now-60_000),connections:[{seen_at:iso(now),active_at:iso(now-FRIEND_AWAY_MS+1),work_id:work}]};
  assert.equal(friendView(base,now).presence,'online');
  const away=friendView({...base,connections:[{...base.connections[0],active_at:iso(now-FRIEND_AWAY_MS)}]},now);
  assert.equal(away.presence,'away');assert.equal(away.currentWorkId,work);assert.equal(friendActivityLabel(away,{[work]:{title:'빅토리아 3'}}),'빅토리아 3 플레이 중');
  const offline=friendView({...base,connections:[{...base.connections[0],seen_at:iso(now-FRIEND_CONNECTION_TTL_MS)}]},now);
- assert.equal(offline.presence,'offline');assert.equal(friendActivityLabel(offline,{[work]:{title:'빅토리아 3'}}),'마지막 플레이 · 빅토리아 3');
+ assert.equal(offline.presence,'offline');assert.equal(friendActivityLabel(offline,{[work]:{title:'빅토리아 3'}}),'오프라인 · 마지막 플레이 · 빅토리아 3');
+ const labels=['접속 중','빅토리아 3 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3','오프라인 · 마지막 플레이 · 빅토리아 3','접속 중 · 마지막 플레이 · 빅토리아 3','접속 중 · 마지막 플레이 · 빅토리아 3','접속 중'];
+ for(const [i,transition] of transitions.entries()){
+  const view=friendView(transition.snapshot.relationships.find(row=>row.user_id===b),Date.parse(transition.snapshot.server_time));
+  assert.equal(friendActivityLabel(view,{[work]:{title:'빅토리아 3'}}),labels[i],transition.step);
+ }
+ const creationLabels=['제작 작품 제작 중','접속 중 · 마지막 제작 · 제작 작품','오프라인 · 마지막 제작 · 제작 작품','접속 중 · 마지막 제작 · 제작 작품','빅토리아 3 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3','자리 비움'];
+ for(const [i,transition] of creationTransitions.entries()){
+  const view=friendView(transition.snapshot.relationships.find(row=>row.user_id===b),Date.parse(transition.snapshot.server_time));
+  assert.equal(friendActivityLabel(view,{[work]:{title:'빅토리아 3'},['10000000-0000-0000-0000-000000000003']:{title:'제작 작품'}}),creationLabels[i],transition.step);
+  if(transition.step==='creating')assert.equal(view.currentActivityType,'create');
+ }
+ const idle={...base,connections:[{seen_at:iso(now),active_at:iso(now-FRIEND_AWAY_MS+1),work_id:null}]};
+ assert.equal(friendView(idle,now).presence,'online');idle.connections[0].active_at=iso(now-FRIEND_AWAY_MS);assert.equal(friendView(idle,now).presence,'away','idle with neither playing nor creating becomes away at exactly 3 minutes');
+ const awayCreation=friendView({...base,connections:[{seen_at:iso(now),active_at:iso(now-FRIEND_AWAY_MS),work_id:work,activity_type:'create'}]},now);
+ assert.equal(friendActivityLabel(awayCreation,{[work]:{title:'빅토리아 3'}}),'빅토리아 3 제작 중');assert.equal(friendActivityDescription(awayCreation,{[work]:{title:'빅토리아 3'}}),'자리 비움 · 빅토리아 3 제작 중');
+ const idleAfterPlay=friendView({...base,connections:[{seen_at:iso(now),active_at:iso(now-FRIEND_AWAY_MS),work_id:null,last_work_id:work}]},now);
+ assert.equal(idleAfterPlay.presence,'away');assert.equal(friendActivityLabel(idleAfterPlay,{[work]:{title:'빅토리아 3'}}),'자리 비움 · 마지막 플레이 · 빅토리아 3');
  assert.equal(friendView({...base,connections:[{seen_at:iso(now),active_at:iso(now-1000),work_id:null},{seen_at:iso(now),active_at:iso(now-5000),work_id:work}]},now).currentWorkId,null,'latest active browser wins');
  assert.equal(friendView({...base,connections:[{seen_at:iso(now-180_000),active_at:iso(now-180_000),work_id:secret},...base.connections]},now).presence,'online','one live device keeps the user online');
  assert.equal(friendView({...base,sharing_enabled:false},now).displayWorkId,null);

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useCreatingActivity } from '@/hooks/useFriends';
 import type { KeywordBook, StartConfig, Work } from '@/types/db';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
@@ -69,6 +70,7 @@ export default function WorkEditorPage() {
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [ready, setReady] = useState(false);
   const [dirty, setDirty] = useState(false);
+  useCreatingActivity(ready && work?.id === workId ? workId : null);
   const baselineRef = useRef('');
   const dirtyRef = useRef(false);
   const historyGuardRef = useRef(false);
