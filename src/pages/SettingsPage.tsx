@@ -13,6 +13,7 @@ import ThemePreferences from '@/components/ThemePreferences';
 import InterfacePreferences from '@/components/InterfacePreferences';
 import type { Profile, Provider } from '@/types/db';
 import GlobalSummaryPromptSettings from '@/components/GlobalSummaryPromptSettings';
+import SemiMultichatPromptSettings, { SemiSyncSummaryPromptSettings } from '@/components/SemiMultichatPromptSettings';
 import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/OutputSettingsEditor';
 import { useUsdKrwRate } from '@/lib/exchangeRate';
 import { loadTurnPriceWarning, saveTurnPriceWarning, type TurnPriceWarningCurrency } from '@/lib/turnPriceWarning';
@@ -475,6 +476,8 @@ export default function SettingsPage() {
 
       {/* 관리자 전용: 전역 시스템 프롬프트 */}
       {isAdmin && <GlobalSummaryPromptSettings />}
+      {isAdmin && <SemiMultichatPromptSettings />}
+      {isAdmin && <SemiSyncSummaryPromptSettings />}
 
       {isAdmin && systemPromptLoaded && (
         <section data-settings-section="admin" className="rounded-lg border border-yellow-600/30 bg-yellow-950/20 p-4">

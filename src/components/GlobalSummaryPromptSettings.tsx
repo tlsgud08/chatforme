@@ -27,7 +27,7 @@ export default function GlobalSummaryPromptSettings() {
   }
   return <section data-settings-section="admin" className="rounded-lg border border-yellow-600/30 bg-yellow-950/20 p-4">
     <h2 className="mb-1 font-semibold text-yellow-400">관리자 — 전역 요약 프롬프트</h2>
-    <p className="mb-3 text-xs text-slate-400">일반챗과 멀티챗의 모든 요약에 공통으로 적용됩니다. 개인별 프롬프트와 추가 지침은 사용하지 않습니다.</p>
+    <p className="mb-3 text-xs text-slate-400">일반챗과 멀티챗의 요약 노트 생성에 적용됩니다. 세션 동기화로 상대에게 보내는 요약은 별도의 동기화용 요약 프롬프트를 사용합니다. 개인별 프롬프트와 추가 지침은 사용하지 않습니다.</p>
     <textarea aria-label="전역 요약 프롬프트" rows={18} disabled={!loaded || saving} value={prompt} onChange={event => setPrompt(event.target.value)} className="w-full rounded-xl bg-surface p-3 font-mono text-xs leading-relaxed text-slate-200 outline-none disabled:opacity-50" />
     {message && <p role="status" className="mt-2 text-xs text-slate-400">{message}</p>}
     <div className="mt-3 flex gap-2">

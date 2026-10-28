@@ -21,6 +21,7 @@ import SessionPluginSettings from './SessionPluginSettings';
 import SessionWorkCombinationSettings from './SessionWorkCombinationSettings';
 import SessionThemeSettings from './SessionThemeSettings';
 import Toggle from './Toggle';
+import SemiSessionSettings from './SemiSessionSettings';
 
 interface OpenRouterCredit {
   usage: number;
@@ -66,6 +67,7 @@ interface Props {
   sessionTurnCount: number;
   sending: boolean;
   onWorkCombinationSavingChange: (saving: boolean) => boolean;
+  onPublishSemiSummary?: (linkId: string) => Promise<boolean>;
 }
 
 export default function SessionMenu({
@@ -76,7 +78,7 @@ export default function SessionMenu({
   showOffMode, onShowOffModeToggle,
   sessionModel, onModelChange, sessionReasoning, onReasoningChange,
   errorLog, onClearErrors, onExportConversation, exportingConversation,
-  onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange, sessionTurnCount, sending, onWorkCombinationSavingChange,
+  onGenerateSummary, onMergeSummaries, summaryGenerating, storyNotes, onStoryNotesChange, sessionTurnCount, sending, onWorkCombinationSavingChange, onPublishSemiSummary,
 }: Props) {
   const { user, isAdmin } = useAuth();
   const [note, setNote] = useState(session.user_note);
@@ -307,6 +309,7 @@ export default function SessionMenu({
           {personas.length === 0 && <p className="inu-help">My 탭에서 페르소나를 추가하세요.</p>}
         </section>
         {multichat && <MultichatProgressSettings room={multichat.room} members={multichat.members} slot={multichat.slot} otherPresent={multichat.otherPresent} presenceReady={multichat.presenceReady} onUpdate={multichat.onRoomUpdate} onRefresh={multichat.onRefresh} />}
+        {!multichat && user && onPublishSemiSummary && <SemiSessionSettings sessionId={session.id} userId={user.id} busy={sending || summaryGenerating} onPublish={onPublishSemiSummary} onSavingChange={onWorkCombinationSavingChange} />}
         {user && <SessionThemeSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         <section className="inu-section">
           <div className="inu-row"><h3><InterfaceIcon name="note" />{multichat ? '내 유저 노트' : '유저 노트'}</h3><span className="inu-help">{note.length.toLocaleString()}자 · 제한 없음</span></div>
