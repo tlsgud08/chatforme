@@ -169,12 +169,12 @@ try{
  assert.equal(away.presence,'away');assert.equal(away.currentWorkId,work);assert.equal(friendActivityLabel(away,{[work]:{title:'빅토리아 3'}}),'빅토리아 3 플레이 중');
  const offline=friendView({...base,connections:[{...base.connections[0],seen_at:iso(now-FRIEND_CONNECTION_TTL_MS)}]},now);
  assert.equal(offline.presence,'offline');assert.equal(friendActivityLabel(offline,{[work]:{title:'빅토리아 3'}}),'오프라인 · 마지막 플레이 · 빅토리아 3');
- const labels=['접속 중','빅토리아 3 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3','방금 전 접속 · 마지막 플레이 · 빅토리아 3','접속 중 · 마지막 플레이 · 빅토리아 3','접속 중 · 마지막 플레이 · 빅토리아 3','접속 중'];
+ const labels=['접속 중','빅토리아 3 · 1분 미만 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3 · 1분 미만 플레이','방금 전 접속 · 마지막 플레이 · 빅토리아 3 · 1분 미만 플레이','접속 중 · 마지막 플레이 · 빅토리아 3 · 1분 미만 플레이','접속 중 · 마지막 플레이 · 빅토리아 3 · 1분 미만 플레이','접속 중'];
  for(const [i,transition] of transitions.entries()){
   const view=friendView(transition.snapshot.relationships.find(row=>row.user_id===b),Date.parse(transition.snapshot.server_time));
   assert.equal(friendActivityLabel(view,{[work]:{title:'빅토리아 3'}}),labels[i],transition.step);
  }
- const creationLabels=['제작 작품 제작 중','접속 중 · 마지막 제작 · 제작 작품','방금 전 접속 · 마지막 제작 · 제작 작품','접속 중 · 마지막 제작 · 제작 작품','빅토리아 3 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3','자리 비움'];
+ const creationLabels=['제작 작품 제작 중','접속 중 · 마지막 제작 · 제작 작품','방금 전 접속 · 마지막 제작 · 제작 작품','접속 중 · 마지막 제작 · 제작 작품','빅토리아 3 · 1분 미만 플레이 중','접속 중 · 마지막 플레이 · 빅토리아 3 · 1분 미만 플레이','자리 비움'];
  for(const [i,transition] of creationTransitions.entries()){
   const view=friendView(transition.snapshot.relationships.find(row=>row.user_id===b),Date.parse(transition.snapshot.server_time));
   assert.equal(friendActivityLabel(view,{[work]:{title:'빅토리아 3'},['10000000-0000-0000-0000-000000000003']:{title:'제작 작품'}}),creationLabels[i],transition.step);
