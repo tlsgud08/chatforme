@@ -2,7 +2,7 @@ import InterfaceIcon from './InterfaceIcon';
 import MultichatApiSettings from './MultichatApiSettings';
 import MultichatProgressSettings from './MultichatProgressSettings';
 import type { MultichatMember, MultichatRoom } from '@/types/db';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import SessionMenuFrame, { SessionMenuPage } from './SessionMenuFrame';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -130,6 +130,11 @@ export default function SessionMenu({
   const [storyNoteDraft, setStoryNoteDraft] = useState('');
   const [summaryThroughTurn, setSummaryThroughTurn] = useState<number | ''>('');
   const [activeTab, setActiveTab] = useState('chat');
+  const [activeSemiSession, setActiveSemiSession] = useState<string | null>(null);
+  const semiActive = activeSemiSession === session.id;
+  const handleSemiActiveChange = useCallback((active: boolean) => {
+    setActiveSemiSession(active ? session.id : null);
+  }, [session.id]);
   const [noteSaving, setNoteSaving] = useState(false);
   const scrollRef = useRef<HTMLElement>(null);
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0; }, [activeTab]);
@@ -273,6 +278,10 @@ export default function SessionMenu({
   const outputLabel = outputSettings.outputTokens === null ? '무제한' : `${outputSettings.outputTokens.toLocaleString()} 토큰`;
   const reasoningLabel = outputSettings.reasoning.send === false ? '추론 미전송' : `추론 ${{ off: 'Off', low: '낮음', medium: '중간', high: '높음' }[outputSettings.reasoning.effort ?? 'medium'] ?? outputSettings.reasoning.effort}`;
   const tabs = [{ id: 'chat', label: '대화' }, { id: 'ai', label: 'AI 설정' }, { id: 'memory', label: '메모리' }, { id: 'display', label: '표시' }];
+  // Keep the same keyed instance when moving so open previews and drafts survive.
+  const semiSettings = !multichat && user && onPublishSemiSummary
+    ? <SemiSessionSettings key={`semi:${session.id}`} sessionId={session.id} userId={user.id} busy={sending || summaryGenerating} onPublish={onPublishSemiSummary} onSavingChange={onWorkCombinationSavingChange} onActiveChange={handleSemiActiveChange} />
+    : null;
 
   return <SessionMenuFrame subtitle={`${session.title || '채팅방'} · ${sessionTurnCount}턴`} onClose={onClose}>
     <details className="inu-credit">
@@ -309,6 +318,7 @@ export default function SessionMenu({
           {personas.length === 0 && <p className="inu-help">My 탭에서 페르소나를 추가하세요.</p>}
         </section>
         {multichat && <MultichatProgressSettings room={multichat.room} members={multichat.members} slot={multichat.slot} otherPresent={multichat.otherPresent} presenceReady={multichat.presenceReady} onUpdate={multichat.onRoomUpdate} onRefresh={multichat.onRefresh} />}
+        {semiActive && semiSettings}
         {user && <SessionThemeSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         <section className="inu-section">
           <div className="inu-row"><h3><InterfaceIcon name="note" />{multichat ? '내 유저 노트' : '유저 노트'}</h3><span className="inu-help">{note.length.toLocaleString()}자 · 제한 없음</span></div>
@@ -317,7 +327,7 @@ export default function SessionMenu({
         </section>
         {user && <SessionPluginSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         {user && <SessionWorkCombinationSettings key={session.id} session={session} userId={user.id} includeUnlisted={isAdmin} busy={sending || summaryGenerating} onUpdate={onUpdate} onSavingChange={onWorkCombinationSavingChange} />}
-        {!multichat && user && onPublishSemiSummary && <SemiSessionSettings sessionId={session.id} userId={user.id} busy={sending || summaryGenerating} onPublish={onPublishSemiSummary} onSavingChange={onWorkCombinationSavingChange} />}
+        {!semiActive && semiSettings}
       </div>
 
       <div className="inu-content" id="session-panel-ai" role="tabpanel" aria-labelledby="session-tab-ai" hidden={activeTab !== 'ai'}>

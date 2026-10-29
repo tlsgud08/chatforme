@@ -9,9 +9,10 @@ interface Props {
   sessionId: string; userId: string; busy: boolean;
   onPublish: (linkId: string) => Promise<boolean>;
   onSavingChange: (saving: boolean) => boolean;
+  onActiveChange?: (active: boolean) => void;
 }
 
-export default function SemiSessionSettings({ sessionId, userId, busy, onPublish, onSavingChange }: Props) {
+export default function SemiSessionSettings({ sessionId, userId, busy, onPublish, onSavingChange, onActiveChange }: Props) {
   const [links, setLinks] = useState<SemiLink[]>([]), [friends, setFriends] = useState<FriendRelationship[]>([]);
   const [loaded, setLoaded] = useState(false), [saving, setSaving] = useState(false), [selected, setSelected] = useState('');
   const [error, setError] = useState(''), [status, setStatus] = useState(''), [reload, setReload] = useState(0);
@@ -48,6 +49,8 @@ export default function SemiSessionSettings({ sessionId, userId, busy, onPublish
   }, [sessionId, userId, reload]);
 
   const link = links.find(row => row.session_a === sessionId || row.session_b === sessionId);
+  const active = link?.status === 'active';
+  useEffect(() => { onActiveChange?.(active); }, [active, onActiveChange]);
   const incoming = links.filter(row => row.status === 'pending' && row.user_b === userId);
   const peer = context ? context.peer : link ? link.user_a === userId ? link.snapshot_b : link.snapshot_a : null;
   const peerPersona = context ? context.peer_persona : peer?.persona;
