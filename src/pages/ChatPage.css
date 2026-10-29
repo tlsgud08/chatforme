@@ -25,3 +25,39 @@
   outline: 2px solid rgb(var(--color-brand));
   outline-offset: 2px;
 }
+
+.reroll-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgb(0 0 0 / .7);
+}
+
+.reroll-dialog {
+  width: 100%;
+  max-width: 440px;
+  max-height: 100%;
+  overflow-y: auto;
+  border-radius: 16px;
+  padding: 24px;
+  background: rgb(var(--color-bg));
+  color: var(--page-text);
+  box-shadow: 0 20px 40px rgb(0 0 0 / .2);
+}
+
+.reroll-dialog h2 { margin: 0 0 20px; font-size: 20px; font-weight: 600; }
+.reroll-dialog-field { border: 1px solid rgb(var(--color-surface2)); border-radius: 12px; background: rgb(var(--color-surface)); }
+.reroll-dialog textarea { display: block; width: 100%; min-height: 120px; padding: 14px; border: 0; border-radius: 12px; resize: vertical; background: transparent; color: inherit; font-size: 16px; line-height: 1.6; }
+.reroll-dialog textarea::placeholder { color: color-mix(in srgb, var(--page-text) 65%, transparent); }
+.reroll-dialog-count { padding: 0 14px 10px; font-size: 12px; text-align: right; }
+.reroll-dialog-count, .reroll-dialog p { color: color-mix(in srgb, var(--page-text) 65%, transparent); }
+.reroll-dialog p { margin: 12px 0 24px; font-size: 13px; line-height: 1.6; }
+.reroll-dialog-actions { display: flex; gap: 12px; }
+.reroll-dialog-actions button { flex: 1; min-width: 0; min-height: 48px; border-radius: 10px; padding: 12px 8px; font-size: 14px; font-weight: 600; background: rgb(var(--color-surface2)); color: var(--page-text); }
+.reroll-dialog-actions button[type='submit'] { background: rgb(var(--color-brand)); color: var(--custom-accent-text, #fff); }
+.reroll-dialog-actions button:disabled { opacity: .5; }
+.reroll-dialog :focus-visible { outline-color: rgb(var(--color-brand)); }

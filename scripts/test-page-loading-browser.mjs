@@ -119,6 +119,7 @@ async function setup(context) {
             if (delay) await new Promise(resolve=>setTimeout(resolve,delay));
             data = { messages:snapshot, hasOlder: false, oldestTurn: 1, totalUserTurns: snapshot.filter(m=>m.role==='user'&&!m.is_hidden&&m.is_active_variant).length };
         }
+        else if (path === 'rpc/semi_session_context') data = null;
         else if (path === 'rpc/session_generation_context') {
             if (holdGenerationContext) await new Promise(resolve => releaseGenerationContext = resolve);
             data = { messages, summary: '', summaryLastTurn: generationSummaryTurn };
@@ -505,6 +506,7 @@ try {
         failRerollSummary = true;
         const summariesBefore = requests.filter(r=>r.path==='summary_versions').length;
         await promptPage.getByRole('button',{name:'다시 생성',exact:true}).click();
+        await promptPage.getByRole('dialog',{name:'재생성 지침',exact:true}).getByRole('button',{name:'답변 재생성',exact:true}).click();
         while(requests.filter(r=>r.path==='summary_versions').length===summariesBefore)await promptPage.waitForTimeout(10);
         await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
         assert.equal(modelRequests,modelsBeforeReroll,'failed summary reads must not regenerate with missing memory');
@@ -515,6 +517,7 @@ try {
         failRerollCommand = true;
         const commandsBefore = requests.filter(r=>r.path==='commands').length;
         await promptPage.getByRole('button',{name:'다시 생성',exact:true}).click();
+        await promptPage.getByRole('dialog',{name:'재생성 지침',exact:true}).getByRole('button',{name:'답변 재생성',exact:true}).click();
         while(requests.filter(r=>r.path==='commands').length===commandsBefore)await promptPage.waitForTimeout(10);
         await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
         assert.equal(modelRequests,modelsBeforeReroll,'failed command reads must not regenerate with missing commands');
