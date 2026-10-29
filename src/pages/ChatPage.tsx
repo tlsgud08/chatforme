@@ -34,6 +34,7 @@ import { isTurnPriceWarning, loadTurnPriceWarning } from '@/lib/turnPriceWarning
 import { showToast } from '@/lib/toast';
 import { conversationFilename, downloadConversationText, formatConversationText } from '@/lib/chatExport';
 import CommandMenu from '@/components/CommandMenu';
+import RerollDialog from '@/components/RerollDialog';
 import { showConfirmDialog } from '@/lib/dialog';
 import { automaticThemeEnabled, availableWorkThemes, dayNightCatalogNames, dayNightModeEnabled, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
 import { paletteFor, preferredThemeVariant, requestThemeRefresh, type SavedTheme } from '@/lib/theme';
@@ -223,6 +224,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [rerollSessionId, setRerollSessionId] = useState<string | null>(null);
   const [workCombinationSaving, setWorkCombinationSaving] = useState(false);
   const workCombinationSavingRef = useRef(false);
   const onWorkCombinationSavingChange = useCallback((saving: boolean) => {
@@ -290,6 +292,7 @@ export default function ChatPage() {
   }, [sessionId]);
 
   useEffect(() => {
+    setRerollSessionId(null);
     setHasOlderServerMessages(false);
     setOldestLoadedAt(null);
     setTotalUserTurnCount(0);
@@ -766,7 +769,7 @@ export default function ChatPage() {
     }
   }
 
-  async function send(options?: { reroll?: boolean }) {
+  async function send(options?: { reroll?: boolean; rerollDirection?: string }) {
     if (pendingSave || (user && sessionId && pendingResponse(user.id, sessionId))) { showToast('보관한 답변의 저장 상태를 먼저 확인해 주세요.'); return; }
     if (!contextReady) { showToast('대화 설정을 모두 불러온 뒤 전송해 주세요.'); return; }
     if (editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current) { showToast('대화 변경을 마친 뒤 전송해 주세요.'); return; }
@@ -974,7 +977,11 @@ export default function ChatPage() {
       keywordBookContents: getActiveKeywordContents(baseMessages.filter(message => message.id !== rerollUserMessage?.id), promptText),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content,
         ...(m.id === promptCache.messageId && { cacheBreakpoint: true }) })),
-      latestUserMessage: promptText,
+      // Request-local only: never change the stored user turn, notes, keywords,
+      // summary, response recovery payload, or the shared generation registry.
+      latestUserMessage: options?.reroll && options.rerollDirection?.trim()
+        ? `${promptText}${promptText ? '\n\n' : ''}[Regeneration instruction: apply only to this response]\n${options.rerollDirection.trim()}`
+        : promptText,
     }), semiContext);
     const maxOutputTokens = session.output_settings_override_enabled ? session.output_tokens_override : profile.default_output_tokens;
       timing.mark('prompt');
@@ -1312,7 +1319,7 @@ export default function ChatPage() {
                         {showCacheTokens && <span className="text-right text-[10px] text-slate-500">캐시 읽기 {m.cache_read_tokens == null ? '미보고' : m.cache_read_tokens.toLocaleString()} · 쓰기 {m.cache_write_tokens == null ? '미보고' : m.cache_write_tokens.toLocaleString()}</span>}
                         {variantsFor(m).length > 1 && <select disabled={sending || !contextReady || summaryGenerating || !!editingSavingId || !!deletingMessageId || !!selectingVariantId} aria-label="리롤 답변 선택" value={m.id} onChange={(event) => void selectVariant(m, event.target.value)} className="max-w-28 bg-transparent text-xs text-slate-400 outline-none">{variantsFor(m).map((variant, index, variants) => <option key={variant.id} value={variant.id}>답변 비교 {index + 1}/{variants.length}</option>)}</select>}
                         <span className="text-[10px] font-medium text-slate-500">{assistantTurnNumbers.get(m.id) ?? 0}턴</span>
-                        {m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => void send({ reroll: true })} disabled={sending || !contextReady || summaryGenerating || !!editingSavingId || !!deletingMessageId} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성"><InterfaceIcon name="reroll" /></button>}
+                        {m.id === [...visibleMessages].reverse().find((item) => item.role === 'assistant')?.id && <button onClick={() => setRerollSessionId(sessionId ?? null)} disabled={sending || !contextReady || summaryGenerating || !!editingSavingId || !!deletingMessageId} className="text-lg text-brand disabled:opacity-50" aria-label="다시 생성"><InterfaceIcon name="reroll" /></button>}
                       </div>}
                     </div>
                   )}
@@ -1372,6 +1379,16 @@ export default function ChatPage() {
       </div>
 
       {commandMenuOpen && user && <CommandMenu userId={user.id} workId={work?.id} onClose={() => setCommandMenuOpen(false)} onSelect={setSelectedCommand} />}
+
+      {rerollSessionId === sessionId && session?.id === sessionId && <RerollDialog
+        key={sessionId}
+        disabled={sending || !contextReady || summaryGenerating || !!editingSavingId || !!deletingMessageId || !!selectingVariantId || workCombinationSaving}
+        onCancel={() => setRerollSessionId(null)}
+        onSubmit={direction => {
+          setRerollSessionId(null);
+          void send({ reroll: true, rerollDirection: direction });
+        }}
+      />}
 
       {menuOpen && session && contextReady && (
         <SessionMenu
