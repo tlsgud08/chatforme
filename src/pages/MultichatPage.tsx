@@ -13,7 +13,7 @@ import { multichatTranscript, prepareMultichatContext } from '@/lib/multichatCon
 import { registerAccountTask } from '@/lib/accountTasks';
 import { loadGlobalSummaryPrompt } from '@/lib/summaryPrompt';
 import { normalizeReasoning } from '@/lib/modelPreferences';
-import { finalThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives } from '@/lib/themeDirectives';
+import { finalValidThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives } from '@/lib/themeDirectives';
 import { requestThemeRefresh, paletteFor } from '@/lib/theme';
 import { conversationFilename, downloadConversationText, formatConversationText } from '@/lib/chatExport';
 import { formatKrw, useUsdKrwRate } from '@/lib/exchangeRate';
@@ -217,7 +217,17 @@ export default function MultichatPage() {
       abort.signal.throwIfAborted();
       writer = createDraftWriter(async text => { const { error } = await supabase.rpc('stream_multichat_response', { target_message: ticket!.messageId, token: ticket!.token, partial_text: text }); if (error) throw error; });
       await refresh();
-      const result = await generate('openrouter', { apiKey: key, sessionId: data.room.id, signal: abort.signal, model: prepared.model, reasoning: prepared.reasoning, maxOutputTokens: prepared.maxOutputTokens, sampling: prepared.sampling, ...prepared.assembled, cacheSystemOnly: prepared.cacheSystemOnly,
+      let assembled = prepared.assembled;
+      let simulation: import('@/lib/simulation/runtime').PreparedSimulation | null = null;
+      if (prepared.session.simulation_settings?.dice === true || prepared.session.simulation_settings?.knowledge === true) {
+        const runtime = await import('@/lib/simulation/runtime');
+        simulation = await runtime.prepareSimulation({ sessionId: prepared.session.id, workId: prepared.work.id, settings: prepared.session.simulation_settings,
+          apiKey: key, signal: abort.signal, beforeTurn: ticket.round, input: prepared.input, recent: prepared.assembled.messages.slice(-5,-1).map(m=>`${m.role}: ${m.content}`).join('\n').slice(-12000),
+          setup: [prepared.work.main_prompt, prepared.assembled.systemParts.persona].join('\n'),
+          rollScope: `turn:${ticket.round}${prepared.session.simulation_settings.rerollDice ? `:${ticket.messageId}` : ''}` });
+        assembled = runtime.applySimulation(assembled, simulation, prepared.input);
+      }
+      const result = await generate('openrouter', { apiKey: key, sessionId: data.room.id, signal: abort.signal, model: prepared.model, reasoning: prepared.reasoning, maxOutputTokens: prepared.maxOutputTokens, sampling: prepared.sampling, ...assembled, cacheSystemOnly: prepared.cacheSystemOnly,
         onChunk: text => { partial = multichatNarrative(text, data.members); writer?.push(partial); setData(old => old ? { ...old, game: old.game.map(message => message.id === ticket!.messageId ? { ...message, content: partial } : message) } : old); },
       });
       if (!result.text.trim()) throw new Error('AI가 빈 응답을 반환했습니다.');
@@ -226,7 +236,11 @@ export default function MultichatPage() {
       completion = { target_message: ticket.messageId, token: ticket.token, response_text: multichatNarrative(result.text, data.members), in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost, read_tokens: result.usage.cacheReadTokens, write_tokens: result.usage.cacheCreationTokens, failed: false };
       setPending(completion); if (user && roomId) { try { localStorage.setItem(storedKey(user.id, roomId), JSON.stringify(completion)); } catch { /* retain in memory */ } }
       await commit(completion); completedRound = ticket.round;
-      const choice = prepared.auto ? resolveThemeDirectiveChoice(finalThemeDirective(result.text), prepared.catalog.themes, prepared.dayNight, !!prepared.catalog.scope) : null;
+      if (simulation?.settings.knowledge) {
+        try { await (await import('@/lib/simulation/runtime')).finishSimulation(prepared.session.id, ticket.messageId, simulation, key, abort.signal); }
+        catch (error) { report('답변은 저장되었습니다. 정보 정리 미완료: ' + errorText(error)); }
+      }
+      const choice = prepared.auto ? resolveThemeDirectiveChoice(finalValidThemeDirective(result.text, prepared.catalog.themes, prepared.dayNight, !!prepared.catalog.scope), prepared.catalog.themes, prepared.dayNight, !!prepared.catalog.scope) : null;
       if (choice) {
         const palette = paletteFor(choice.theme, prepared.session.theme_variant ?? 'light');
         const { error } = await supabase.from('sessions').update({ theme_id: choice.theme.id, theme_variant: palette?.variant ?? 'light', theme_period: choice.period }).eq('id', data.room.id).is('theme_override', null);

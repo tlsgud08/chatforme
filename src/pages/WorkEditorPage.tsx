@@ -10,11 +10,12 @@ import type { KeywordBook, StartConfig, Work } from '@/types/db';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 import { registerNavigationGuard } from '@/lib/navigationGuard';
+import WorkSimulationSettings from '@/components/WorkSimulationSettings';
 import WorkThemeSettings from '@/components/WorkThemeSettings';
 import CommandMenu from '@/components/CommandMenu';
 import { saveWorkEditor, type WorkEditorState } from '@/lib/workSave';
 
-type Tab = 'basic' | 'prompt' | 'multichat' | 'start' | 'keywords' | 'permissions';
+type Tab = 'basic' | 'prompt' | 'multichat' | 'start' | 'keywords' | 'permissions' | 'simulation';
 type EditorProfile = { user_id: string; display_name: string; avatar_url: string | null; created_at: string };
 type UserCandidate = { id: string; display_name: string; avatar_url: string | null };
 const MAX_THUMB_BYTES = 5 * 1024 * 1024;
@@ -73,6 +74,8 @@ export default function WorkEditorPage() {
   useCreatingActivity(ready && work?.id === workId ? workId : null);
   const baselineRef = useRef('');
   const dirtyRef = useRef(false);
+  const simulationDirtyRef = useRef(false);
+  const onSimulationDirty = useCallback((value:boolean)=>{simulationDirtyRef.current=value;},[]);
   const historyGuardRef = useRef(false);
   const saveLockRef = useRef(false);
   const structureLockRef = useRef(false);
@@ -151,7 +154,7 @@ export default function WorkEditorPage() {
   }, [ready, work, workId, startConfigs, keywordBooks, kwInputs]);
 
   const confirmLeave = useCallback(async () => {
-    if (!dirtyRef.current) return true;
+    if (!dirtyRef.current && !simulationDirtyRef.current) return true;
     return showConfirmDialog(
       '수정 내용이 저장되지 않았어요',
       '지금 나가도 수정 내용은 이 브라우저에 임시 저장됩니다.\n다음에 수정 페이지를 열 때 다시 불러올 수 있어요.',
@@ -424,6 +427,7 @@ export default function WorkEditorPage() {
           ['multichat', '멀티챗'],
           ['start', '시작 설정'],
           ['keywords', '키워드북 · 명령어'],
+          ['simulation', '판정·정보'],
           ...(isCreator ? [['permissions', '수정 권한'] as [Tab, string]] : []),
         ] as [Tab, string][]).map(([k, label]) => (
           <button
@@ -432,7 +436,7 @@ export default function WorkEditorPage() {
             onClick={() => setTab(k)}
             className={`flex-1 py-2.5 text-xs ${tab === k ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
           >
-            <InterfaceIcon name={({ basic: 'settings', prompt: 'summary', multichat: 'users', start: 'chat', keywords: 'works', permissions: 'admin' } as Record<Tab, InterfaceIconName>)[k]} />{label}
+            <InterfaceIcon name={({ basic: 'settings', prompt: 'summary', multichat: 'users', start: 'chat', keywords: 'works', permissions: 'admin', simulation: 'settings' } as Record<Tab, InterfaceIconName>)[k]} />{label}
           </button>
         ))}
       </div>
@@ -754,6 +758,8 @@ export default function WorkEditorPage() {
             {user && <section className="border-t border-surface2 pt-4"><h3 className="mb-2 font-semibold text-white">작품 전용 명령어</h3><p className="mb-3 text-xs text-slate-400">이 작품에서만 사용할 수 있는 명령어를 여러 개 만듭니다. 변경 사항은 즉시 저장됩니다.</p><CommandMenu userId={user.id} workId={work.id} allowWorkCreate embedded /></section>}
           </div>
         )}
+
+        <div hidden={tab !== 'simulation'}><WorkSimulationSettings key={work.id} workId={work.id} onDirtyChange={onSimulationDirty} /></div>
 
         {tab === 'permissions' && isCreator && (
           <div className="flex flex-col gap-5">

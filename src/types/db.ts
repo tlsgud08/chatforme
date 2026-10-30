@@ -128,6 +128,7 @@ export interface ActivePlugin {
 export type Plugin = Command;
 
 export interface Session {
+  simulation_settings?: import('@/lib/simulation/types').SimulationSettings;
   multichat_room_id?: string | null;
   work_combination_enabled?: boolean;
   /** Ordered work IDs only. Index 0 is the highest additional-work priority. */

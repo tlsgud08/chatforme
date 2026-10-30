@@ -32,7 +32,7 @@ export function normalizeThemePeriods(content:string,enabledNames:readonly strin
 }
 
 export const DEFAULT_THEME_PROMPT = `장면의 장소, 시간, 분위기와 테마별 적용 조건을 판단하세요.
-응답 맨 아래에 {{theme::테마이름}}을 한 개 출력하세요. 변경할 필요가 없으면 {{theme::keep}}을 출력하세요.
+응답의 어느 위치에든 {{theme::테마이름}}을 출력할 수 있습니다. 여러 개면 마지막 유효 태그를 적용합니다. 변경할 필요가 없으면 {{theme::keep}}을 출력하세요.
 사용 가능한 목록의 이름만 정확히 사용하고, 본문에서 테마 변경을 설명하지 마세요.`;
 
 export function stripThemeDirectives(content: string, streaming = false): string {
@@ -47,7 +47,15 @@ export function stripThemeDirectives(content: string, streaming = false): string
   return clean.endsWith('{')?clean.slice(0,-1):clean;
 }
 export function finalThemeDirective(content: string): string | null {
-  return /\{\{theme::([^{}]+)\}\}\s*$/.exec(content)?.[1].trim() ?? null;
+  const tags = Array.from(content.matchAll(/\{\{theme::([^{}]+)\}\}/g));
+  return tags.at(-1)?.[1].trim() || null;
+}
+
+/** Validate backwards: an unknown/unauthorized suffix cannot hide an earlier valid directive. */
+export function finalValidThemeDirective(content:string,themes:SavedTheme[],enabled=false,qualified=false):string|null {
+  const tags=Array.from(content.matchAll(/\{\{theme::([^{}]+)\}\}/g));
+  for(let i=tags.length-1;i>=0;i--){const name=tags[i][1].trim();if(name==='keep'||resolveThemeDirectiveChoice(name,themes,enabled,qualified))return name;}
+  return null;
 }
 export function availableWorkThemes(themes: SavedTheme[], workId: string | readonly string[], userId: string): SavedTheme[] {
   const ids = new Set(typeof workId === 'string' ? [workId] : workId);
@@ -98,7 +106,7 @@ export function resolveDirectiveTheme(name: string | null, themes: SavedTheme[])
 
 export type ThemeObservation = { sessionId: string; fingerprint: string };
 export function observeThemeDirective(previous: ThemeObservation | null, sessionId: string, latest: {id:string;content:string} | null) {
-  const fingerprint=latest ? latest.id+'\n'+(finalThemeDirective(latest.content)??'') : '';
+  const fingerprint=latest ? latest.id+'\n'+Array.from(latest.content.matchAll(/\{\{theme::([^{}]+)\}\}/g),m=>m[1].trim()).join('\n') : '';
   return {
     observation:{sessionId,fingerprint},
     changed:!!previous&&previous.sessionId===sessionId&&previous.fingerprint!==fingerprint,

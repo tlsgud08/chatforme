@@ -75,7 +75,7 @@ export async function prepareMultichatContext(id: string, round: number, profile
   assembled.systemParts.core += '\n\nPC1 and PC2 (and user1/user2) are internal participant references, not in-world names. Input labels such as Name(PC1) are metadata. In narration, dialogue and headings, use the mapped character names only; never print PC1, PC2, user1 or user2.';
   assembled.systemParts.persona = members.map(m => `# Internal PC${m.slot} mapping\nCharacter name: ${multichatParticipantName(m.slot, members)}\nDescription: ${resolveMultichatReferences(m.personas?.description ?? '', members)}`).join('\n\n');
   applyMultichatTurnState(assembled.systemParts, turnState);
-  return { session, assembled, catalog, dayNight, auto, cacheSystemOnly: cache.systemOnly,
+  return { session, assembled, work, input: latest.content, catalog, dayNight, auto, cacheSystemOnly: cache.systemOnly,
     model: session.model_override || profile.default_model,
     reasoning: (session.output_settings_override_enabled ? session.reasoning_override : null) ?? profile.default_reasoning ?? loadDefaultReasoning('openrouter', session.model_override || profile.default_model),
     maxOutputTokens: session.output_settings_override_enabled ? session.output_tokens_override : profile.default_output_tokens,

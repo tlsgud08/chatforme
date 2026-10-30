@@ -12,6 +12,7 @@ import ModelSelector from '@/components/ModelSelector';
 import ThemePreferences from '@/components/ThemePreferences';
 import InterfacePreferences from '@/components/InterfacePreferences';
 import type { Profile, Provider } from '@/types/db';
+import SimulationPromptSettings from '@/components/SimulationPromptSettings';
 import GlobalSummaryPromptSettings from '@/components/GlobalSummaryPromptSettings';
 import SemiMultichatPromptSettings, { SemiSyncSummaryPromptSettings } from '@/components/SemiMultichatPromptSettings';
 import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/OutputSettingsEditor';
@@ -476,6 +477,7 @@ export default function SettingsPage() {
 
       {/* 관리자 전용: 전역 시스템 프롬프트 */}
       {isAdmin && <GlobalSummaryPromptSettings />}
+      {isAdmin && <SimulationPromptSettings />}
       {isAdmin && <SemiMultichatPromptSettings />}
       {isAdmin && <SemiSyncSummaryPromptSettings />}
 

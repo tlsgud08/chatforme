@@ -1,0 +1,582 @@
+[
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command\n\n[Regeneration instruction: apply only to this response]\nUNIQUE DIRECTION success"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input"
+      },
+      {
+        "role": "assistant",
+        "content": "original answer"
+      },
+      {
+        "role": "user",
+        "content": "new composer draft"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command\n\n[Regeneration instruction: apply only to this response]\nUNIQUE DIRECTION model"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input"
+      },
+      {
+        "role": "assistant",
+        "content": "original answer"
+      },
+      {
+        "role": "user",
+        "content": "new composer draft"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command\n\n[Regeneration instruction: apply only to this response]\nUNIQUE DIRECTION abort"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input"
+      },
+      {
+        "role": "assistant",
+        "content": "original answer"
+      },
+      {
+        "role": "user",
+        "content": "new composer draft"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input"
+      },
+      {
+        "role": "assistant",
+        "content": "original answer"
+      },
+      {
+        "role": "user",
+        "content": "new composer draft"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command\n\n[Regeneration instruction: apply only to this response]\nUNIQUE DIRECTION save"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\n# User Notes\npersistent note"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input"
+      },
+      {
+        "role": "assistant",
+        "content": "original answer"
+      },
+      {
+        "role": "user",
+        "content": "new composer draft"
+      }
+    ]
+  },
+  {
+    "model": "test/model",
+    "session_id": "room",
+    "stream": true,
+    "usage": {
+      "include": true
+    },
+    "stream_options": {
+      "include_usage": true
+    },
+    "max_tokens": 256,
+    "messages": [
+      {
+        "role": "system",
+        "content": "system prompt\n\n# Main Prompt\nmain prompt\n\npeer rules\n\n# PC2 Information\nPC2 Name: Peer\nPC2 Description: peer persona\n\n# User Notes\npersistent note\n\n# PC2 Session Summary\n[아직 전달받은 요약 없음]"
+      },
+      {
+        "role": "user",
+        "content": "earlier input"
+      },
+      {
+        "role": "assistant",
+        "content": "earlier answer"
+      },
+      {
+        "role": "user",
+        "content": "original input\n\n[Selected Command /scene]\noriginal command\n\n[Regeneration instruction: apply only to this response]\nSEMI DIRECTION"
+      }
+    ]
+  }
+]

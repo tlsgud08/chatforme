@@ -36,7 +36,7 @@ import { conversationFilename, downloadConversationText, formatConversationText 
 import CommandMenu from '@/components/CommandMenu';
 import RerollDialog from '@/components/RerollDialog';
 import { showConfirmDialog } from '@/lib/dialog';
-import { automaticThemeEnabled, availableWorkThemes, dayNightCatalogNames, dayNightModeEnabled, finalThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
+import { automaticThemeEnabled, availableWorkThemes, dayNightCatalogNames, dayNightModeEnabled, finalValidThemeDirective, normalizeThemePeriods, observeThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives, themeCatalogPrompt } from '@/lib/themeDirectives';
 import { paletteFor, preferredThemeVariant, requestThemeRefresh, type SavedTheme } from '@/lib/theme';
 import InterfaceIcon from '@/components/InterfaceIcon';
 import { SameWorkFriends } from '@/components/Friends';
@@ -270,6 +270,7 @@ export default function ChatPage() {
   const pendingSaveLockRef = useRef(false);
 
   const [streamingContent, setStreamingContent] = useState('');
+  const [simulationProcessing, setSimulationProcessing] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const { scrollRef, rememberScroll } = useChatScroll(sessionId, !!session && !!work);
   const olderMessagesSentinelRef = useRef<HTMLDivElement>(null);
@@ -369,6 +370,7 @@ export default function ChatPage() {
       if (content !== null) { setStreamingContent(content); return; }
       setSending(false);
       setStreamingContent('');
+
       void loadLatestMessages().catch((error) => addError(`메시지 새로고침 실패: ${describeUnknownError(error)}`));
     };
     active.listeners.add(listener);
@@ -558,9 +560,10 @@ export default function ChatPage() {
 
   async function readLiveThemeContext(withCatalog=true, signal?: AbortSignal){
     if(!session||!profile)throw new Error('테마 설정을 불러오지 못했습니다.');
-    const roomColumns = session.work_combination_enabled !== undefined
+    const roomColumns = (session.work_combination_enabled !== undefined
       ? 'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids'
-      : 'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period';
+      : 'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period')
+      + (session.simulation_settings !== undefined ? ',simulation_settings' : '');
     const [account,room]=await Promise.all([
       supabase.from('profiles').select('preferred_theme_mode,preferred_theme_variant,prefer_work_theme,preferred_theme_id').eq('id',session.user_id).abortSignal(signal ?? messageReadControllerRef.current.signal).single(),
       supabase.from('sessions').select(roomColumns).eq('id',session.id).eq('user_id',session.user_id).abortSignal(signal ?? messageReadControllerRef.current.signal).returns<Partial<Session>[]>().single(),
@@ -595,7 +598,7 @@ export default function ChatPage() {
         if(!automaticThemeEnabled(live.session,live.themes,live.dayNight,!!live.scope)||themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
         const requestScope=themeRequestScopeRef.current;
         if(requestScope?.messageId===latest.id&&requestScope.scope!==workThemeScopeKey(live.session))return;
-        const choice=resolveThemeDirectiveChoice(finalThemeDirective(latest.content),live.themes,live.dayNight,!!live.scope);
+        const choice=resolveThemeDirectiveChoice(finalValidThemeDirective(latest.content,live.themes,live.dayNight,!!live.scope),live.themes,live.dayNight,!!live.scope);
         if(!choice)return;
         const {theme:selected,period}=choice;
         if(!paletteFor(selected,period==='night'?'dark':live.variant))return;
@@ -794,6 +797,7 @@ export default function ChatPage() {
     sendInFlightRef.current = true;
     const timing = startOperation('send');
     let sendCompleted = false;
+    let processingInformation = false;
     const reportSendError = (message: string) => addError(message + '\n처리 시간(ms): ' + timing.describe());
     const submittedInput = input.trim();
     const submittedCommand = selectedCommand;
@@ -815,6 +819,7 @@ export default function ChatPage() {
       sendInFlightRef.current = false;
       setSending(false);
       setStreamingContent('');
+      if (processingInformation) setSimulationProcessing(false);
       abortControllerRef.current = null;
       if (sessionId) publishGeneration(sessionId, null);
     };
@@ -1009,7 +1014,17 @@ export default function ChatPage() {
       if (controller.signal.aborted) throw new DOMException('생성을 중단했습니다.', 'AbortError');
       themeRequestScopeRef.current={messageId:draft.id,scope:workThemeScopeKey(liveTheme.session)};
       startGenerationTimeout();
-      const outgoing = semiContext ? assembled : withoutSyncDateTags(assembled);
+      let outgoing = semiContext ? assembled : withoutSyncDateTags(assembled);
+      let simulation: import('@/lib/simulation/runtime').PreparedSimulation | null = null;
+      const simulationSettings = liveTheme.session.simulation_settings;
+      if (simulationSettings?.dice === true || simulationSettings?.knowledge === true) {
+        const runtime = await import('@/lib/simulation/runtime');
+        simulation = await runtime.prepareSimulation({ sessionId: session.id, workId: work.id, settings: simulationSettings, apiKey, signal: controller.signal,
+          beforeTurn: turnIndex, input: outgoing.messages.at(-1)?.content ?? promptText, recent: outgoing.messages.slice(-5,-1).map(m=>`${m.role}: ${m.content}`).join('\n').slice(-12000),
+          setup: [work.main_prompt, persona ? `${persona.name}: ${persona.description}` : ''].filter(Boolean).join('\n'),
+          rollScope: `${rerollUserMessage?.id ?? claimed.userMessage?.id ?? `turn:${turnIndex}`}${simulationSettings.rerollDice || options?.rerollDirection?.trim() ? `:${draft.id}` : ''}` });
+        outgoing = runtime.applySimulation(outgoing, simulation, promptText);
+      }
       const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: outgoing.systemParts, messages: outgoing.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, onPhase: phase => timing.mark(phase), signal: controller.signal });
       await draftWriter.stop();
       completionForRecovery = {
@@ -1037,6 +1052,14 @@ export default function ChatPage() {
       const aiMsg = committed.message as Message;
       setCacheDiagnostics(current => ({ ...current, [aiMsg.id]: result.cacheDiagnostic }));
       setSession(current => current?.id === session.id ? { ...current, ...committed.session } : current);
+      if (simulation?.settings.knowledge) {
+        processingInformation = true;
+        setSimulationProcessing(true);
+        if (sessionId) publishGeneration(sessionId, '');
+        setStreamingContent('');
+        try { await (await import('@/lib/simulation/runtime')).finishSimulation(session.id, aiMsg.id, simulation, apiKey, controller.signal); }
+        catch (error) { reportSendError('답변은 저장되었습니다. 정보 정리를 완료하지 못해 다음 생성 전에 다시 처리합니다: ' + describeUnknownError(error)); }
+      }
     } catch (err) {
       if (completionForRecovery) {
         setPendingSave(completionForRecovery);
@@ -1334,7 +1357,7 @@ export default function ChatPage() {
               {streamingContent ? (
                 <MessageContent content={streamingContent} role="assistant" status="streaming" showImages={showImages} />
               ) : (
-                <span className="text-slate-400">생각 중…</span>
+                <span className="text-slate-400">{simulationProcessing ? '정보 정리 중…' : '생각 중…'}</span>
               )}
             </div>
             </>
