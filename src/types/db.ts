@@ -33,6 +33,7 @@ export interface Profile {
 }
 
 export interface PlatformConfig {
+  knowledge_config?: Partial<import('@/lib/knowledge/types').KnowledgeConfig>;
   semi_multichat_prompt?: string;
   semi_sync_summary_prompt?: string;
   summary_prompt: string;
@@ -128,6 +129,9 @@ export interface ActivePlugin {
 export type Plugin = Command;
 
 export interface Session {
+  knowledge_enabled?: boolean;
+  knowledge_revision?: number;
+  theme_anywhere_enabled?: boolean;
   multichat_room_id?: string | null;
   work_combination_enabled?: boolean;
   /** Ordered work IDs only. Index 0 is the highest additional-work priority. */

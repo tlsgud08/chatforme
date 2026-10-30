@@ -1,3 +1,5 @@
+import { prepareKnowledge, queueKnowledge, cancelKnowledge } from '@/lib/knowledge/runtime';
+import { applyKnowledge } from '@/lib/knowledge/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -74,6 +76,10 @@ export default function MultichatPage() {
   const me = data?.members.find(member => member.user_id === user?.id), isHost = data?.room.host_user_id === user?.id;
   const { others: otherEditors, connectedUserIds, presenceReady } = useMultichatEditing(me ? roomId : undefined, me ? user?.id : undefined, editing);
   const room = data?.room, session = data?.session;
+  useEffect(() => {
+    if (session?.id && !session.knowledge_enabled) cancelKnowledge(session.id);
+    return () => { if (session?.id) cancelKnowledge(session.id); };
+  }, [session?.id, session?.knowledge_enabled]);
   usePlayingActivity(me && room?.status === 'active' ? room.id : null);
   const streaming = data?.game.find(message => message.role === 'assistant' && message.generation_status === 'streaming');
   const expired = !!streaming?.generation_user_id && Date.now() - Date.parse(streaming.claimed_at ?? '') > 8 * 60_000;
@@ -214,6 +220,15 @@ export default function MultichatPage() {
       const claim = await supabase.rpc('claim_multichat_response', { target_room: data.room.id, retry });
       if (claim.error) throw claim.error; if (!claim.data) return; ticket = claim.data as Ticket;
       const prepared = await prepareMultichatContext(data.room.id, ticket.round, data.profile, ticket);
+      const knowledgeOptions = prepared.session.knowledge_enabled ? {
+        sessionId: data.room.id, revision: prepared.session.knowledge_revision ?? 0, apiKey: key, signal: abort.signal,
+        setup: prepared.knowledgeSetup,
+        pcs: prepared.knowledgePCs,
+      } : null;
+      if (knowledgeOptions) {
+        const knowledge = await prepareKnowledge({ ...knowledgeOptions, beforeTurn: ticket.round });
+        prepared.assembled = applyKnowledge(prepared.assembled, true, knowledge.config, knowledge.state);
+      }
       abort.signal.throwIfAborted();
       writer = createDraftWriter(async text => { const { error } = await supabase.rpc('stream_multichat_response', { target_message: ticket!.messageId, token: ticket!.token, partial_text: text }); if (error) throw error; });
       await refresh();
@@ -226,7 +241,8 @@ export default function MultichatPage() {
       completion = { target_message: ticket.messageId, token: ticket.token, response_text: multichatNarrative(result.text, data.members), in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost, read_tokens: result.usage.cacheReadTokens, write_tokens: result.usage.cacheCreationTokens, failed: false };
       setPending(completion); if (user && roomId) { try { localStorage.setItem(storedKey(user.id, roomId), JSON.stringify(completion)); } catch { /* retain in memory */ } }
       await commit(completion); completedRound = ticket.round;
-      const choice = prepared.auto ? resolveThemeDirectiveChoice(finalThemeDirective(result.text), prepared.catalog.themes, prepared.dayNight, !!prepared.catalog.scope) : null;
+      if (knowledgeOptions) void queueKnowledge(knowledgeOptions).catch(error => report('답변은 저장됐지만 정보표 갱신을 마치지 못했어요: ' + errorText(error)));
+      const choice = prepared.auto ? resolveThemeDirectiveChoice(finalThemeDirective(result.text,prepared.session.theme_anywhere_enabled===true,name=>name==='keep'||!!resolveThemeDirectiveChoice(name,prepared.catalog.themes,prepared.dayNight,!!prepared.catalog.scope)), prepared.catalog.themes, prepared.dayNight, !!prepared.catalog.scope) : null;
       if (choice) {
         const palette = paletteFor(choice.theme, prepared.session.theme_variant ?? 'light');
         const { error } = await supabase.from('sessions').update({ theme_id: choice.theme.id, theme_variant: palette?.variant ?? 'light', theme_period: choice.period }).eq('id', data.room.id).is('theme_override', null);

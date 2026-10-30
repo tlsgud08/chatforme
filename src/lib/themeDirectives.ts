@@ -46,8 +46,14 @@ export function stripThemeDirectives(content: string, streaming = false): string
   }
   return clean.endsWith('{')?clean.slice(0,-1):clean;
 }
-export function finalThemeDirective(content: string): string | null {
-  return /\{\{theme::([^{}]+)\}\}\s*$/.exec(content)?.[1].trim() ?? null;
+export function finalThemeDirective(content: string, anywhere = false, valid?: (name: string) => boolean): string | null {
+  if (!anywhere) return /\{\{theme::([^{}]+)\}\}\s*$/.exec(content)?.[1].trim() ?? null;
+  const matches = [...content.matchAll(/\{\{theme::([^{}]+)\}\}/g)];
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const name = matches[i][1].trim();
+    if (name && (!valid || valid(name))) return name;
+  }
+  return null;
 }
 export function availableWorkThemes(themes: SavedTheme[], workId: string | readonly string[], userId: string): SavedTheme[] {
   const ids = new Set(typeof workId === 'string' ? [workId] : workId);
@@ -96,11 +102,11 @@ export function resolveDirectiveTheme(name: string | null, themes: SavedTheme[])
   return resolveThemeDirectiveChoice(name,themes)?.theme??null;
 }
 
-export type ThemeObservation = { sessionId: string; fingerprint: string };
-export function observeThemeDirective(previous: ThemeObservation | null, sessionId: string, latest: {id:string;content:string} | null) {
-  const fingerprint=latest ? latest.id+'\n'+(finalThemeDirective(latest.content)??'') : '';
+export type ThemeObservation = { sessionId: string; fingerprint: string; anywhere?: boolean };
+export function observeThemeDirective(previous: ThemeObservation | null, sessionId: string, latest: {id:string;content:string} | null, anywhere = false) {
+  const fingerprint=latest ? latest.id+'\n'+(anywhere ? [...latest.content.matchAll(/\{\{theme::([^{}]+)\}\}/g)].map(m=>m[1]).join('\n') : finalThemeDirective(latest.content)??'') : '';
   return {
-    observation:{sessionId,fingerprint},
-    changed:!!previous&&previous.sessionId===sessionId&&previous.fingerprint!==fingerprint,
+    observation:{sessionId,fingerprint,anywhere},
+    changed:!!previous&&previous.sessionId===sessionId&&(previous.anywhere??false)===anywhere&&previous.fingerprint!==fingerprint,
   };
 }
