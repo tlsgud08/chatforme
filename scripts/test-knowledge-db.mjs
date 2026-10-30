@@ -82,8 +82,9 @@ try {
   const keys=['system_prompt','theme_prompt','multichat_system_prompt','summary_prompt','semi_multichat_prompt','semi_sync_summary_prompt','work_combination_prompt','knowledge_config'];
   const raw=(await q('select * from platform_config where id=1'))[0];
   const previous=Object.fromEntries(keys.map(k=>[k,raw[k]]));
-  const desired={...previous,system_prompt:'UPDATED SYSTEM',theme_prompt:'UPDATED THEME',knowledge_config:{model:'~deepseek/deepseek-flash-latest',maxOutputTokens:6000,recordPrompt:'# record',mainPrompt:'# main',reasoning:{effort:'off'}}};
+  const desired={...previous,system_prompt:'UPDATED SYSTEM',theme_prompt:'UPDATED THEME',knowledge_config:{detectorModel:'typesafe/jev-1.14',detectorPrompt:'# detect',model:'~deepseek/deepseek-flash-latest',maxOutputTokens:6000,recordPrompt:'# record',mainPrompt:'# main',reasoning:{effort:'off'}}};
   await rpc('save_admin_settings',[previous,desired,null]);
+  assert.equal((await q('select knowledge_config from platform_config where id=1'))[0].knowledge_config.detectorModel,'typesafe/jev-1.14');
   await rpc('save_admin_settings',[previous,desired,null]);
   await assert.rejects(()=>rpc('save_admin_settings',[previous,{...desired,theme_prompt:'stale overwrite'},null]));
   await assert.rejects(()=>rpc('save_admin_settings',[desired,{...desired,summary_prompt:''},null]));

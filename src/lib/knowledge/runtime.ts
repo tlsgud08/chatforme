@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { stripThemeDirectives } from '../themeDirectives';
 import { stripSyncDateTags } from '../syncDate';
 import { emptyState, applyPatch } from './core';
-import { structured } from './model';
+import { structured, needsKnowledgeUpdate } from './model';
 import { DEFAULT_KNOWLEDGE_CONFIG, type Actor, type Fact, type Knowledge, type KnowledgePatch, type KnowledgeState, type KnowledgeEntry, type KnowledgeConfig, type KnowledgeContext } from './types';
 const textSchema = { type: "string" },
   boolSchema = { type: "boolean" };
@@ -173,6 +173,7 @@ export async function extractEntry(
       ref: `F${i + 1}`,
       text: f.text,
       secret: f.secret,
+      quote: f.quote, origin: f.origin, subjects: f.subjects,
       knowers: interim.knowledge
         .filter((k) => k.fact === f.id && k.status === "knows")
         .map((k) => k.actor),
@@ -180,8 +181,8 @@ export async function extractEntry(
     const output = await structured<Extraction>(
       { apiKey, sessionId, model: prompts.model, reasoning: prompts.reasoning, signal },
       prompts.recordPrompt +
-        "\nReturn JSON changes only. facts.key uses N1,N2... for new facts; knowledge.fact references an existing F# or a new N#. All evidence quotes must be exact substrings of the indicated user/assistant/setup source. Do not register every name in setup: only PCs and characters encountered in the actual scene or INFO. Keep every registered actor, including absent/dead/hostile actors. Return current scene names; do not treat every INFO entry as physically present. No deletion. Setup can establish a character knowing their own identity only when explicitly supported. Do not make intentions into completed events. User action text alone does not prove a successful event: require the assistant result for completed outcomes. Return every supported change in this fragment; do not omit facts to fill an arbitrary quota. For a new actor, quote must be an exact assistant-source excerpt demonstrating INFO registration or encounter. Never create new actor columns from reference_setup alone. reference_setup is immutable reference material, not a new event; setup evidence may quote it for established identities and prior knowledge.",
-      { sources, reference_setup: setup, actors: interim.actors, existing, knowledge: interim.knowledge, scene: interim.scene },
+        "\nReturn JSON changes only. facts.key uses N1,N2... for new facts; knowledge.fact references an existing F# or a new N#. All evidence quotes must be exact substrings of the indicated user/assistant/setup source. Do not register every name in setup: only PCs and characters encountered in the actual scene or INFO. Keep every registered actor, including absent/dead/hostile actors. Return current scene names; do not treat every INFO entry as physically present. No deletion. Setup can establish a character knowing their own identity only when explicitly supported. Do not make intentions into completed events. User action text alone does not prove a successful event: require the assistant result for completed outcomes. Return every supported change in this fragment; do not omit facts to fill an arbitrary quota. For a new actor, quote must be an exact assistant-source excerpt demonstrating INFO registration or encounter. Never create new actor columns from setup alone. For setup evidence in later turns, quote only exact originating quotes on existing facts whose origin is setup. Known facts are reference material, not fresh events.",
+      { sources, actors: interim.actors, existing, knowledge: interim.knowledge, scene: interim.scene },
       extractionSchema,
       prompts.maxOutputTokens,
     );
@@ -224,7 +225,7 @@ export async function extractEntry(
     const evidence = (source: string, quote: string) =>
       ["user", "assistant", "setup"].includes(source) &&
       bounded(quote, 800) &&
-      (sources[source as keyof typeof sources] || (source === "setup" ? setup : "")).includes(quote);
+      ((sources[source as keyof typeof sources] || "").includes(quote) || (source === "setup" && interim.facts.some(f => f.origin === "setup" && f.quote?.includes(quote))));
     for (const f of output.facts) {
       if (
         !bounded(f.key, 30) ||
@@ -245,6 +246,7 @@ export async function extractEntry(
         kind: f.kind,
         text: f.text,
         secret: f.secret,
+        quote: f.quote, origin: f.source,
         subjects: f.subjects.map((n) => {
           const matches = [...validActors.values()].filter(
             (a) => a.name === n || a.aliases.includes(n),
@@ -322,7 +324,18 @@ export async function prepareKnowledge(o: KnowledgeOptions) {
     const replay = replayContext({ ...context, entries: context.entries.map(e => ({ ...e, patch: e.setup_hash === hash ? e.patch : null })) });
     let state = applyPatch(replay.state, { ...emptyState(), actors: o.pcs, scene: replay.state.scene });
     for (const entry of replay.pending) {
-      const patch = await extractEntry(o.sessionId, entry, state, o.apiKey, config, o.setup, signal);
+      const changed = entry.turn_index === -1 || await needsKnowledgeUpdate(
+        { apiKey: o.apiKey, sessionId: o.sessionId, model: config.detectorModel, signal },
+        config.detectorPrompt,
+        {
+          user: cleanNarrative(entry.user_text), assistant: cleanNarrative(entry.content),
+          registeredActors: state.actors.map(a => a.name),
+          recentFacts: state.facts.slice(-6).map(f => f.text),
+        },
+      );
+      const patch = changed
+        ? await extractEntry(o.sessionId, entry, state, o.apiKey, config, o.setup, signal)
+        : { ...emptyState(), scene: state.scene };
       if (!state.facts.length) patch.actors.unshift(...o.pcs);
       signal.throwIfAborted();
       const { error } = await supabase.rpc('save_knowledge_event', {

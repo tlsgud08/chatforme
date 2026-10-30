@@ -8,7 +8,7 @@ const harness = readFileSync(
 );
 // Recorded from commit 26eb265 before adding either optional feature.
 function run(source, explicitOff) {
-  const file = new URL(`./.knowledge-off-fixture-${process.pid}.mjs`, import.meta.url);
+  const file = new URL(`./.knowledge-off-fixture-${crypto.randomUUID()}.mjs`, import.meta.url);
   let script = harness.replace(
     "read('src/pages/ChatPage.tsx')",
     JSON.stringify(source),
