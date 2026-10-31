@@ -13,7 +13,7 @@ import { useMultichatEditing, type MultichatItemKind } from '@/hooks/useMulticha
 import { showConfirmDialog } from '@/lib/dialog';
 import { multichatTranscript, prepareMultichatContext } from '@/lib/multichatContext';
 import { registerAccountTask } from '@/lib/accountTasks';
-import { loadGlobalSummaryPrompt } from '@/lib/summaryPrompt';
+import { loadGlobalSummaryPrompt, summaryPromptWithParameters } from '@/lib/summaryPrompt';
 import { normalizeReasoning } from '@/lib/modelPreferences';
 import { finalThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives } from '@/lib/themeDirectives';
 import { requestThemeRefresh, paletteFor } from '@/lib/theme';
@@ -196,7 +196,7 @@ export default function MultichatPage() {
       const body = merging.length ? '' : source.filter(m => !previous || m.turn_index > s.summary_last_turn || m.is_hidden).map(m => `[${m.role === 'user' ? 'PC' : 'AI'}]\n${stripThemeDirectives(m.content)}`).join('\n\n');
       const model = s.summary_model_override || profile.summary_model || profile.default_model;
       const result = await generate('openrouter', { apiKey: key, model, sessionId: `${s.id}:summary`, signal: abort.signal, reasoning: normalizeReasoning(s.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', model), maxOutputTokens: 4096,
-        systemParts: { core: await loadGlobalSummaryPrompt(abort.signal), persona: '', userNote: '', summary: '', keywords: '' },
+        systemParts: { core: summaryPromptWithParameters(await loadGlobalSummaryPrompt(abort.signal), profile, s), persona: '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user', content: [previous && `Previous Summary:\n${previous}`, body && `Dialogue:\n${body}`].filter(Boolean).join('\n\n') }],
       });
       if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');

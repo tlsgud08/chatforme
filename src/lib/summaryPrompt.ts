@@ -1,4 +1,15 @@
 import { supabase } from './supabase';
+import type { Profile, Session } from '@/types/db';
+
+/** Keep the shared prompt intact and append the original per-user/room controls. */
+export function summaryPromptWithParameters(prompt: string, profile: Partial<Profile>, session: Partial<Session>): string {
+  const level = session.summary_level_override ?? profile.summary_level ?? 5;
+  const omission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
+  const enabled = session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true;
+  const parameters = enabled ? `[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = ${level}\nALLOW_OMISSION = ${omission ? 'ON' : 'OFF'}` : '';
+  const note = profile.summary_extra_note?.trim();
+  return [prompt, parameters, note ? `[ADDITIONAL NOTE]\n${note}` : ''].filter(Boolean).join('\n\n');
+}
 
 /** Always fetch the administrator's global instruction; no personal/local fallback. */
 export async function loadGlobalSummaryPrompt(signal?: AbortSignal): Promise<string> {

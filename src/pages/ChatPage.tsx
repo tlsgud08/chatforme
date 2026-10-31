@@ -26,7 +26,7 @@ import { loadWorkCombination } from '@/lib/workCombinationData';
 import { workThemeScopeKey } from '@/lib/workCombination';
 import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import { resolvePromptCache } from '@/lib/llm/promptCache';
-import { loadGlobalSummaryPrompt, loadSemiSyncSummaryPrompt } from '@/lib/summaryPrompt';
+import { loadGlobalSummaryPrompt, loadSemiSyncSummaryPrompt, summaryPromptWithParameters } from '@/lib/summaryPrompt';
 import { withoutSyncDateTags } from '@/lib/syncDate';
 import { applySemiContext, loadSemiContext, semiAction, type SemiPreparation } from '@/lib/semiSession';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
@@ -723,7 +723,8 @@ export default function ChatPage() {
       const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${autoThemeEnabled?normalizeThemePeriods(message.content,liveTheme.names):stripThemeDirectives(message.content)}`).join('\n\n');
       const summaryInput = `${previous ? `=== Previous Summary Notes${archivesToMerge.length > 1 ? ' (merge the selected notes into one)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== Dialogue to Summarize ===\n${dialogue}` : '=== Request ===\nMerge the selected summary notes into one up-to-date summary without omissions or discontinuities.'}`;
       const input=autoThemeEnabled?normalizeThemePeriods(summaryInput,liveTheme.names):stripThemeDirectives(summaryInput);
-      const summaryCore = shareTarget ? await loadSemiSyncSummaryPrompt(summaryController.signal) : await loadGlobalSummaryPrompt(summaryController.signal);
+      const summaryCore = shareTarget ? await loadSemiSyncSummaryPrompt(summaryController.signal)
+        : summaryPromptWithParameters(await loadGlobalSummaryPrompt(summaryController.signal), profile, sourceSession);
       if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
       const summaryRequest = {
         apiKey,

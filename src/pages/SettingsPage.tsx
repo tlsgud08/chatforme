@@ -114,6 +114,10 @@ export default function SettingsPage() {
         default_reasoning: output?.reasoning ?? defaultReasoning,
         summary_model: profile.summary_model,
         summary_reasoning: summaryReasoning,
+        summary_level: profile.summary_level,
+        summary_allow_omission: profile.summary_allow_omission,
+        summary_parameters_enabled: profile.summary_parameters_enabled,
+        summary_extra_note: profile.summary_extra_note,
         summary_source_mode: profile.summary_source_mode,
       })
       .eq('id', profile.id);
@@ -318,6 +322,14 @@ export default function SettingsPage() {
                 <option value="incremental">이전 요약 + 이후 메시지</option>
                 <option value="full">이전 요약 제외 + 세션 전체 메시지</option>
               </select>
+            </label>
+            <label className="text-xs text-slate-400">Summary level (0~10)
+              <input type="number" min={0} max={10} value={profile.summary_level ?? 5} onChange={(e) => setProfile({ ...profile, summary_level: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
+            </label>
+            <label className="flex items-center justify-between text-xs text-slate-300"><span>Allow omission</span><input type="checkbox" checked={profile.summary_allow_omission ?? true} onChange={(e) => setProfile({ ...profile, summary_allow_omission: e.target.checked })} /></label>
+            <label className="flex items-center justify-between text-xs text-slate-300"><span>요약 파라미터 함께 전송</span><input type="checkbox" checked={profile.summary_parameters_enabled ?? true} onChange={(e) => setProfile({ ...profile, summary_parameters_enabled: e.target.checked })} /></label>
+            <label className="text-xs text-slate-400">요약 생성 시 함께 전송할 추가 메모
+              <textarea rows={4} value={profile.summary_extra_note ?? ''} onChange={(e) => setProfile({ ...profile, summary_extra_note: e.target.value })} className="mt-1 w-full rounded-lg bg-surface2 p-3 text-sm text-white outline-none" placeholder="요약 모델에 추가로 전달할 지침" />
             </label>
           </div>
           <button type="button" onClick={() => void saveProfile()} className="mt-2 w-full rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">요약 설정 저장</button>
