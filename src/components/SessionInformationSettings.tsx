@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { emptyState, knowledgeSymbol } from '@/lib/knowledge/core';
-import { readKnowledgeContext, replayContext } from '@/lib/knowledge/runtime';
+import { cancelKnowledge, readKnowledgeContext, replayContext } from '@/lib/knowledge/runtime';
 import { generateKnowledgeNow } from '@/lib/knowledge/manual';
 import { getApiKey } from '@/lib/apiKeys';
 import { registerAccountTask } from '@/lib/accountTasks';
 import type { Fact, Knowledge, KnowledgeContext } from '@/lib/knowledge/types';
 import type { Session } from '@/types/db';
 import Toggle from './Toggle';
+import { showConfirmDialog } from '@/lib/dialog';
 
 export default function SessionInformationSettings({ session, busy, onUpdate }: { session: Session; busy: boolean; onUpdate: (patch: Partial<Session>) => void }) {
   const [open, setOpen] = useState(false), [context, setContext] = useState<KnowledgeContext | null>(null);
@@ -69,6 +70,25 @@ export default function SessionInformationSettings({ session, busy, onUpdate }: 
     } catch (error) { setMessage((error as Error).message); }
     finally { lock.current = false; setSaving(false); }
   }
+  async function clearTable() {
+    if (busy || lock.current) return;
+    lock.current = true;
+    const id = session.id;
+    try {
+      if (!await showConfirmDialog('정보표 전체를 삭제할까요?', '모든 정보·인물·인지 경위를 삭제하고 정보 접근 관리를 꺼요. 직접 정정한 내용도 삭제돼요.\n대화 원문·요약 메모리·사용 비용 기록은 유지돼요. 다시 켜면 기존 대화에서 새로 생성할 수 있어요.', '전체 삭제')) return;
+      if (!mounted.current || route.current !== id) return;
+      setSaving(true); setMessage('');
+      const { data, error } = await supabase.rpc('clear_information_table', { target_session: id, previous_revision: session.knowledge_revision ?? 0 });
+      if (error || !data) throw error ?? new Error('정보표를 삭제하지 못했습니다.');
+      cancelKnowledge(id);
+      if (mounted.current && route.current === id) {
+        request.current++; setContext(null); setInspect(null); setSearch(''); setActorFilter('');
+        onUpdate(data as Partial<Session>);
+        setMessage('정보표를 전체 삭제하고 정보 접근 관리를 껐어요.');
+      }
+    } catch (error) { if (mounted.current && route.current === id) setMessage((error as Error).message); }
+    finally { lock.current = false; if (mounted.current && route.current === id) setSaving(false); }
+  }
   async function correct() {
     if (!inspect || !context || busy || lock.current || !session.knowledge_enabled) return;
     const row = context.entries.at(-1);
@@ -104,12 +124,13 @@ export default function SessionInformationSettings({ session, busy, onUpdate }: 
     <button type="button" className="inu-button inu-primary inu-full" disabled={!session.knowledge_enabled || busy || saving || generating} aria-busy={generating} onClick={() => void generateNow()}>{generating ? '정보 정리 중…' : '지금 생성/갱신'}</button>
     <p className="inu-help">처음에는 설정과 기존 대화를 정리하고, 이후에는 미처리 내용만 반영해요. 모델 사용 비용이 발생할 수 있어요.</p>
     {generating && <button type="button" className="inu-text-button" onClick={() => manual.current?.abort()}>정보 정리 중단</button>}
+    <button type="button" className="inu-button inu-full" disabled={busy || saving || generating} onClick={() => void clearTable()}>정보표 전체 삭제</button>
     {message && <p role="status" className="inu-help">{message}</p>}
     {open && <div className="mt-3 flex min-w-0 flex-col gap-3">
       <p className="inu-help">O: 알고 있음 · △: 의심/오해 · X: 인지 근거 없음. 인지 경위는 각 인물 아래 표시돼요. 인물을 누르면 원문 확인과 정정이 가능해요. 표에는 PC가 모르는 비밀도 포함돼요.</p>
       <div className="flex min-w-0 gap-2"><input className="min-w-0 flex-1" aria-label="정보 검색" value={search} onChange={event => setSearch(event.target.value)} placeholder="정보 검색" /><button type="button" className="inu-button shrink-0 whitespace-nowrap" disabled={loading} onClick={() => void refresh()}>{loading ? '조회 중…' : '새로고침'}</button></div>
       <select aria-label="정보 종류" value={kind} onChange={event => setKind(event.target.value)}><option value="all">전체 정보</option><option value="pc">PC 정보</option><option value="event">사건</option><option value="npc">NPC 정보</option></select>
-      {replay.pending.length > 0 && <p role="status" className="inu-help">{replay.pending.filter(e => e.turn_index >= 0).length}개 응답의 정리가 필요해요. 다음 생성 전에 이어서 처리해요.</p>}
+      {session.knowledge_enabled && replay.pending.length > 0 && <p role="status" className="inu-help">{replay.pending.filter(e => e.turn_index >= 0).length}개 응답의 정리가 필요해요. 다음 생성 전에 이어서 처리해요.</p>}
       <div className="grid min-w-0 grid-cols-2 gap-2">
         <select aria-label="정보 보기 방식" value={view} onChange={event => setView(event.target.value)}><option value="cards">카드 보기</option><option value="table">표 보기</option></select>
         <select aria-label="인지 인물 필터" value={actorFilter} onChange={event => setActorFilter(event.target.value)}><option value="">모든 인물 ({state.actors.length})</option>{state.actors.map(actor => <option key={actor.name} value={actor.name}>{actor.name}{actor.pc ? ' (PC)' : ''}</option>)}</select>

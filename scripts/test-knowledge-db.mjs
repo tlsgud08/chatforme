@@ -92,5 +92,25 @@ try {
   assert.equal((await q('select theme_prompt from platform_config where id=1'))[0].theme_prompt,'UPDATED THEME');
   await login(b);await assert.rejects(()=>rpc('save_admin_settings',[desired,desired,null]));
   await login(null);await assert.rejects(()=>rpc('save_admin_settings',[desired,desired,null]));
+  await login(b);await assert.rejects(()=>rpc('clear_information_table',[room,2]));
+  await login(null);await assert.rejects(()=>rpc('clear_information_table',[room,2]));
+  await login(a);
+  await assert.rejects(()=>rpc('clear_information_table',[room,1]), 'stale revision cannot delete');
+  await rpc('set_information_features',[room,2,true,true]);
+  await rpc('save_knowledge_event',[room,room,'seed',patch,hashSetup,3]);
+  const token=crypto.randomUUID();await rpc('knowledge_lease',[room,token,'claim']);
+  const beforeMessages=await q('select id,content from messages where session_id=$1 order by id',[room]);
+  const streaming=(await q("insert into messages(session_id,role,content,turn_index,generation_status) values($1,'assistant','partial',3,'streaming') returning id",[room]))[0];
+  await assert.rejects(()=>rpc('clear_information_table',[room,3]), 'cannot clear during response generation');
+  await q('delete from messages where id=$1',[streaming.id]);
+  const cleared=await rpc('clear_information_table',[room,3]);
+  assert.equal(cleared.knowledge_enabled,false);assert.equal(cleared.knowledge_revision,4);
+  const clearedContext=await rpc('knowledge_context',[room]);
+  assert.ok(clearedContext.entries.every(e=>e.patch===null));assert.equal(clearedContext.cost,0.01);
+  assert.deepEqual(await q('select id,content from messages where session_id=$1 order by id',[room]),beforeMessages);
+  assert.equal(await rpc('knowledge_lease',[room,token,'renew']),false,'old worker lease revoked');
+  await assert.rejects(()=>rpc('save_knowledge_event',[room,room,'seed',patch,hashSetup,3]),'late worker cannot resurrect deleted table');
+  await rpc('set_information_features',[room,4,true,true]);
+  assert.equal(await rpc('save_knowledge_event',[room,room,'seed',patch,hashSetup,5]),true,'explicit re-enable can generate again');
   console.log('Information DB: seed/bootstrap, opt-in revisions, causal history, edit invalidation, OFF stale-write rejection, ownership, billing and atomic admin save verified.');
 } finally { await db.close(); }

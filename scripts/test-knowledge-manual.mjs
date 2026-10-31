@@ -72,9 +72,12 @@ try {
   const hooks = { useState(value) { const key = index++;if (!(key in values)) values[key] = value;return [values[key], next => { values[key] = typeof next === 'function' ? next(values[key]) : next; }]; },
     useRef(value) { return refs[refIndex++] ??= { current: value }; }, useMemo: fn => fn(), useEffect: effect => effects.push(effect),
   };
+  let confirmDelete = false, clearCalls = 0, cancelled = 0, updated;
   const uiContext = { ...context, entries: [], cost: 0 };
   const Panel = vm.runInNewContext(compile(read('src/components/SessionInformationSettings.tsx').replace(/^import .*$/gm, '').replace('export default function', 'function')) + '\nSessionInformationSettings', {
-    ...hooks, jsx: createElement, AbortController, emptyState, replayContext: () => ({ state: emptyState(), pending: [] }), Toggle: 'toggle',
+    ...hooks, jsx: createElement, AbortController, emptyState,
+    showConfirmDialog: async () => confirmDelete, cancelKnowledge: () => cancelled++,
+    supabase: { rpc: async (name) => { assert.equal(name, 'clear_information_table'); clearCalls++; return { data: { knowledge_enabled: false, knowledge_revision: 2 } }; } }, replayContext: () => ({ state: emptyState(), pending: [] }), Toggle: 'toggle',
     readKnowledgeContext: async () => uiContext, getApiKey: () => 'fixture', registerAccountTask: () => () => stopped++,
     generateKnowledgeNow: async (_id, _key, signal) => { jobs++;return new Promise((resolve, reject) => { release = resolve; signal.addEventListener('abort', () => reject(new DOMException('cancel', 'AbortError'))); }); },
   });
@@ -93,5 +96,13 @@ try {
   assert.ok(nodes(tree).some(node => node.props?.children === '새로 반영할 정보가 없어요. 최신 정보표예요.'));
   props = { ...props, busy: true };assert.equal(button(render(), '지금 생성/갱신').props.disabled, true);
   props = { ...props, busy: false, session: { id: 'room', knowledge_enabled: false } };assert.equal(button(render(), '지금 생성/갱신').props.disabled, true);
+  props = { session: { id: 'room', knowledge_enabled: true, knowledge_revision: 1 }, busy: false, onUpdate: patch => updated = patch };
+  await button(render(), '정보표 전체 삭제').props.onClick();await tick();
+  assert.equal(clearCalls, 0, 'cancelled confirmation never clears');
+  confirmDelete = true;
+  button(render(), '정보표 전체 삭제').props.onClick();button(render(), '정보표 전체 삭제').props.onClick();await tick();
+  assert.equal(clearCalls, 1, 'duplicate clicks clear once');assert.equal(cancelled, 1);
+  assert.equal(updated.knowledge_enabled, false);assert.equal(updated.knowledge_revision, 2);
+  assert.ok(nodes(render()).some(node => node.props?.children === '정보표를 전체 삭제하고 정보 접근 관리를 껐어요.'));
   console.log('Manual information: zero-turn bootstrap, incremental paid calls, identical automatic setup, both PC mappings, OFF/key/load/cancel guards, UI duplicate lock, stop, success and no-change status passed.');
 } finally { globalThis.fetch = originalFetch;delete globalThis.window;await server.close(); }
