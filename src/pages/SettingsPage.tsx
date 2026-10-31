@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import InterfaceIcon from '@/components/InterfaceIcon';
 import ModernPageHeading from '@/components/ModernPageHeading';
 import type { InterfaceIconName } from '@/components/InterfaceIcon';
@@ -12,13 +12,11 @@ import ModelSelector from '@/components/ModelSelector';
 import ThemePreferences from '@/components/ThemePreferences';
 import InterfacePreferences from '@/components/InterfacePreferences';
 import type { Profile, Provider } from '@/types/db';
-import GlobalSummaryPromptSettings from '@/components/GlobalSummaryPromptSettings';
-import SemiMultichatPromptSettings, { SemiSyncSummaryPromptSettings } from '@/components/SemiMultichatPromptSettings';
+import AdminSettings from '@/components/AdminSettings';
 import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/OutputSettingsEditor';
 import { useUsdKrwRate } from '@/lib/exchangeRate';
 import { loadTurnPriceWarning, saveTurnPriceWarning, type TurnPriceWarningCurrency } from '@/lib/turnPriceWarning';
 import Toggle from '@/components/Toggle';
-import { DEFAULT_WORK_COMBINATION_PROMPT } from '@/lib/workCombination';
 
 export default function SettingsPage() {
   const { user, signOut } = useAuth();
@@ -30,8 +28,6 @@ export default function SettingsPage() {
   const initialModel = modelsFor(initialProvider)[0];
   const [defaultReasoning, setDefaultReasoning] = useState<ReasoningSelection>(() => loadDefaultReasoning(initialProvider, initialModel));
   const [summaryReasoning, setSummaryReasoning] = useState<ReasoningSelection>({});
-  const [masterPassword, setMasterPassword] = useState('');
-  const [masterPasswordConfirm, setMasterPasswordConfirm] = useState('');
   const [checkingModels, setCheckingModels] = useState(false);
   const [defaultOutputSettings, setDefaultOutputSettings] = useState<OutputSettingsValue | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -40,29 +36,15 @@ export default function SettingsPage() {
   const [turnPriceWarning, setTurnPriceWarning] = useState(loadTurnPriceWarning);
   const exchange = useUsdKrwRate();
 
-  const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
-
-  const [themePrompt, setThemePrompt] = useState('');
-  const [systemPrompt, setSystemPrompt] = useState('');
-  const [multichatSystemPrompt, setMultichatSystemPrompt] = useState('');
-  const [systemPromptLoaded, setSystemPromptLoaded] = useState(false);
   const [settingsLoadError, setSettingsLoadError] = useState('');
   const [settingsLoadAttempt, setSettingsLoadAttempt] = useState(0);
-  const [systemPromptSaving, setSystemPromptSaving] = useState(false);
-  const systemPromptLock = useRef(false);
-  const systemPromptBaseline = useRef<{ system_prompt: string; theme_prompt: string; multichat_system_prompt: string } | null>(null);
-  const [workCombinationPrompt, setWorkCombinationPrompt] = useState('');
-  const [workCombinationPromptLoaded, setWorkCombinationPromptLoaded] = useState(false);
-  const [workCombinationPromptSaving, setWorkCombinationPromptSaving] = useState(false);
-  const [workCombinationPromptError, setWorkCombinationPromptError] = useState('');
-  const workCombinationPromptLock = useRef(false);
+
+  const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
   useEffect(() => {
     if (!user) return;
     const controller = new AbortController();
     setSettingsLoadError('');
-    setSystemPromptLoaded(false);
-    systemPromptBaseline.current = null;
     supabase
       .from('profiles')
       .select('*')
@@ -83,25 +65,6 @@ export default function SettingsPage() {
           frequencyPenaltySend: loaded.default_frequency_penalty_enabled ?? false,
         });
       });
-    if (user.email === ADMIN_EMAIL && ADMIN_EMAIL) {
-      supabase
-        .from('platform_config')
-        .select('system_prompt,multichat_system_prompt,theme_prompt')
-        .eq('id', 1)
-        .abortSignal(controller.signal)
-        .single()
-        .then(({ data, error }) => {
-          if (controller.signal.aborted) return;
-          if (error || !data || [data.system_prompt, data.theme_prompt, data.multichat_system_prompt].some(value => typeof value !== 'string')) {
-            setSettingsLoadError('전역 프롬프트를 불러오지 못했습니다. 기존 내용은 변경하지 않았습니다.'); return;
-          }
-          systemPromptBaseline.current = { system_prompt: data.system_prompt, theme_prompt: data.theme_prompt, multichat_system_prompt: data.multichat_system_prompt };
-          setThemePrompt(data.theme_prompt);
-          setSystemPrompt(data.system_prompt);
-          setMultichatSystemPrompt(data.multichat_system_prompt);
-          setSystemPromptLoaded(true);
-        });
-    }
     return () => controller.abort();
   }, [user?.id, settingsLoadAttempt]);
 
@@ -111,48 +74,6 @@ export default function SettingsPage() {
     setDefaultReasoning(loadDefaultReasoning(profile.default_provider, model));
     setSummaryReasoning(normalizeReasoning(profile.summary_reasoning, 'openrouter', profile.summary_model || model));
   }, [profile?.id]);
-
-  useEffect(() => {
-    if (!isAdmin) return;
-    const controller = new AbortController();
-    void loadWorkCombinationPrompt(controller.signal);
-    return () => controller.abort();
-  }, [isAdmin]);
-
-  async function loadWorkCombinationPrompt(signal?: AbortSignal) {
-    setWorkCombinationPromptLoaded(false);
-    setWorkCombinationPromptError('');
-    try {
-      let query = supabase.from('platform_config').select('work_combination_prompt').eq('id', 1);
-      if (signal) query = query.abortSignal(signal);
-      const { data, error } = await query.single();
-      if (signal?.aborted) return;
-      if (error || typeof data?.work_combination_prompt !== 'string') throw new Error('작품 결합 지침을 불러오지 못했습니다. DB 업데이트와 연결을 확인해 주세요.');
-      setWorkCombinationPrompt(data.work_combination_prompt);
-      setWorkCombinationPromptLoaded(true);
-    } catch (error) {
-      if (!signal?.aborted) setWorkCombinationPromptError(error instanceof Error ? error.message : '작품 결합 지침 조회 실패');
-    }
-  }
-
-  async function saveWorkCombinationPrompt() {
-    if (!isAdmin || !workCombinationPromptLoaded || workCombinationPromptLock.current) return;
-    workCombinationPromptLock.current = true;
-    setWorkCombinationPromptSaving(true);
-    setWorkCombinationPromptError('');
-    try {
-      const { data, error } = await supabase.from('platform_config')
-        .update({ work_combination_prompt: workCombinationPrompt, updated_at: new Date().toISOString() })
-        .eq('id', 1).select('id').single();
-      if (error || !data) throw new Error('작품 결합 지침을 저장하지 못했습니다. 관리자 권한과 연결을 확인해 주세요.');
-      flash('작품 결합 지침을 저장했습니다. 다음 결합 채팅 요청부터 적용됩니다.');
-    } catch (error) {
-      setWorkCombinationPromptError(error instanceof Error ? error.message : '작품 결합 지침 저장 실패');
-    } finally {
-      workCombinationPromptLock.current = false;
-      setWorkCombinationPromptSaving(false);
-    }
-  }
 
   function saveKeys() {
     saveApiKeys(keys);
@@ -193,50 +114,16 @@ export default function SettingsPage() {
         default_reasoning: output?.reasoning ?? defaultReasoning,
         summary_model: profile.summary_model,
         summary_reasoning: summaryReasoning,
+        summary_level: profile.summary_level,
+        summary_allow_omission: profile.summary_allow_omission,
+        summary_parameters_enabled: profile.summary_parameters_enabled,
+        summary_extra_note: profile.summary_extra_note,
         summary_source_mode: profile.summary_source_mode,
       })
       .eq('id', profile.id);
     if (error) { flash('프로필 저장 실패: ' + error.message); return; }
     saveDefaultReasoning(output?.reasoning ?? defaultReasoning);
     flash('프로필을 저장했습니다.');
-  }
-
-  async function saveSystemPrompt() {
-    const previous = systemPromptBaseline.current;
-    if (!isAdmin || !systemPromptLoaded || !previous || systemPromptLock.current) return;
-    const next = { system_prompt: systemPrompt, theme_prompt: themePrompt, multichat_system_prompt: multichatSystemPrompt };
-    systemPromptLock.current = true;
-    setSystemPromptSaving(true);
-    try {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const { data, error } = await supabase.rpc('save_platform_prompts', { previous, desired: next });
-        if (!error && data === true) break;
-        if (!attempt && /load failed|failed to fetch|networkerror|network request failed/i.test(error?.message ?? '')) continue;
-        flash(error?.code === '40001' ? '다른 화면에서 전역 프롬프트가 변경되었습니다. 입력은 유지했으니 최신 설정과 비교해 주세요.' : '저장을 확인하지 못했습니다. 입력은 유지했습니다. 연결과 서버 업데이트를 확인해 주세요.');
-        return;
-      }
-      systemPromptBaseline.current = next;
-      flash('전역 시스템 프롬프트를 저장했습니다.');
-    } catch { flash('저장을 확인하지 못했습니다. 입력은 유지했습니다. 연결을 확인해 주세요.'); }
-    finally { systemPromptLock.current = false; setSystemPromptSaving(false); }
-  }
-
-  async function saveMasterPassword() {
-    if (masterPassword.length < 8) {
-      flash('마스터 비밀번호는 8자 이상이어야 합니다.');
-      return;
-    }
-    if (masterPassword !== masterPasswordConfirm) {
-      flash('마스터 비밀번호 확인이 일치하지 않습니다.');
-      return;
-    }
-    const { error } = await supabase.rpc('set_signup_master_password', {
-      new_password: masterPassword,
-    });
-    if (error) { flash('저장 실패: ' + error.message); return; }
-    setMasterPassword('');
-    setMasterPasswordConfirm('');
-    flash('회원가입 마스터 비밀번호를 변경했습니다.');
   }
 
   async function changePassword(event: React.FormEvent<HTMLFormElement>) {
@@ -436,93 +323,20 @@ export default function SettingsPage() {
                 <option value="full">이전 요약 제외 + 세션 전체 메시지</option>
               </select>
             </label>
+            <label className="text-xs text-slate-400">Summary level (0~10)
+              <input type="number" min={0} max={10} value={profile.summary_level ?? 5} onChange={(e) => setProfile({ ...profile, summary_level: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
+            </label>
+            <label className="flex items-center justify-between text-xs text-slate-300"><span>Allow omission</span><input type="checkbox" checked={profile.summary_allow_omission ?? true} onChange={(e) => setProfile({ ...profile, summary_allow_omission: e.target.checked })} /></label>
+            <label className="flex items-center justify-between text-xs text-slate-300"><span>요약 파라미터 함께 전송</span><input type="checkbox" checked={profile.summary_parameters_enabled ?? true} onChange={(e) => setProfile({ ...profile, summary_parameters_enabled: e.target.checked })} /></label>
+            <label className="text-xs text-slate-400">요약 생성 시 함께 전송할 추가 메모
+              <textarea rows={4} value={profile.summary_extra_note ?? ''} onChange={(e) => setProfile({ ...profile, summary_extra_note: e.target.value })} className="mt-1 w-full rounded-lg bg-surface2 p-3 text-sm text-white outline-none" placeholder="요약 모델에 추가로 전달할 지침" />
+            </label>
           </div>
           <button type="button" onClick={() => void saveProfile()} className="mt-2 w-full rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">요약 설정 저장</button>
         </section>
       )}
 
-      {isAdmin && (
-        <section data-settings-section="admin" className="rounded-lg border border-brand/30 bg-brand/5 p-4">
-          <h2 className="mb-1 font-semibold text-brand">관리자 — 회원가입 마스터 비밀번호</h2>
-          <p className="mb-3 text-xs text-slate-400">
-            새로운 회원은 회원가입할 때 이 비밀번호를 입력해야 합니다. 기존 회원의 로그인에는 영향을 주지 않습니다.
-          </p>
-          <div className="flex flex-col gap-2">
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={masterPassword}
-              onChange={(e) => setMasterPassword(e.target.value)}
-              placeholder="새 마스터 비밀번호 (8자 이상)"
-              className="rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
-            />
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={masterPasswordConfirm}
-              onChange={(e) => setMasterPasswordConfirm(e.target.value)}
-              placeholder="새 마스터 비밀번호 확인"
-              className="rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
-            />
-            <button
-              onClick={() => void saveMasterPassword()}
-              className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white"
-            >
-              마스터 비밀번호 저장
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* 관리자 전용: 전역 시스템 프롬프트 */}
-      {isAdmin && <GlobalSummaryPromptSettings />}
-      {isAdmin && <SemiMultichatPromptSettings />}
-      {isAdmin && <SemiSyncSummaryPromptSettings />}
-
-      {isAdmin && systemPromptLoaded && (
-        <section data-settings-section="admin" className="rounded-lg border border-yellow-600/30 bg-yellow-950/20 p-4">
-          <h2 className="mb-1 font-semibold text-yellow-400">관리자 — 전역 시스템 프롬프트</h2>
-          <p className="mb-3 text-xs text-yellow-600/70">
-            모든 채팅에 공통 적용되는 최상단 지시문입니다. 신중하게 편집하세요.
-          </p>
-          <textarea
-            value={systemPrompt}
-            onChange={(e) => setSystemPrompt(e.target.value)}
-            rows={8}
-            placeholder="예: 당신은 성인 롤플레이 서비스의 AI 캐릭터입니다. 항상 캐릭터 설정을 유지하세요."
-            className="w-full resize-y rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none"
-          />
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-xs text-slate-500">{systemPrompt.length}자</span>
-            <button
-              onClick={saveSystemPrompt}
-              disabled={systemPromptSaving || !systemPromptLoaded}
-              className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-semibold text-white"
-            >
-              저장
-            </button>
-          </div>
-          <p className="mb-2 mt-5 text-xs font-semibold text-yellow-400">테마 변경 및 판단 전역 프롬프트</p>
-          <p className="mb-2 text-xs text-slate-500">유동적 모드의 채팅에서 작품 메인 프롬프트 바로 뒤에 적용됩니다. 사용 가능한 테마와 적용 조건이 이어집니다.</p>
-          <textarea aria-label="테마 변경 및 판단 전역 프롬프트" value={themePrompt} onChange={e=>setThemePrompt(e.target.value)} rows={6} className="w-full resize-y rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none" />
-          <p className="mb-2 mt-5 text-xs font-semibold text-yellow-400">멀티챗 전용 추가 프롬프트</p>
-          <p className="mb-2 text-xs text-slate-500">일반 전역 프롬프트 뒤에 추가됩니다. 참여자를 PC1, PC2로 지칭할 수 있습니다.</p>
-          <textarea value={multichatSystemPrompt} onChange={e=>setMultichatSystemPrompt(e.target.value)} rows={6} placeholder="예: PC1과 PC2의 입력을 하나의 동시 행동으로 처리하세요." className="w-full resize-y rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none" />
-        </section>
-      )}
-
-      {isAdmin && <section data-settings-section="admin" className="rounded-lg border border-yellow-600/30 bg-yellow-950/20 p-4">
-        <h2 className="mb-1 font-semibold text-yellow-400">관리자 — 작품 결합 지침</h2>
-        <p className="mb-3 text-xs text-slate-400">작품 결합 사용 시 메인 작품과 추가 작품 프롬프트 묶음 바로 앞에 적용됩니다. 비워 저장하면 지침 문구를 생략합니다.</p>
-        <textarea aria-label="작품 결합 지침" value={workCombinationPrompt} onChange={event => setWorkCombinationPrompt(event.target.value)} rows={7}
-          disabled={!workCombinationPromptLoaded || workCombinationPromptSaving} className="w-full resize-y rounded-lg bg-surface px-3 py-2.5 text-sm text-white outline-none disabled:opacity-50" />
-        {workCombinationPromptError && <p role="alert" className="mt-2 text-xs text-red-400">{workCombinationPromptError}</p>}
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" disabled={!workCombinationPromptLoaded || workCombinationPromptSaving} onClick={() => setWorkCombinationPrompt(DEFAULT_WORK_COMBINATION_PROMPT)} className="rounded-lg bg-surface2 px-3 py-2 text-xs disabled:opacity-50">기본 문구 불러오기</button>
-          {!workCombinationPromptLoaded && <button type="button" onClick={() => void loadWorkCombinationPrompt()} className="rounded-lg bg-surface2 px-3 py-2 text-xs">다시 불러오기</button>}
-          <button type="button" disabled={!workCombinationPromptLoaded || workCombinationPromptSaving} onClick={() => void saveWorkCombinationPrompt()} className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{workCombinationPromptSaving ? '저장 중…' : '작품 결합 지침 저장'}</button>
-        </div>
-      </section>}
+      {isAdmin && <AdminSettings />}
 
       {user && (
         <section data-settings-section="account" className="border-t border-slate-700 pt-6">

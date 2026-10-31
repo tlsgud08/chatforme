@@ -1,3 +1,5 @@
+import { prepareKnowledge, queueKnowledge, cancelKnowledge } from '@/lib/knowledge/runtime';
+import { applyKnowledge } from '@/lib/knowledge/core';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -24,7 +26,7 @@ import { loadWorkCombination } from '@/lib/workCombinationData';
 import { workThemeScopeKey } from '@/lib/workCombination';
 import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import { resolvePromptCache } from '@/lib/llm/promptCache';
-import { loadGlobalSummaryPrompt, loadSemiSyncSummaryPrompt } from '@/lib/summaryPrompt';
+import { loadGlobalSummaryPrompt, loadSemiSyncSummaryPrompt, summaryPromptWithParameters } from '@/lib/summaryPrompt';
 import { withoutSyncDateTags } from '@/lib/syncDate';
 import { applySemiContext, loadSemiContext, semiAction, type SemiPreparation } from '@/lib/semiSession';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
@@ -203,6 +205,10 @@ export default function ChatPage() {
   const queryClient = useQueryClient();
 
   const [session, setSession] = useState<Session | null>(null);
+  useEffect(() => {
+    if (session?.id && !session.knowledge_enabled) cancelKnowledge(session.id);
+    return () => { if (session?.id) cancelKnowledge(session.id); };
+  }, [session?.id, session?.knowledge_enabled]);
   usePlayingActivity(session?.id);
   const [loadError, setLoadError] = useState('');
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -559,8 +565,8 @@ export default function ChatPage() {
   async function readLiveThemeContext(withCatalog=true, signal?: AbortSignal){
     if(!session||!profile)throw new Error('테마 설정을 불러오지 못했습니다.');
     const roomColumns = session.work_combination_enabled !== undefined
-      ? 'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids'
-      : 'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period';
+      ? 'knowledge_enabled,knowledge_revision,theme_anywhere_enabled,theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids'
+      : 'knowledge_enabled,knowledge_revision,theme_anywhere_enabled,theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period';
     const [account,room]=await Promise.all([
       supabase.from('profiles').select('preferred_theme_mode,preferred_theme_variant,prefer_work_theme,preferred_theme_id').eq('id',session.user_id).abortSignal(signal ?? messageReadControllerRef.current.signal).single(),
       supabase.from('sessions').select(roomColumns).eq('id',session.id).eq('user_id',session.user_id).abortSignal(signal ?? messageReadControllerRef.current.signal).returns<Partial<Session>[]>().single(),
@@ -583,7 +589,7 @@ export default function ChatPage() {
   useEffect(()=>{
     if(!session)return;
     const latest=[...messages].reverse().find(m=>m.role==='assistant'&&!m.is_hidden&&m.is_active_variant!==false&&m.generation_status!=='streaming');
-    const {observation,changed}=observeThemeDirective(themeMessageRef.current,session.id,latest??null);
+    const {observation,changed}=observeThemeDirective(themeMessageRef.current,session.id,latest??null,session.theme_anywhere_enabled===true);
     themeMessageRef.current=observation;
     const fingerprint=observation.fingerprint;
     // Mode/option changes and initial load never replay old tags.
@@ -595,7 +601,7 @@ export default function ChatPage() {
         if(!automaticThemeEnabled(live.session,live.themes,live.dayNight,!!live.scope)||themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
         const requestScope=themeRequestScopeRef.current;
         if(requestScope?.messageId===latest.id&&requestScope.scope!==workThemeScopeKey(live.session))return;
-        const choice=resolveThemeDirectiveChoice(finalThemeDirective(latest.content),live.themes,live.dayNight,!!live.scope);
+        const choice=resolveThemeDirectiveChoice(finalThemeDirective(latest.content,live.session.theme_anywhere_enabled===true,name=>name==='keep'||!!resolveThemeDirectiveChoice(name,live.themes,live.dayNight,!!live.scope)),live.themes,live.dayNight,!!live.scope);
         if(!choice)return;
         const {theme:selected,period}=choice;
         if(!paletteFor(selected,period==='night'?'dark':live.variant))return;
@@ -617,7 +623,7 @@ export default function ChatPage() {
         requestThemeRefresh();
       }catch(error){addError('자동 테마 변경 실패: '+describeUnknownError(error));}
     })();
-  },[messages,session?.id,session?.theme_override,session?.theme_day_night_enabled,themeSelectionKey,workThemes]);
+  },[messages,session?.id,session?.theme_override,session?.theme_day_night_enabled,session?.theme_anywhere_enabled,themeSelectionKey,workThemes]);
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];
@@ -717,7 +723,8 @@ export default function ChatPage() {
       const dialogue = candidates.map((message) => `[${message.is_hidden ? 'Hidden Start Settings' : message.role === 'user' ? 'User' : 'AI'}]\n${autoThemeEnabled?normalizeThemePeriods(message.content,liveTheme.names):stripThemeDirectives(message.content)}`).join('\n\n');
       const summaryInput = `${previous ? `=== Previous Summary Notes${archivesToMerge.length > 1 ? ' (merge the selected notes into one)' : ''} ===\n${previous}\n\n` : ''}${dialogue ? `=== Dialogue to Summarize ===\n${dialogue}` : '=== Request ===\nMerge the selected summary notes into one up-to-date summary without omissions or discontinuities.'}`;
       const input=autoThemeEnabled?normalizeThemePeriods(summaryInput,liveTheme.names):stripThemeDirectives(summaryInput);
-      const summaryCore = shareTarget ? await loadSemiSyncSummaryPrompt(summaryController.signal) : await loadGlobalSummaryPrompt(summaryController.signal);
+      const summaryCore = shareTarget ? await loadSemiSyncSummaryPrompt(summaryController.signal)
+        : summaryPromptWithParameters(await loadGlobalSummaryPrompt(summaryController.signal), profile, sourceSession);
       if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
       const summaryRequest = {
         apiKey,
@@ -969,7 +976,7 @@ export default function ChatPage() {
       session.prompt_cache_message_id ?? null, historyMsgs, session.prompt_cache_auto_latest ?? false);
     if (promptCache.unavailable) showToast('선택한 캐시 기준 답변이 이번 문맥에 없어 명시적 캐시 없이 전송합니다.');
     try {
-    const assembled = applySemiContext(assemblePrompt({
+    let assembled = applySemiContext(assemblePrompt({
       autoThemeEnabled:automaticThemeEnabled(liveTheme.session,liveTheme.themes,liveTheme.dayNight,!!liveTheme.scope),dayNightThemeNames:liveTheme.names,themePrompt,themeCatalog:themeCatalogPrompt(liveTheme.themes,liveTheme.dayNight,liveTheme.scope),
       systemPrompt, mainPrompt: work.main_prompt, workCombination, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
@@ -983,6 +990,15 @@ export default function ChatPage() {
         ? `${promptText}${promptText ? '\n\n' : ''}[Regeneration instruction: apply only to this response]\n${options.rerollDirection.trim()}`
         : promptText,
     }), semiContext);
+    const knowledgeOptions = liveTheme.session.knowledge_enabled ? {
+      sessionId: session.id, revision: liveTheme.session.knowledge_revision ?? 0, apiKey, signal: controller.signal,
+      setup: JSON.stringify({ work: work.main_prompt, combination: workCombination, persona, start: startConfig?.initial_context ?? '' }),
+      pcs: [{ name: persona?.name || 'PC', aliases: ['PC'], pc: true }],
+    } : null;
+    if (knowledgeOptions) {
+      const preparedKnowledge = await prepareKnowledge({ ...knowledgeOptions, beforeTurn: turnIndex });
+      assembled = applyKnowledge(assembled, true, preparedKnowledge.config, preparedKnowledge.state);
+    }
     const maxOutputTokens = session.output_settings_override_enabled ? session.output_tokens_override : profile.default_output_tokens;
       timing.mark('prompt');
       startAttempted = true;
@@ -1037,6 +1053,11 @@ export default function ChatPage() {
       const aiMsg = committed.message as Message;
       setCacheDiagnostics(current => ({ ...current, [aiMsg.id]: result.cacheDiagnostic }));
       setSession(current => current?.id === session.id ? { ...current, ...committed.session } : current);
+      if (knowledgeOptions) {
+        void queueKnowledge({ ...knowledgeOptions, signal: messageReadControllerRef.current.signal }).catch(error => {
+          if (!controller.signal.aborted) addError('답변은 저장됐지만 정보표 갱신을 완료하지 못했습니다. 다음 전송 전에 이어서 처리해요: ' + describeUnknownError(error));
+        });
+      }
     } catch (err) {
       if (completionForRecovery) {
         setPendingSave(completionForRecovery);

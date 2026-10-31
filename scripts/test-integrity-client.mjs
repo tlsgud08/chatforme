@@ -33,6 +33,8 @@ const nextAccount=new AbortController(),unregisterNext=registerAccountTask(nextA
 stopContinuing();assert.equal(nextAccount.signal.aborted,false);unregisterNext();
 
 const source=readFileSync(new URL('../src/pages/ChatPage.tsx',import.meta.url),'utf8');
+const summaryPromptWithParameters=vm.runInNewContext(compile(readFileSync(new URL('../src/lib/summaryPrompt.ts',import.meta.url),'utf8')
+  .replace(/^import .*$/gm,'').replace(/\bexport /g,''))+'\nsummaryPromptWithParameters');
 const ast=ts.createSourceFile('page.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 function fn(name){let found;function visit(n){if(ts.isFunctionDeclaration(n)&&n.name?.text===name)found=n.getText(ast);ts.forEachChild(n,visit);}visit(ast);assert.ok(found);return compile(found);}
 const match=vm.runInNewContext(fn('getActiveKeywordContents')+'\ngetActiveKeywordContents',{keywordBooks:[{keywords:['trigger'],content:'lore',activation_turns:3}]});
@@ -57,7 +59,7 @@ let summaryConnected=false;
 const summaryTasks=new Map();
 const sharedActions=[];let summaryMessageWrites=0;
 const merging=vm.runInNewContext(fn('messagesThroughTurn')+'\n'+fn('generateSummary')+'\ngenerateSummary',{
-  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'IGNORED PRIVATE',summary_extra_note:'IGNORED EXTRA'},withoutSyncDateTags,loadSemiContext:async()=>summaryConnected?{}:null,loadGlobalSummaryPrompt:async()=> 'global summary core',loadSemiSyncSummaryPrompt:async()=> 'sync summary core',
+  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'IGNORED PRIVATE',summary_level:0,summary_allow_omission:false,summary_extra_note:'EXTRA MEMORY NOTE'},summaryPromptWithParameters,withoutSyncDateTags,loadSemiContext:async()=>summaryConnected?{}:null,loadGlobalSummaryPrompt:async()=> 'global summary core',loadSemiSyncSummaryPrompt:async()=> 'sync summary core',
   messages:complete.slice(-5),sendInFlightRef:{current:false},summaryGenerating:false,
   activeGenerations:new Map(),activeSummaryGenerations:summaryTasks,workCombinationSavingRef:{current:false},AbortController,
   getApiKey:()=> 'mock-key',registerAccountTask:()=>()=>{},
@@ -74,7 +76,8 @@ await merging([
   {id:'note10',content:'memory through ten',summarized_through_turn:10},
   {id:'note20',content:'memory through twenty',summarized_through_turn:20},
 ],20);
-assert.deepEqual(summaryErrors,[]);assert.equal(summaryRequests[0].systemParts.core,'global summary core');
+const expectedCore='global summary core\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\n\n[ADDITIONAL NOTE]\nEXTRA MEMORY NOTE';
+assert.deepEqual(summaryErrors,[]);assert.equal(summaryRequests[0].systemParts.core,expectedCore);
 assert.equal(commits[0]?.args.through_turn,20,'summary merge must not replace the checkpoint with the viewport count');
 assert.ok(summaryRequests[0].messages[0].content.includes('memory through twenty'));
 assert.equal(commits[0].args.source_versions[1].id,'note20');
@@ -83,7 +86,7 @@ for(const count of [0,1,2]){
   const notes=[{id:'tagged',content:'memory {{theme::scene0}}',summarized_through_turn:20}];
   const snapshot=JSON.stringify(notes);
   await merging(notes,20);
-  assert.deepEqual(summaryErrors,[]);assert.equal(summaryRequests[0].systemParts.core,'global summary core');
+  assert.deepEqual(summaryErrors,[]);assert.equal(summaryRequests.at(-1).systemParts.core,expectedCore);
   assert.equal(summaryRequests.at(-1).messages[0].content.includes('{{theme::'),count>1,'actual summary request must use the same theme-count gate');
   assert.equal(JSON.stringify(notes),snapshot);
 }

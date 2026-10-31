@@ -21,6 +21,7 @@ import SessionPluginSettings from './SessionPluginSettings';
 import SessionWorkCombinationSettings from './SessionWorkCombinationSettings';
 import SessionThemeSettings from './SessionThemeSettings';
 import Toggle from './Toggle';
+import SessionInformationSettings from './SessionInformationSettings';
 import SemiSessionSettings from './SemiSessionSettings';
 
 interface OpenRouterCredit {
@@ -325,6 +326,7 @@ export default function SessionMenu({
           <textarea aria-label="유저 노트" value={note} onChange={event => setNote(event.target.value)} rows={4} placeholder="이 채팅방에서 AI에게 전달할 메모" />
           <div className="inu-note-footer"><span className="inu-help">{note !== session.user_note ? '저장하지 않은 변경사항' : '이 채팅방에만 전달됩니다.'}</span><button type="button" className="inu-button inu-primary" onClick={() => void saveNote()} disabled={noteSaving}>{noteSaving ? '저장 중…' : '노트 저장'}</button></div>
         </section>
+        <SessionInformationSettings key={`information:${session.id}`} session={session} busy={sending || summaryGenerating} onUpdate={onUpdate} />
         {user && <SessionPluginSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         {user && <SessionWorkCombinationSettings key={session.id} session={session} userId={user.id} includeUnlisted={isAdmin} busy={sending || summaryGenerating} onUpdate={onUpdate} onSavingChange={onWorkCombinationSavingChange} />}
         {!semiActive && semiSettings}
@@ -347,8 +349,10 @@ export default function SessionMenu({
           <button type="button" className="inu-text-button" onClick={() => void saveSummarySettings({ summary_model_override: null })}>내 기본 모델 사용</button>
           <label htmlFor="session-summary-source" className="inu-field-label">요약 입력 범위</label>
           <select id="session-summary-source" value={session.summary_source_mode_override ?? profile?.summary_source_mode ?? 'incremental'} onChange={event => void saveSummarySettings({ summary_source_mode_override: event.target.value as 'incremental' | 'full' })}><option value="incremental">이전 요약 + 이후 메시지</option><option value="full">이전 요약 제외 + 세션 전체 메시지</option></select>
-          <label className="inu-field-label">생성 기준 턴<input type="number" min={1} max={Math.max(1, sessionTurnCount)} value={summaryThroughTurn} onChange={event => setSummaryThroughTurn(event.target.value === '' ? '' : Math.max(1, Math.min(sessionTurnCount, Number(event.target.value) || 1)))} placeholder={`최신 · ${sessionTurnCount}턴`} /></label>
-          <p className="inu-help">기준 턴을 비우면 최신까지 요약해요. 요약 지시문은 관리자 전역 프롬프트를 사용해요.</p>
+          <div className="inu-two-fields"><label className="inu-field-label">생성 기준 턴<input type="number" min={1} max={Math.max(1, sessionTurnCount)} value={summaryThroughTurn} onChange={event => setSummaryThroughTurn(event.target.value === '' ? '' : Math.max(1, Math.min(sessionTurnCount, Number(event.target.value) || 1)))} placeholder={`최신 · ${sessionTurnCount}턴`} /></label><label className="inu-field-label">Summary level<input type="number" min={0} max={10} value={session.summary_level_override ?? profile?.summary_level ?? 5} onChange={event => void saveSummarySettings({ summary_level_override: Math.max(0, Math.min(10, Number(event.target.value) || 0)) })} /></label></div>
+          <p className="inu-help">기준 턴을 비우면 최신까지 · 요약 수준 0~10. 요약 지시문은 관리자 전역 프롬프트를 사용해요.</p>
+          <label className="inu-switch-row"><span>Allow omission <small>생략 허용</small></span><Toggle aria-label="요약 생략 허용" checked={session.summary_allow_omission_override ?? profile?.summary_allow_omission ?? true} onChange={summary_allow_omission_override => void saveSummarySettings({ summary_allow_omission_override })} /></label>
+          <label className="inu-switch-row"><span>요약 파라미터 함께 전송</span><Toggle aria-label="요약 파라미터 함께 전송" checked={session.summary_parameters_enabled_override ?? profile?.summary_parameters_enabled ?? true} onChange={summary_parameters_enabled_override => void saveSummarySettings({ summary_parameters_enabled_override })} /></label>
           <button type="button" className="inu-button inu-primary inu-full" disabled={sending || summaryGenerating || sessionTurnCount === 0} onClick={async () => { await onGenerateSummary(summaryThroughTurn === '' ? undefined : summaryThroughTurn); await loadSummaries(); }}><InterfaceIcon name="generate" />{summaryGenerating ? '요약 생성 중…' : '지금 요약 노트 생성'}</button>
           <button type="button" className="inu-button inu-full" onClick={() => void openSummaries()}><InterfaceIcon name="history" />요약 노트 보기</button>
         </section>

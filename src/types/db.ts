@@ -24,6 +24,10 @@ export interface Profile {
   summary_model: string | null;
   summary_reasoning: import('@/lib/llm/types').ReasoningSelection | null;
   summary_interval: number;
+  summary_level: number;
+  summary_allow_omission: boolean;
+  summary_parameters_enabled: boolean;
+  summary_extra_note: string;
   summary_source_mode: 'incremental' | 'full';
   summary_cost_enabled: boolean;
   summary_cost_currency: 'USD' | 'KRW';
@@ -33,6 +37,7 @@ export interface Profile {
 }
 
 export interface PlatformConfig {
+  knowledge_config?: Partial<import('@/lib/knowledge/types').KnowledgeConfig>;
   semi_multichat_prompt?: string;
   semi_sync_summary_prompt?: string;
   summary_prompt: string;
@@ -128,6 +133,9 @@ export interface ActivePlugin {
 export type Plugin = Command;
 
 export interface Session {
+  knowledge_enabled?: boolean;
+  knowledge_revision?: number;
+  theme_anywhere_enabled?: boolean;
   multichat_room_id?: string | null;
   work_combination_enabled?: boolean;
   /** Ordered work IDs only. Index 0 is the highest additional-work priority. */
@@ -168,6 +176,9 @@ export interface Session {
   summary_model_override: string | null;
   summary_reasoning_override: import('@/lib/llm/types').ReasoningSelection | null;
   summary_interval_override: number | null;
+  summary_level_override: number | null;
+  summary_allow_omission_override: boolean | null;
+  summary_parameters_enabled_override: boolean | null;
   summary_source_mode_override: 'incremental' | 'full' | null;
   summary_cost_enabled_override: boolean | null;
   summary_cost_currency_override: 'USD' | 'KRW' | null;

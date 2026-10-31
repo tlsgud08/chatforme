@@ -54,10 +54,10 @@ for(const changed of [false,true]){
  let removed=false;const env={work:{id:'work'},ready:true,serverBaselineRef:{current:{}},saveLockRef:{current:false},structureLockRef:{current:false},setSaveAttempted:()=>{},canSave:true,noConfigs:false,hasConfigErrors:false,setTab:()=>{},startConfigs:[],keywordBooks:[],snapshot:()=>'',setSaving:()=>{},saveWorkEditor:async()=>{throw Error('zero rows')},editorRouteRef:{current:'work'},dirtyRef:{current:true},localStorage:{removeItem:()=>removed=true},showToast:()=>{},saveErrorMessage:e=>e.message};
  await call('src/pages/WorkEditorPage.tsx','save',env)();assert.equal(removed,false);assert.equal(env.dirtyRef.current,true);
 }
-// Failed global read never marks the form ready; the save guard cannot issue a write.
+// A failed/partial admin read cannot issue the unified save RPC.
 {
- let writes=0;const env={isAdmin:true,systemPromptLoaded:false,systemPromptBaseline:{current:null},systemPromptLock:{current:false},supabase:{from:()=>writes++}};
- await call('src/pages/SettingsPage.tsx','saveSystemPrompt',env)();assert.equal(writes,0);
+ let writes=0;const env={draft:null,baseline:null,lock:{current:false},supabase:{rpc:()=>writes++}};
+ await call('src/components/AdminSettings.tsx','save',env)();assert.equal(writes,0);
 }
 console.log('Recovery client: actual SDK bounded commits/replies/body loss/denial, retained complete and interrupted answers, quota fallback, stale-copy protection, actual editor concurrency and failed-global-load guard passed');
 delete globalThis.__responseClient;

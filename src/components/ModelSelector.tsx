@@ -10,6 +10,7 @@ import type { ReasoningSelection } from '@/lib/llm/types';
 import { cacheFavoriteModels, loadCustomModels, loadFavoriteModels, modelsFor, removeCustomModel, saveCustomModel, toggleFavoriteModel } from '@/lib/modelPreferences';
 
 interface Props {
+  customModelActionLabel?: string;
   provider: Provider;
   model: string;
   reasoning: ReasoningSelection;
@@ -33,7 +34,7 @@ function vendorOf(modelId: string) {
   return modelId.split('/')[0].replace(/^~+/, '');
 }
 
-export default function ModelSelector({ provider, model, reasoning, onModelChange, onReasoningChange, favoritesOnly = false, hideReasoning = false, drawer = false, displayLabel }: Props) {
+export default function ModelSelector({ customModelActionLabel = '저장', provider, model, reasoning, onModelChange, onReasoningChange, favoritesOnly = false, hideReasoning = false, drawer = false, displayLabel }: Props) {
   const [customInput, setCustomInput] = useState('');
   const [search, setSearch] = useState('');
   const [vendor, setVendor] = useState('전체');
@@ -202,7 +203,7 @@ export default function ModelSelector({ provider, model, reasoning, onModelChang
 
       {!favoritesOnly && <div className="flex gap-2">
         <input value={customInput} onChange={(event) => setCustomInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addModel(); } }} placeholder="OpenRouter 모델 ID 직접 입력" className="min-w-0 flex-1 rounded-lg bg-surface px-3 py-2.5 text-sm outline-none" />
-        <button type="button" onClick={addModel} className="rounded-lg bg-surface2 px-3 text-xs font-semibold text-white">저장</button>
+        <button type="button" onClick={addModel} className="rounded-lg bg-surface2 px-3 text-xs font-semibold text-white">{customModelActionLabel}</button>
       </div>}
       {!favoritesOnly && custom.includes(model) && <button type="button" onClick={() => { removeCustomModel(provider, model); selectModel(modelsFor(provider)[0]); setRevision((value) => value + 1); }} className="self-end text-xs text-red-400">저장한 모델 삭제</button>}
 
