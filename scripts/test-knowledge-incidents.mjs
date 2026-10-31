@@ -70,22 +70,14 @@ try {
     return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...emptyState(), groups: [{ refs: [first.ref, second.ref], text: groups[0].text }] }) } }], usage: { prompt_tokens: 10, completion_tokens: 10, cost: 0 } }));
   };
   const options = { sessionId: 'room', revision: 1, apiKey: 'fixture', setup, pcs: actors.slice(0, 1), signal: new AbortController().signal };
-  const repaired = await prepareKnowledge(options);
-  assert.equal(calls, 1, 'existing history is repaired with one recorder call, no paid history replay');
-  assert.equal(saved, 1); assert.equal(repaired.processed, 1);
-  assert.ok(repaired.state.facts.some(f => f.kind === 'pc'));
-  assert.equal(repaired.state.facts.filter(f => f.kind === 'event').length, 2);
-  assert.deepEqual(replayContext(context).state, repaired.state, 'saved repair replays identically in UI and main payload');
-  assert.equal((await prepareKnowledge(options)).processed, 0);assert.equal(calls, 1, 'format marker prevents repeated paid repair');
-  // Invalidated CAS or abort must never be reported as a successful cached repair.
-  delete context.entries[0].patch.formatVersion;
-  const rpc = supabase.rpc;
-  supabase.rpc = (name, args) => name === 'save_knowledge_event' ? Promise.resolve({ data: false }) : rpc(name, args);
-  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...emptyState(), groups: [] }) } }], usage: {} }));
-  await assert.rejects(() => prepareKnowledge(options), /변경/);
+  const cached = await prepareKnowledge(options);
+  assert.equal(calls, 0, 'software updates must not schedule paid historical repair');
+  assert.equal(saved, 0);assert.equal(cached.processed,0);
+  await prepareKnowledge(options);assert.equal(calls,0);
   // A decoded setup excerpt is accepted; escaped JSON text is not required from the recorder.
   globalThis.fetch = async (_url, init) => {
-    const input = JSON.parse(JSON.parse(init.body).messages[1].content);
+    const request = JSON.parse(init.body);assert.ok(request.max_tokens <= 2000);
+    const input = JSON.parse(request.messages[1].content);
     assert.ok(input.sources.setup.includes('요괴\n프리랜서 용병'));
     return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...emptyState(), facts: [{ key: 'N1', kind: 'pc', text: '히나는 프리랜서 용병이다.', secret: false, subjects: ['히나'], source: 'setup', quote: '요괴\n프리랜서 용병' }], groups: [] }) } }], usage: {} }));
   };
@@ -95,5 +87,5 @@ try {
   const omitted = await extractEntry('room', { ...context.entries[0], id: 'status', content: status, turn_index: 2 }, { ...emptyState(), actors: actors.slice(0, 1) }, 'fixture', config, setup, options.signal);
   assert.equal(omitted.facts.filter(f => f.id.startsWith('pc-status:')).length, 3, 'model omission cannot drop explicit PC fields');
   assert.equal(omitted.knowledge.length, 0, 'status visibility alone does not fabricate anyone knowing a secret');
-  console.log('Information incidents: meaningful grouping, original evidence, separate results, O/X/△/secret/manual boundaries, explicit roster, decoded setup, PC fallback, one-time cached repair, CAS and exact replay passed.');
+  console.log('Information incidents: meaningful grouping, original evidence, separate results, O/X/△/secret/manual boundaries, explicit roster, decoded setup, PC fallback, no automatic paid historical audit and exact replay passed.');
 } finally { globalThis.fetch = originalFetch; delete globalThis.window; await server.close(); }

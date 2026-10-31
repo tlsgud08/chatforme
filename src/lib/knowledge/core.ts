@@ -16,6 +16,12 @@ export function applyPatch(
   }
   const facts = new Map(state.facts.map((f) => [f.id, f]));
   for (const f of patch.facts) if (!facts.has(f.id)) facts.set(f.id, f);
+  for (const id of patch.detailFacts ?? []) {
+    const fact = facts.get(id);
+    if (fact?.kind === 'event' && !fact.secret && !state.knowledge.some(k => k.fact === id && k.quote === '사용자 직접 정정')) facts.set(id, { ...fact, detailOnly: true });
+  }
+  for (const id of patch.invalidFacts ?? []) facts.delete(id);
+  for (const [id, fact] of facts) if (fact.kind === 'pc' && fact.subjects.length && !fact.subjects.some(n => [...actors.values()].some(a => a.pc && (a.name === n || a.aliases.includes(n))))) facts.set(id, { ...fact, kind: 'npc' });
   const retired = new Set([...facts.values()].flatMap(f => f.supersedes ?? []));
   for (const id of retired) facts.delete(id);
   const knowledge = new Map(
@@ -25,7 +31,8 @@ export function applyPatch(
     if (!actors.has(k.actor) || !facts.has(k.fact)) continue;
     const key = `${k.fact}\u0000${k.actor}`;
     if (k.status === "unknown") {
-      knowledge.delete(key);
+      if (k.quote === '사용자 직접 정정') knowledge.set(key, k);
+      else knowledge.delete(key);
       continue;
     }
     knowledge.set(key, k);
@@ -38,21 +45,20 @@ export function applyPatch(
   };
 }
 
+export const visibleFact = (f: import('./types').Fact) => !f.detailOnly && !f.id.startsWith('pc-profile:');
 export function knowledgeSymbol(status?: string) { return status === 'knows' ? 'O' : status === 'suspects' || status === 'believes' ? '△' : 'X'; }
 const cell = (s: string) => s.replace(/\|/g, '／').replace(/[\r\n]+/g, ' ');
-/** Full matrix: no omitted actors, facts, beliefs or acquisition reasons. */
+/** Sparse lossless status map: omitted cells are X; original quotations stay in storage/UI. */
 export function knowledgeBlock(state: KnowledgeState): string {
-  const actors = state.actors;
-  const relations = new Map(state.knowledge.map(k => [`${k.fact}\0${k.actor}`, k]));
+  const cells = new Map<string, typeof state.knowledge>();
+  for (const k of state.knowledge) {
+    const row = cells.get(k.fact) ?? []; row.push(k); cells.set(k.fact, row);
+  }
   return [
     '# 인물별 정보표 (참고 데이터)',
-    'O=근거 있는 인지, △=의심/오해, X=인지 근거 없음. 인물별 상태는 서로 독립적이다.',
-    `| 유형 | 정보 | ${actors.map(a => cell(a.name)).join(' | ')} |`,
-    `| --- | --- | ${actors.map(() => '---').join(' | ')} |`,
-    ...state.facts.map(f => `| ${f.kind} | ${cell(f.text)}${f.secret ? ' [비밀]' : ''} | ${actors.map(a => {
-      const k = relations.get(`${f.id}\0${a.name}`);
-      return k ? `${knowledgeSymbol(k.status)}: ${cell(k.reason)}${k.quote ? ' (근거: ' + cell(k.quote) + ')' : ''}` : 'X';
-    }).join(' | ')} |`),
+    '등록 인물: ' + state.actors.map(a => cell(a.name) + (a.pc ? '(PC)' : '')).join(', '),
+    'O=인지, △=의심/오해. 각 행에서 명시하지 않은 인물은 X(인지 근거 없음). 사용자 열람은 PC의 지식이 아니다.',
+    ...state.facts.filter(visibleFact).map(f => `${f.kind}: ${cell(f.text)}${f.secret ? ' [비밀]' : ''} | ${(cells.get(f.id) ?? []).filter(k => k.status !== 'unknown').map(k => `${knowledgeSymbol(k.status)}: ${cell(k.reason)} [${cell(k.actor)}]`).join(' / ') || 'X'}`),
   ].join('\n');
 }
 /** OFF is the identical object: no labels, whitespace, history, cache or new calls. */

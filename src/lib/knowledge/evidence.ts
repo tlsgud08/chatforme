@@ -24,10 +24,10 @@ export function pcSetup(raw: string): string {
 /** Only explicit speaker labels / relationship rows count, never an arbitrary name mention. */
 export function encounteredActors(text: string, known: Actor[]): Actor[] {
   const names = new Set<string>();
-  for (const match of text.matchAll(/^\s*\*\*([^*\n]{1,100})\*\*\s*[│|:：]/gm)) names.add(match[1].trim());
+  for (const match of text.matchAll(/^\s*\*\*([^*\n]{1,100})\*\*\s*[│｜|:：]/gm)) names.add(match[1].trim());
   let relations = false;
   for (const line of text.split('\n')) {
-    if (/^\s*\[관계\]\s*$/.test(line)) { relations = true; continue; }
+    if (/^\s*(?:\[관계\]|관계\s*[:：]?|#{1,4}\s*(?:관계|등장인물))\s*$/.test(line)) { relations = true; continue; }
     if (!relations) continue;
     const match = line.match(/^\s*\[\s*([^\[\]│|｜\n]{1,100}?)\s*[│|｜].*\]\s*$/);
     if (match) names.add(match[1].trim());
