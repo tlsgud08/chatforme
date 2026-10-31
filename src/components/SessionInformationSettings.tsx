@@ -31,11 +31,12 @@ export default function SessionInformationSettings({ session, busy, onUpdate }: 
   const replay = useMemo(() => context ? replayContext(context) : { state: emptyState(), pending: [] }, [context]);
   const state = replay.state;
   const relations = useMemo(() => new Map(state.knowledge.map(k => [`${k.fact}\0${k.actor}`, k])), [context]);
-  async function toggle(patch: Partial<Session>) {
+  async function toggle(knowledge: boolean) {
     if (busy || lock.current) return; lock.current = true; setSaving(true); setMessage('');
     try {
       const { data, error } = await supabase.rpc('set_information_features', { target_session: session.id, previous_revision: session.knowledge_revision ?? 0,
-        knowledge: patch.knowledge_enabled ?? session.knowledge_enabled ?? false, theme_anywhere: patch.theme_anywhere_enabled ?? session.theme_anywhere_enabled ?? false });
+        // Retain the deployed RPC signature; tag recognition no longer reads this legacy flag.
+        knowledge, theme_anywhere: true });
       if (error || !data) throw error ?? new Error('설정을 저장하지 못했습니다.'); onUpdate(data as Partial<Session>);
     } catch (error) { setMessage((error as Error).message); }
     finally { lock.current = false; setSaving(false); }
@@ -57,9 +58,8 @@ export default function SessionInformationSettings({ session, busy, onUpdate }: 
   }
   const facts = state.facts.filter(f => (kind === 'all' || f.kind === kind) && (!search || f.text.includes(search) || f.subjects.some(n => n.includes(search))));
   return <section className="inu-section">
-    <h3>정보 · 테마 인식</h3>
-    <label className="inu-switch-row inu-tall"><span>정보 접근 관리<small>인물별 O·△·X와 경위를 기록하고 메인 AI에 전달해요</small></span><Toggle aria-label="정보 접근 관리" checked={session.knowledge_enabled === true} disabled={busy || saving} onChange={knowledge_enabled => void toggle({ knowledge_enabled })} /></label>
-    <label className="inu-switch-row inu-tall"><span>테마 태그 위치 무관 인식<small>응답 어디에 있든 마지막 유효 태그를 적용해요</small></span><Toggle aria-label="테마 태그 위치 무관 인식" checked={session.theme_anywhere_enabled === true} disabled={busy || saving} onChange={theme_anywhere_enabled => void toggle({ theme_anywhere_enabled })} /></label>
+    <h3>정보 접근 관리</h3>
+    <label className="inu-switch-row inu-tall"><span>정보 접근 관리<small>인물별 O·△·X와 경위를 기록하고 메인 AI에 전달해요</small></span><Toggle aria-label="정보 접근 관리" checked={session.knowledge_enabled === true} disabled={busy || saving} onChange={knowledge => void toggle(knowledge)} /></label>
     <p className="inu-help">정보 관리를 끄면 기존 전송 방식을 그대로 사용해요. 변화 감지·기록 모델의 추가 비용이 발생할 수 있어요. 처음 켜면 기존 대화도 차례로 정리해요.</p>
     <button type="button" className="inu-button inu-full" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? '정보표 닫기' : '정보표 열기'}</button>
     {message && <p role="status" className="inu-help">{message}</p>}

@@ -326,9 +326,9 @@ export default function SessionMenu({
           <textarea aria-label="유저 노트" value={note} onChange={event => setNote(event.target.value)} rows={4} placeholder="이 채팅방에서 AI에게 전달할 메모" />
           <div className="inu-note-footer"><span className="inu-help">{note !== session.user_note ? '저장하지 않은 변경사항' : '이 채팅방에만 전달됩니다.'}</span><button type="button" className="inu-button inu-primary" onClick={() => void saveNote()} disabled={noteSaving}>{noteSaving ? '저장 중…' : '노트 저장'}</button></div>
         </section>
-        <SessionInformationSettings key={`information:${session.id}`} session={session} busy={sending || summaryGenerating} onUpdate={onUpdate} />
         {user && <SessionPluginSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         {user && <SessionWorkCombinationSettings key={session.id} session={session} userId={user.id} includeUnlisted={isAdmin} busy={sending || summaryGenerating} onUpdate={onUpdate} onSavingChange={onWorkCombinationSavingChange} />}
+        <SessionInformationSettings key={`information:${session.id}`} session={session} busy={sending || summaryGenerating} onUpdate={onUpdate} />
         {!semiActive && semiSettings}
       </div>
 
