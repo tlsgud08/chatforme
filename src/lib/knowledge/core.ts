@@ -16,6 +16,8 @@ export function applyPatch(
   }
   const facts = new Map(state.facts.map((f) => [f.id, f]));
   for (const f of patch.facts) if (!facts.has(f.id)) facts.set(f.id, f);
+  const retired = new Set([...facts.values()].flatMap(f => f.supersedes ?? []));
+  for (const id of retired) facts.delete(id);
   const knowledge = new Map(
     state.knowledge.map((k) => [`${k.fact}\u0000${k.actor}`, k]),
   );
@@ -31,7 +33,7 @@ export function applyPatch(
   return {
     actors: [...actors.values()],
     facts: [...facts.values()],
-    knowledge: [...knowledge.values()],
+    knowledge: [...knowledge.values()].filter(k => facts.has(k.fact)),
     scene: patch.scene,
   };
 }
