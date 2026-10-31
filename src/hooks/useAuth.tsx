@@ -10,6 +10,7 @@ interface AuthState {
   session: AuthSession | null;
   loading: boolean;
   isAdmin: boolean;
+  canManageSettings: boolean;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string, masterPassword: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -22,6 +23,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const accountId = useRef<string | null | undefined>(undefined);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
+  const [settingsAccess, setSettingsAccess] = useState<{ userId: string; allowed: boolean } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -49,12 +51,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const user = session?.user?.is_anonymous ? null : session?.user ?? null;
   const isAdmin = Boolean(user?.email && ADMIN_EMAIL && user.email === ADMIN_EMAIL);
+  useEffect(() => {
+    if (!user) return;
+    const controller = new AbortController();
+    let sequence = 0;
+    const refresh = async () => {
+      const current = ++sequence;
+      let allowed = false;
+      try { const { data, error } = await supabase.rpc('is_settings_admin').abortSignal(controller.signal); allowed = !error && data === true; }
+      catch { /* A missing/failed permission check never grants access. */ }
+      if (!controller.signal.aborted && current === sequence) setSettingsAccess({ userId: user.id, allowed });
+    };
+    void refresh();
+    window.addEventListener('focus', refresh);
+    return () => { controller.abort(); window.removeEventListener('focus', refresh); };
+  }, [user?.id]);
+  const canManageSettings = isAdmin || (!!user && settingsAccess?.userId === user.id && settingsAccess.allowed);
 
   const value: AuthState = {
     user,
     session,
     loading,
     isAdmin,
+    canManageSettings,
     async signInWithEmail(email, password) {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;

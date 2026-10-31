@@ -32,8 +32,9 @@ const supabase = { from: table => ({ update(patch) { writes.push({ table, patch 
 const children = Object.fromEntries(['InterfaceIcon', 'SessionMenuFrame', 'SessionMenuPage', 'ModelSelector', 'Toggle',
   'OutputSettingsEditor', 'PromptCacheSettings', 'SessionPluginSettings', 'SessionWorkCombinationSettings', 'SessionThemeSettings',
   'SessionInformationSettings', 'SemiSessionSettings', 'MultichatApiSettings', 'MultichatProgressSettings',
-  'ModernPageHeading', 'InterfacePreferences', 'ThemePreferences', 'AdminSettings'].map(name => [name, name]));
-const shared = { ...hooks, ...children, supabase, useAuth: () => ({ user: { id: 'owner' } }),
+  'ModernPageHeading', 'InterfacePreferences', 'ThemePreferences', 'AdminSettings', 'SettingsAccessManager'].map(name => [name, name]));
+let auth = { user: { id: 'owner' } };
+const shared = { ...hooks, ...children, supabase, useAuth: () => auth,
   getApiKey: () => '', formatKrw: () => '', normalizeOutputTokens: value => value ?? null, setTimeout: () => 0,
 };
 const Menu = loadComponent('src/components/SessionMenu.tsx', 'SessionMenu', shared);
@@ -82,6 +83,13 @@ assert.equal(writes.at(-1).table, 'profiles');assert.equal(writes.at(-1).patch.s
 assert.equal(writes.at(-1).patch.summary_extra_note, 'RESTORED NOTE');
 assert.equal(writes.at(-1).patch.summary_allow_omission, false);assert.equal(writes.at(-1).patch.summary_parameters_enabled, true);
 console.log('Summary UI: original room controls, null inheritance, zero/false, immediate room writes and personal extra-note/parameter saves passed.');
+for (const [isAdmin, canManageSettings] of [[true,true],[false,true],[false,false]]) {
+  auth = { ...auth, isAdmin, canManageSettings };
+  const view = renderSettings();
+  assert.equal(nodes(view, node => node.type === 'AdminSettings').length, canManageSettings ? 1 : 0);
+  assert.equal(nodes(view, node => node.type === 'SettingsAccessManager').length, isAdmin ? 1 : 0);
+}
+console.log('Settings page: founder sees role management, delegates see settings only, members see neither.');
 
 const summaryPromptWithParameters = vm.runInNewContext(compile(read('src/lib/summaryPrompt.ts')
   .replace(/^import .*$/gm, '').replace(/\bexport /g, '')) + '\nsummaryPromptWithParameters');

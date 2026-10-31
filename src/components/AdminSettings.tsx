@@ -10,7 +10,7 @@ type PromptKey = 'system_prompt' | 'theme_prompt' | 'multichat_system_prompt' | 
 type AdminDraft = Record<PromptKey, string> & { knowledge_config: Partial<KnowledgeConfig> };
 const editors: { key: PromptKey; title: string; help: string; initial?: string }[] = [
   { key: 'system_prompt', title: '전역 시스템 프롬프트', help: '모든 채팅에 공통으로 적용되는 최상단 지시문입니다.' },
-  { key: 'theme_prompt', title: '테마 변경 및 판단 전역 프롬프트', help: '유동적 테마의 선택 규칙입니다. 위치 무관 인식은 채팅방에서 별도로 켤 수 있습니다.' },
+  { key: 'theme_prompt', title: '테마 변경 및 판단 전역 프롬프트', help: '유동적 테마의 선택 규칙입니다. 응답 어디에 있든 마지막 유효 테마 태그를 인식합니다.' },
   { key: 'multichat_system_prompt', title: '멀티챗 전용 추가 프롬프트', help: '멀티챗에서 일반 전역 프롬프트 뒤에 추가됩니다.' },
   { key: 'summary_prompt', title: '전역 요약 프롬프트', help: '일반챗과 멀티챗의 요약 노트 생성에 공통 적용됩니다.' },
   { key: 'semi_multichat_prompt', title: '세미 멀티챗 프롬프트', help: '연결된 개인 세션의 정보 출처와 시간·해석 규칙입니다.', initial: defaultSemi },

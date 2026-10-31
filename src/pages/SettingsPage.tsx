@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import InterfaceIcon from '@/components/InterfaceIcon';
 import ModernPageHeading from '@/components/ModernPageHeading';
 import type { InterfaceIconName } from '@/components/InterfaceIcon';
-import { supabase, ADMIN_EMAIL } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { loadApiKeys, saveApiKeys, type ApiKeys } from '@/lib/apiKeys';
 import type { ReasoningSelection } from '@/lib/llm/types';
@@ -13,13 +13,14 @@ import ThemePreferences from '@/components/ThemePreferences';
 import InterfacePreferences from '@/components/InterfacePreferences';
 import type { Profile, Provider } from '@/types/db';
 import AdminSettings from '@/components/AdminSettings';
+import SettingsAccessManager from '@/components/SettingsAccessManager';
 import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/OutputSettingsEditor';
 import { useUsdKrwRate } from '@/lib/exchangeRate';
 import { loadTurnPriceWarning, saveTurnPriceWarning, type TurnPriceWarningCurrency } from '@/lib/turnPriceWarning';
 import Toggle from '@/components/Toggle';
 
 export default function SettingsPage() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, isAdmin, canManageSettings } = useAuth();
   const [keys, setKeys] = useState<ApiKeys>(loadApiKeys());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
@@ -39,7 +40,6 @@ export default function SettingsPage() {
   const [settingsLoadError, setSettingsLoadError] = useState('');
   const [settingsLoadAttempt, setSettingsLoadAttempt] = useState(0);
 
-  const isAdmin = Boolean(ADMIN_EMAIL && user?.email === ADMIN_EMAIL);
 
   useEffect(() => {
     if (!user) return;
@@ -187,7 +187,7 @@ export default function SettingsPage() {
       <ModernPageHeading title="설정" description="화면, 모델과 대화 기본값을 관리합니다." />
       {settingsLoadError && <div role="alert" className="rounded-lg bg-surface p-3 text-sm text-amber-400"><p>{settingsLoadError}</p><button type="button" onClick={() => setSettingsLoadAttempt(value => value + 1)} className="mt-2 underline">설정 다시 불러오기</button></div>}
       <nav className="settings-navigation modern-only" aria-label="설정 분류">
-        {([['appearance', '화면 · 테마', 'palette'], ['api', 'API · 모델', 'key'], ['output', '출력 설정', 'output'], ['summary', '요약 설정', 'summary'], ['cost', '가격 경고', 'cost'], ['account', '계정', 'my'], ...(isAdmin ? [['admin', '운영자', 'admin']] : [])] as [string, string, InterfaceIconName][]).map(([id, label, icon]) => <button type="button" key={id} aria-current={activeSection === id ? 'page' : undefined} onClick={() => setActiveSection(id)}><InterfaceIcon name={icon} />{label}</button>)}
+        {([['appearance', '화면 · 테마', 'palette'], ['api', 'API · 모델', 'key'], ['output', '출력 설정', 'output'], ['summary', '요약 설정', 'summary'], ['cost', '가격 경고', 'cost'], ['account', '계정', 'my'], ...(canManageSettings ? [['admin', '운영자', 'admin']] : [])] as [string, string, InterfaceIconName][]).map(([id, label, icon]) => <button type="button" key={id} aria-current={activeSection === id ? 'page' : undefined} onClick={() => setActiveSection(id)}><InterfaceIcon name={icon} />{label}</button>)}
       </nav>
       <div data-settings-section="appearance">
         <InterfacePreferences />
@@ -336,7 +336,8 @@ export default function SettingsPage() {
         </section>
       )}
 
-      {isAdmin && <AdminSettings />}
+      {isAdmin && <SettingsAccessManager />}
+      {canManageSettings && <AdminSettings />}
 
       {user && (
         <section data-settings-section="account" className="border-t border-slate-700 pt-6">
