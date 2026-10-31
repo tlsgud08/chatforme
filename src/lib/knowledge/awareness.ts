@@ -8,7 +8,13 @@ export function appearanceFact(profile: Fact): Fact | null {
     /머리|앞머리|눈매|눈동자|붉은눈|외모|체구|여우귀|고양이귀|강아지귀|늑대귀|꼬리/.test(s) &&
     !/비밀|숨|가면|변장|문신|흉터|가슴|성기|목적|과거|능력|정체|실제|본모습/.test(s));
   if (!traits.length || profile.subjects.length !== 1) return null;
-  return { ...profile, id: `pc-appearance:${profile.subjects[0]}`, text: `${profile.subjects[0]}의 겉으로 보이는 외모: ${traits.join(', ')}`, secret: false, aspect: 'appearance' };
+  const concise = [
+    traits.find(s => /머리/.test(s) && !/앞머리/.test(s)) ?? traits.find(s => /머리/.test(s)),
+    traits.find(s => /눈동자|붉은눈|푸른눈|녹안|적안|벽안|금안/.test(s)) ?? traits.find(s => /눈/.test(s)),
+    traits.find(s => /귀|꼬리/.test(s)),
+  ].filter((s): s is string => !!s);
+  if (!concise.length) concise.push(traits[0]);
+  return { ...profile, id: `pc-appearance:${profile.subjects[0]}`, text: `${profile.subjects[0]}의 외모: ${[...new Set(concise)].join(', ')}.`, secret: false, aspect: 'appearance' };
 }
 
 /** Conservative evidence shortcuts, not a blanket “everyone in the scene knows everything”. */
