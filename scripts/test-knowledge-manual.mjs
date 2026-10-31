@@ -32,7 +32,7 @@ try {
     if (name === 'knowledge_lease') result = { data: true };
     else if (name === 'knowledge_context') result = { data: structuredClone(context) };
     else if (name === 'record_knowledge_call') { bills++; result = {}; }
-    else if (name === 'save_knowledge_event') { const row = context.entries.find(row => row.id === args.target_message); row.patch = args.desired; row.setup_hash = args.setup_hash; result = {}; }
+    else if (name === 'save_knowledge_event') { const row = context.entries.find(row => row.id === args.target_message); row.patch = args.desired; row.setup_hash = args.setup_hash; result = { data: true }; }
     else throw Error(name);
     const promise = Promise.resolve(result); promise.abortSignal = () => promise; return promise;
   };

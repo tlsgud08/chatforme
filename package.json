@@ -16,7 +16,7 @@
     "test:context-recovery": "node scripts/test-context-read-recovery.mjs",
     "typecheck": "tsc --noEmit",
     "benchmark:context": "node scripts/benchmark-generation-context.mjs",
-    "test:knowledge": "node scripts/test-knowledge-runtime.mjs && node scripts/test-knowledge-manual.mjs && node scripts/test-knowledge-db.mjs && node scripts/test-knowledge-off.mjs",
+    "test:knowledge": "node scripts/test-knowledge-runtime.mjs && node scripts/test-knowledge-incidents.mjs && node scripts/test-knowledge-manual.mjs && node scripts/test-knowledge-db.mjs && node scripts/test-knowledge-off.mjs",
     "test:plugins": "node scripts/test-plugins.mjs"
   },
   "dependencies": {
