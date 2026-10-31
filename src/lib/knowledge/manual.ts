@@ -43,8 +43,8 @@ export async function loadManualKnowledgeOptions(sessionId: string, apiKey: stri
   };
 }
 
-export async function generateKnowledgeNow(sessionId: string, apiKey: string, signal: AbortSignal) {
+export async function generateKnowledgeNow(sessionId: string, apiKey: string, signal: AbortSignal, onProgress?: KnowledgeOptions['onProgress']) {
   const options = await loadManualKnowledgeOptions(sessionId, apiKey, signal);
   // Uses the automatic path's lease, source hashes and incremental checkpoints.
-  return prepareKnowledge(options);
+  return prepareKnowledge({ ...options, onProgress });
 }

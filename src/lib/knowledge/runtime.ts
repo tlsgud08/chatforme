@@ -342,6 +342,7 @@ export async function readKnowledgeContext(sessionId: string, beforeTurn = 21474
 export interface KnowledgeOptions {
   sessionId: string; revision: number; apiKey: string; signal: AbortSignal;
   beforeTurn?: number; setup: string; pcs: Actor[];
+  onProgress?: (processed: number, total: number) => void;
 }
 export async function prepareKnowledge(o: KnowledgeOptions) {
   const config = await loadKnowledgeConfig(o.signal);
@@ -353,11 +354,13 @@ export async function prepareKnowledge(o: KnowledgeOptions) {
     let state = applyPatch(replay.state, { ...emptyState(), actors: o.pcs, scene: replay.state.scene });
     const completed = context.entries.slice(0, context.entries.length - replay.pending.length);
     for (const entry of completed) state = applyPatch(state, { ...emptyState(), actors: encounteredActors(cleanNarrative(entry.content), state.actors), scene: state.scene });
+    o.onProgress?.(0, replay.pending.length);
     const last = completed.at(-1);
     const needsRepair = !!last?.patch && last.patch.formatVersion !== 2;
     // Old records are compacted from their stored evidence, rather than paying to replay the whole history.
     // Existing CAS forbids manual rewrites during a lease, so stage the change and publish after release.
     if (needsRepair && !replay.pending.length && o.beforeTurn === undefined) {
+      o.onProgress?.(0, 1);
       const repair = await extractEntry(o.sessionId, { ...last, id: `${last.id}:repair2` }, state, o.apiKey, config, o.setup, signal, true);
       repair.actors.unshift(...state.actors);
       repair.scene = state.scene;
@@ -389,6 +392,7 @@ export async function prepareKnowledge(o: KnowledgeOptions) {
       });
       if (error || data !== true) throw error ?? new Error('정보표를 저장하지 못했습니다.');
       state = applyPatch(state, patch);
+      o.onProgress?.(index + 1, replay.pending.length);
     }
     return { config, state, processed: replay.pending.length, repair: null };
   });
@@ -400,6 +404,7 @@ export async function prepareKnowledge(o: KnowledgeOptions) {
       desired, setup_hash: hash, expected_revision: o.revision, expected_previous: last.patch,
     });
     if (error || data !== true) throw error ?? new Error('정보표가 변경되었습니다. 다시 갱신해 주세요.');
+    o.onProgress?.(1, 1);
   }
   return { config: result.config, state: result.state, processed: result.processed };
 }
