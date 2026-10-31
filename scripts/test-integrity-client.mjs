@@ -76,7 +76,7 @@ await merging([
   {id:'note10',content:'memory through ten',summarized_through_turn:10},
   {id:'note20',content:'memory through twenty',summarized_through_turn:20},
 ],20);
-const expectedCore='global summary core\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\n\n[ADDITIONAL NOTE]\nEXTRA MEMORY NOTE';
+const expectedCore='global summary core\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.\n\n[ADDITIONAL NOTE]\nEXTRA MEMORY NOTE';
 assert.deepEqual(summaryErrors,[]);assert.equal(summaryRequests[0].systemParts.core,expectedCore);
 assert.equal(commits[0]?.args.through_turn,20,'summary merge must not replace the checkpoint with the viewport count');
 assert.ok(summaryRequests[0].messages[0].content.includes('memory through twenty'));
