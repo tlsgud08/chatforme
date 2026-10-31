@@ -349,7 +349,6 @@ export default function SessionMenu({
         </section>
         {user && <SessionPluginSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         {user && <SessionWorkCombinationSettings key={session.id} session={session} userId={user.id} includeUnlisted={isAdmin} busy={sending || summaryGenerating} onUpdate={onUpdate} onSavingChange={onWorkCombinationSavingChange} />}
-        <SessionInformationSettings key={`information:${session.id}`} session={session} busy={sending || summaryGenerating} onUpdate={onUpdate} />
         {!semiActive && semiSettings}
       </div>
 
@@ -380,6 +379,7 @@ export default function SessionMenu({
           <button type="button" className="inu-button inu-primary inu-full" disabled={sending || summaryGenerating || narrativeTargetSaving || narrativeTarget !== inheritedNarrativeTarget || sessionTurnCount === 0} onClick={async () => { await onGenerateSummary(summaryThroughTurn === '' ? undefined : summaryThroughTurn); await loadSummaries(); }}><InterfaceIcon name="generate" />{summaryGenerating ? '요약 생성 중…' : '지금 요약 노트 생성'}</button>
           <button type="button" className="inu-button inu-full" onClick={() => void openSummaries()}><InterfaceIcon name="history" />요약 노트 보기</button>
         </section>
+        <SessionInformationSettings key={`information:${session.id}`} session={session} busy={sending || summaryGenerating} onUpdate={onUpdate} />
       </div>
 
       <div className="inu-content" id="session-panel-display" role="tabpanel" aria-labelledby="session-tab-display" hidden={activeTab !== 'display'}>
