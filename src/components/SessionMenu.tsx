@@ -130,6 +130,12 @@ export default function SessionMenu({
   const [selectedSummaryIds, setSelectedSummaryIds] = useState<string[]>([]);
   const [storyNoteDraft, setStoryNoteDraft] = useState('');
   const [summaryThroughTurn, setSummaryThroughTurn] = useState<number | ''>('');
+  const inheritedNarrativeTarget = session.summary_narrative_target_tokens_override ?? profile?.summary_narrative_target_tokens ?? '3000';
+  const [narrativeTarget, setNarrativeTarget] = useState(inheritedNarrativeTarget);
+  const [narrativeTargetSaving, setNarrativeTargetSaving] = useState(false);
+  const narrativeTargetJob = useRef({ running: false, pending: null as string | null, active: true });
+  useEffect(() => { narrativeTargetJob.current.active = true; return () => { narrativeTargetJob.current.active = false; narrativeTargetJob.current.pending = null; }; }, [session.id]);
+  useEffect(() => { if (!narrativeTargetJob.current.running) setNarrativeTarget(inheritedNarrativeTarget); }, [inheritedNarrativeTarget]);
   const [activeTab, setActiveTab] = useState('chat');
   const [activeSemiSession, setActiveSemiSession] = useState<string | null>(null);
   const semiActive = activeSemiSession === session.id;
@@ -247,6 +253,21 @@ export default function SessionMenu({
     onUpdate(patch);
   }
 
+  async function saveNarrativeTarget(value: string) {
+    setNarrativeTarget(value);
+    const job = narrativeTargetJob.current; job.pending = value;
+    if (job.running) return;
+    job.running = true; setNarrativeTargetSaving(true);
+    try {
+      while (job.active && job.pending !== null) {
+        const next = job.pending; job.pending = null;
+        await saveSummarySettings({ summary_narrative_target_tokens_override: next });
+      }
+    } catch (error) {
+      if (job.active) flash('목표 토큰 수 저장 실패: ' + (error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error)));
+    } finally { job.running = false; if (job.active) setNarrativeTargetSaving(false); }
+  }
+
   async function applySelectedSummaries() {
     if (await commitSummary('select')) flash('선택한 요약 노트를 채팅에 반영했습니다.');
   }
@@ -352,8 +373,11 @@ export default function SessionMenu({
           <div className="inu-two-fields"><label className="inu-field-label">생성 기준 턴<input type="number" min={1} max={Math.max(1, sessionTurnCount)} value={summaryThroughTurn} onChange={event => setSummaryThroughTurn(event.target.value === '' ? '' : Math.max(1, Math.min(sessionTurnCount, Number(event.target.value) || 1)))} placeholder={`최신 · ${sessionTurnCount}턴`} /></label><label className="inu-field-label">Summary level<input type="number" min={0} max={10} value={session.summary_level_override ?? profile?.summary_level ?? 5} onChange={event => void saveSummarySettings({ summary_level_override: Math.max(0, Math.min(10, Number(event.target.value) || 0)) })} /></label></div>
           <p className="inu-help">기준 턴을 비우면 최신까지 · 요약 수준 0~10. 요약 지시문은 관리자 전역 프롬프트를 사용해요.</p>
           <label className="inu-switch-row"><span>Allow omission <small>생략 허용</small></span><Toggle aria-label="요약 생략 허용" checked={session.summary_allow_omission_override ?? profile?.summary_allow_omission ?? true} onChange={summary_allow_omission_override => void saveSummarySettings({ summary_allow_omission_override })} /></label>
+          <label className="inu-field-label">[핵심 서사 및 맥락] 목표 토큰 수<input aria-label="[핵심 서사 및 맥락] 목표 토큰 수" type="text" value={narrativeTarget} disabled={sending || summaryGenerating} onChange={event => void saveNarrativeTarget(event.target.value)} placeholder="3000" /></label>
+          {narrativeTargetSaving ? <p className="inu-help" role="status">목표 토큰 수 저장 중…</p> : narrativeTarget !== inheritedNarrativeTarget && <button type="button" className="inu-text-button" onClick={() => void saveNarrativeTarget(narrativeTarget)}>목표 토큰 수 다시 저장</button>}
+          <p className="inu-help">전체 요약이 아닌 이 파트의 분량 목표예요. 숫자나 범위를 텍스트로 입력할 수 있어요.</p>
           <label className="inu-switch-row"><span>요약 파라미터 함께 전송</span><Toggle aria-label="요약 파라미터 함께 전송" checked={session.summary_parameters_enabled_override ?? profile?.summary_parameters_enabled ?? true} onChange={summary_parameters_enabled_override => void saveSummarySettings({ summary_parameters_enabled_override })} /></label>
-          <button type="button" className="inu-button inu-primary inu-full" disabled={sending || summaryGenerating || sessionTurnCount === 0} onClick={async () => { await onGenerateSummary(summaryThroughTurn === '' ? undefined : summaryThroughTurn); await loadSummaries(); }}><InterfaceIcon name="generate" />{summaryGenerating ? '요약 생성 중…' : '지금 요약 노트 생성'}</button>
+          <button type="button" className="inu-button inu-primary inu-full" disabled={sending || summaryGenerating || narrativeTargetSaving || narrativeTarget !== inheritedNarrativeTarget || sessionTurnCount === 0} onClick={async () => { await onGenerateSummary(summaryThroughTurn === '' ? undefined : summaryThroughTurn); await loadSummaries(); }}><InterfaceIcon name="generate" />{summaryGenerating ? '요약 생성 중…' : '지금 요약 노트 생성'}</button>
           <button type="button" className="inu-button inu-full" onClick={() => void openSummaries()}><InterfaceIcon name="history" />요약 노트 보기</button>
         </section>
       </div>
@@ -379,7 +403,7 @@ export default function SessionMenu({
           {summaryVersions.length === 0 ? <p className="inu-help">생성된 요약이 없습니다.</p> : summaryVersions.map(version => <article key={version.id} className="inu-summary-item"><div className="inu-summary-meta"><label><input type="checkbox" checked={selectedSummaryIds.includes(version.id)} onChange={event => setSelectedSummaryIds(ids => event.target.checked ? [...ids, version.id] : ids.filter(id => id !== version.id))} aria-label={`${version.summarized_through_turn}턴 요약 선택`} /><time dateTime={version.created_at} title={new Date(version.created_at).toLocaleString('ko-KR')}>{new Date(version.created_at).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }).replace(/\s/g, '').replace(/\.$/, '')} {new Date(version.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}</time></label><span>AI 요약 · {version.summarized_through_turn}턴</span>{version.is_active && <span className="inu-tag">전송 중</span>}</div>
             {editingSummary === version.id ? <><textarea rows={6} value={summaryDraft} onChange={event => setSummaryDraft(event.target.value)} aria-label="요약 노트 내용" /><div className="inu-item-actions"><button type="button" onClick={() => void saveSummary(version)}>저장</button><button type="button" onClick={() => setEditingSummary(null)}>취소</button></div></> : <><pre>{version.content}</pre><div className="inu-item-actions"><button type="button" onClick={() => { setEditingSummary(version.id); setSummaryDraft(version.content); }}>편집</button><button type="button" className="inu-danger" onClick={() => void deleteSummary(version)}>삭제</button></div></>}
           </article>)}
-          {summaryVersions.length > 0 && <div className="inu-two-buttons"><button type="button" className="inu-button" onClick={() => void applySelectedSummaries()}>선택 노트 반영</button><button type="button" className="inu-button inu-primary" disabled={sending || selectedSummaryIds.length < 2 || summaryGenerating} onClick={async () => { await onMergeSummaries(summaryVersions.filter(version => selectedSummaryIds.includes(version.id))); await loadSummaries(); }}><InterfaceIcon name="merge" />통합 생성</button></div>}
+          {summaryVersions.length > 0 && <div className="inu-two-buttons"><button type="button" className="inu-button" onClick={() => void applySelectedSummaries()}>선택 노트 반영</button><button type="button" className="inu-button inu-primary" disabled={sending || selectedSummaryIds.length < 2 || summaryGenerating || narrativeTargetSaving || narrativeTarget !== inheritedNarrativeTarget} onClick={async () => { await onMergeSummaries(summaryVersions.filter(version => selectedSummaryIds.includes(version.id))); await loadSummaries(); }}><InterfaceIcon name="merge" />통합 생성</button></div>}
         </section>
       </div>
     </SessionMenuPage>}

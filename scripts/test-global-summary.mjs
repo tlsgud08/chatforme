@@ -40,6 +40,8 @@ try{
  await q("update profiles set display_name='Unrelated change',summary_prompt='private',summary_extra_note='memory note',summary_level=0,summary_allow_omission=false,summary_parameters_enabled=false where id=$1",[b]);
  const own=(await q('select * from profiles where id=$1',[b]))[0];assert.equal(own.summary_prompt,null);assert.equal(own.summary_extra_note,'memory note');assert.equal(own.summary_level,0);assert.equal(own.summary_allow_omission,false);assert.equal(own.summary_parameters_enabled,false);assert.equal(own.display_name,'Unrelated change');
  await q("update profiles set display_name='Second save' where id=$1",[b]);assert.equal((await q('select summary_level from profiles where id=$1',[b]))[0].summary_level,0,'unrelated saves no longer reset parameters');
+ assert.equal((await q('select summary_narrative_target_tokens from profiles where id=$1',[b]))[0].summary_narrative_target_tokens,'3000');
+ await q('update profiles set summary_narrative_target_tokens=$1 where id=$2',['4000~6000',b]);
  await assert.rejects(()=>q('update profiles set summary_level=11 where id=$1',[b]));
  await login(a);await q("select set_config('test.email','topshjtv@gmail.com',false)");
  assert.equal(await rpc('save_global_summary_prompt',[prompt,'NEW GLOBAL']),true);assert.equal(await rpc('save_global_summary_prompt',[prompt,'NEW GLOBAL']),true,'replay after a lost acknowledgement is idempotent');
@@ -47,6 +49,8 @@ try{
  await q("insert into works(id,creator_id,title,visibility) values($1,$2,'Fixture','public')",[work,a]);
  assert.ok(await rpc('create_session_with_start',[work,null,null]),'new-session creation remains compatible with retired columns');
  await login(b);const created=await rpc('create_session_with_start',[work,null,null]);
+ assert.equal((await q('select summary_narrative_target_tokens_override from sessions where id=$1',[created]))[0].summary_narrative_target_tokens_override,'4000~6000','new rooms snapshot the raw text default');
+ await q('update sessions set summary_narrative_target_tokens_override=$1 where id=$2',['약 8000',created]);
  assert.deepEqual((await q('select summary_level_override,summary_allow_omission_override,summary_parameters_enabled_override from sessions where id=$1',[created]))[0],{summary_level_override:0,summary_allow_omission_override:false,summary_parameters_enabled_override:false},'new rooms snapshot the original personal defaults');
  await q('update sessions set summary_level_override=10,summary_parameters_enabled_override=true where id=$1',[created]);
  await q("update sessions set user_note='unrelated save' where id=$1",[created]);
@@ -58,6 +62,7 @@ try{
  await db.exec(restore);
  assert.equal((await q('select summary_level_override from sessions where id=$1',[created]))[0].summary_level_override,10,'reapplying does not reset saved values');
  assert.equal((await q('select summary_extra_note from profiles where id=$1',[b]))[0].summary_extra_note,'memory note');
+ assert.equal((await q('select summary_narrative_target_tokens_override from sessions where id=$1',[created]))[0].summary_narrative_target_tokens_override,'약 8000');
  await login(null);await assert.rejects(()=>rpc('save_global_summary_prompt',['NEW GLOBAL','anon']));
  console.log('Global summary DB: shared admin prompt, restored personal/room parameters, persistence, snapshot defaults, bounds, RLS, non-destructive migration replay and atomic admin save passed');
 }finally{await db.close();}
@@ -69,17 +74,21 @@ try{
  assert.equal(await loadGlobalSummaryPrompt(),'GLOBAL CURRENT');value='GLOBAL CHANGED';assert.equal(await loadGlobalSummaryPrompt(),'GLOBAL CHANGED','subsequent summaries read live global state');
  value='';await assert.rejects(()=>loadGlobalSummaryPrompt(),/전역/);error=true;await assert.rejects(()=>loadGlobalSummaryPrompt());
  const base='GLOBAL EXACT\nPROMPT',profile={summary_level:3,summary_allow_omission:true,summary_parameters_enabled:true,summary_extra_note:'  EXTRA NOTE  '};
- assert.equal(summaryPromptWithParameters(base,{},{}),base+'\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 5\nALLOW_OMISSION = ON');
- assert.equal(summaryPromptWithParameters(base,profile,{summary_level_override:0,summary_allow_omission_override:false}),base+'\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\n\n[ADDITIONAL NOTE]\nEXTRA NOTE');
+ assert.equal(summaryPromptWithParameters(base,{},{}),base+'\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 5\nALLOW_OMISSION = ON\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.');
+ assert.equal(summaryPromptWithParameters(base,profile,{summary_level_override:0,summary_allow_omission_override:false}),base+'\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.\n\n[ADDITIONAL NOTE]\nEXTRA NOTE');
  assert.equal(summaryPromptWithParameters(base,profile,{summary_parameters_enabled_override:false}),base+'\n\n[ADDITIONAL NOTE]\nEXTRA NOTE','disabling parameters keeps the original independent extra-note behavior');
  assert.equal(summaryPromptWithParameters(base,{...profile,summary_extra_note:' ',summary_parameters_enabled:false},{}),base,'OFF with no note preserves the exact shared instruction');
  assert.match(summaryPromptWithParameters(base,profile,{summary_level_override:null,summary_allow_omission_override:null}),/SUMMARY_LEVEL = 3\nALLOW_OMISSION = ON/,'null room overrides inherit personal values');
+ assert.match(summaryPromptWithParameters(base,{...profile,summary_narrative_target_tokens:'4000~6000'},{}),/CORE_NARRATIVE_TARGET_TOKENS = 4000~6000\nApply this target token count only to \[핵심 서사 및 맥락\]/);
+ assert.match(summaryPromptWithParameters(base,{...profile,summary_narrative_target_tokens:'4000~6000'},{summary_narrative_target_tokens_override:'약 8000'}),/CORE_NARRATIVE_TARGET_TOKENS = 약 8000/);
+ assert.match(summaryPromptWithParameters(base,{...profile,summary_narrative_target_tokens:''},{summary_narrative_target_tokens_override:'  '}),/CORE_NARRATIVE_TARGET_TOKENS = 3000/,'blank targets fall back to the default');
  globalThis.window={location:{origin:'https://summary.test'}};
  const {generate}=await server.ssrLoadModule('/src/lib/llm/index.ts');
  let sent;globalThis.fetch=async(_url,options)=>{sent=JSON.parse(options.body);return new Response(JSON.stringify({choices:[{message:{content:'summary'}}],usage:{prompt_tokens:1,completion_tokens:1,cost:0}}));};
- const core=summaryPromptWithParameters(base,profile,{summary_level_override:10,summary_allow_omission_override:false});
+ const core=summaryPromptWithParameters(base,profile,{summary_level_override:10,summary_allow_omission_override:false,summary_narrative_target_tokens_override:'약 8000'});
  await generate('openrouter',{apiKey:'fixture',model:'fixture/model',sessionId:'fixture:summary',reasoning:{send:false},maxOutputTokens:4096,systemParts:{core,persona:'',userNote:'',summary:'',keywords:''},messages:[{role:'user',content:'DIALOGUE'}]});
  assert.equal(sent.messages[0].content,core,'exact controls reach the real serialized HTTP body');
+ assert.ok(sent.messages[0].content.includes('CORE_NARRATIVE_TARGET_TOKENS = 약 8000'));
  delete globalThis.window;
  console.log('Global summary loader: fresh shared value, no fallback/personalization, explicit missing/denied errors passed');
 }finally{globalThis.fetch=originalFetch;await server.close();}

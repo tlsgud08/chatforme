@@ -26,6 +26,7 @@ export interface Profile {
   summary_interval: number;
   summary_level: number;
   summary_allow_omission: boolean;
+  summary_narrative_target_tokens: string;
   summary_parameters_enabled: boolean;
   summary_extra_note: string;
   summary_source_mode: 'incremental' | 'full';
@@ -177,6 +178,7 @@ export interface Session {
   summary_interval_override: number | null;
   summary_level_override: number | null;
   summary_allow_omission_override: boolean | null;
+  summary_narrative_target_tokens_override: string | null;
   summary_parameters_enabled_override: boolean | null;
   summary_source_mode_override: 'incremental' | 'full' | null;
   summary_cost_enabled_override: boolean | null;

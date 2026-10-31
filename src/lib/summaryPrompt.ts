@@ -6,7 +6,8 @@ export function summaryPromptWithParameters(prompt: string, profile: Partial<Pro
   const level = session.summary_level_override ?? profile.summary_level ?? 5;
   const omission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
   const enabled = session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true;
-  const parameters = enabled ? `[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = ${level}\nALLOW_OMISSION = ${omission ? 'ON' : 'OFF'}` : '';
+  const target = session.summary_narrative_target_tokens_override?.trim() || profile.summary_narrative_target_tokens?.trim() || '3000';
+  const parameters = enabled ? `[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = ${level}\nALLOW_OMISSION = ${omission ? 'ON' : 'OFF'}\nCORE_NARRATIVE_TARGET_TOKENS = ${target}\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.` : '';
   const note = profile.summary_extra_note?.trim();
   return [prompt, parameters, note ? `[ADDITIONAL NOTE]\n${note}` : ''].filter(Boolean).join('\n\n');
 }
