@@ -17,7 +17,7 @@ try {
   assert.match(on.systemParts.keywords,/△: PC를 회사원으로 오해함/);assert.match(on.systemParts.keywords,/O: 본인 신분/);
   assert.ok(on.systemParts.keywords.includes(config.mainPrompt));
   const unknown=applyPatch(state,{...emptyState(),knowledge:[{...patch.knowledge[0],status:'unknown'}]});
-  assert.match(knowledgeBlock(unknown),/\| X \|/,'manual X can replace O');assert.equal(unknown.actors.length,2,'leaving a scene never deletes actors');
+  assert.match(knowledgeBlock(unknown),/명시하지 않은 인물은 X/,'manual X can replace O');assert.equal(unknown.actors.length,2,'leaving a scene never deletes actors');
   const themes=[{id:'1',name:'정원',work_id:'w'},{id:'2',name:'실내',work_id:'w'}];
   const valid=name=>name==='keep'||!!resolveThemeDirectiveChoice(name,themes);
   assert.equal(finalThemeDirective('{{theme::정원}} 본문'),'정원');

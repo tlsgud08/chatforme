@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { emptyState, knowledgeSymbol } from '@/lib/knowledge/core';
+import { emptyState, knowledgeSymbol, visibleFact } from '@/lib/knowledge/core';
 import { cancelKnowledge, readKnowledgeContext, replayContext } from '@/lib/knowledge/runtime';
 import { forgetKnowledgeJob, getKnowledgeJob, subscribeKnowledgeJobs, startKnowledgeJob, stopKnowledgeJob } from '@/lib/knowledge/jobs';
 import { getApiKey } from '@/lib/apiKeys';
@@ -14,6 +14,7 @@ export default function SessionInformationSettings({ session, busy, onUpdate }: 
   const [message, setMessage] = useState(''), [saving, setSaving] = useState(false), [loading, setLoading] = useState(false);
   const [job, setJob] = useState(() => getKnowledgeJob(session.id));
   const generating = job?.status === 'running' || job?.status === 'stopping';
+  const [showDetails, setShowDetails] = useState(false);
   const [view, setView] = useState('cards'), [actorFilter, setActorFilter] = useState('');
   const [kind, setKind] = useState('all'), [search, setSearch] = useState(''), [limit, setLimit] = useState(100);
   const [inspect, setInspect] = useState<{ fact: Fact; actor: string; value?: Knowledge } | null>(null);
@@ -108,7 +109,7 @@ export default function SessionInformationSettings({ session, busy, onUpdate }: 
     <textarea aria-label="인지 경위 정정" rows={3} value={reason} disabled={!session.knowledge_enabled || busy || saving || generating} onChange={event => setReason(event.target.value)} placeholder="알게 된 경위 또는 실제로 의심·오해하는 내용" />
     <div className="mt-2 flex flex-wrap gap-2"><button type="button" className="inu-button inu-primary" disabled={!session.knowledge_enabled || busy || saving || generating || !!replay.pending.length} onClick={() => void correct()}>정정 저장</button><button type="button" className="inu-button" onClick={() => setInspect(null)}>닫기</button></div>
   </div>;
-  const facts = state.facts.filter(f => (kind === 'all' || f.kind === kind) && (!search || f.text.includes(search) || f.subjects.some(n => n.includes(search))));
+  const facts = state.facts.filter(f => (showDetails || visibleFact(f)) && (kind === 'all' || f.kind === kind) && (!search || f.text.includes(search) || f.subjects.some(n => n.includes(search))));
   return <section className="inu-section">
     <h3>정보 접근 관리</h3>
     <label className="inu-switch-row inu-tall"><span>정보 접근 관리<small>인물별 O·△·X와 경위를 기록하고 메인 AI에 전달해요</small></span><Toggle aria-label="정보 접근 관리" checked={session.knowledge_enabled === true} disabled={busy || saving || generating} onChange={knowledge => void toggle(knowledge)} /></label>
@@ -125,12 +126,13 @@ export default function SessionInformationSettings({ session, busy, onUpdate }: 
       <p className="inu-help">O: 알고 있음 · △: 의심/오해 · X: 인지 근거 없음. 인지 경위는 각 인물 아래 표시돼요. 인물을 누르면 원문 확인과 정정이 가능해요. 표에는 PC가 모르는 비밀도 포함돼요.</p>
       <div className="flex min-w-0 gap-2"><input className="min-w-0 flex-1" aria-label="정보 검색" value={search} onChange={event => setSearch(event.target.value)} placeholder="정보 검색" /><button type="button" className="inu-button shrink-0 whitespace-nowrap" disabled={loading} onClick={() => void refresh()}>{loading ? '조회 중…' : '새로고침'}</button></div>
       <select aria-label="정보 종류" value={kind} onChange={event => setKind(event.target.value)}><option value="all">전체 정보</option><option value="pc">PC 정보</option><option value="event">사건</option><option value="npc">NPC 정보</option></select>
-      {session.knowledge_enabled && replay.pending.length > 0 && <p role="status" className="inu-help">{replay.pending.filter(e => e.turn_index >= 0).length}개 응답의 정리가 필요해요. 다음 생성 전에 이어서 처리해요.</p>}
+      {session.knowledge_enabled && replay.pending.length > 0 && <p role="status" className="inu-help">{context!.entries.filter(e => e.turn_index >= 0).length - replay.pending.filter(e => e.turn_index >= 0).length}/{context!.entries.filter(e => e.turn_index >= 0).length}개 응답 정리 완료 · {replay.pending.filter(e => e.turn_index >= 0).length}개 미처리. 다음 생성 전에 이어서 처리해요.</p>}
       <div className="grid min-w-0 grid-cols-2 gap-2">
         <select aria-label="정보 보기 방식" value={view} onChange={event => setView(event.target.value)}><option value="cards">카드 보기</option><option value="table">표 보기</option></select>
         <select aria-label="인지 인물 필터" value={actorFilter} onChange={event => setActorFilter(event.target.value)}><option value="">모든 인물 ({state.actors.length})</option>{state.actors.map(actor => <option key={actor.name} value={actor.name}>{actor.name}{actor.pc ? ' (PC)' : ''}</option>)}</select>
       </div>
-      <p className="inu-help">{facts.length}개 정보 · {state.actors.length}명{replay.pending.length ? ' · 미처리 대화의 인물·PC 정보는 정리 후 반영돼요.' : ''}</p>
+      <label className="inu-switch-row"><span>세부 기록·원본 설정 포함</span><input type="checkbox" checked={showDetails} onChange={event => setShowDetails(event.target.checked)} /></label>
+      <p className="inu-help">{facts.length}개 정보 · {state.actors.length}명{replay.pending.length ? ' · 인물은 원문에서 먼저 등록했으며 미처리 대화의 정보·인지 판정은 정리 중이에요.' : ''}</p>
       {view === 'cards' ? <div className="flex min-w-0 flex-col gap-3">{facts.slice(0, limit).map(fact => <article key={fact.id} className="min-w-0 rounded-xl border border-slate-500/25 bg-surface2 p-3">
         <div className="mb-2 flex flex-wrap gap-2 text-xs text-slate-400"><span>{fact.kind === 'pc' ? 'PC 정보' : fact.kind === 'npc' ? 'NPC 정보' : '사건'}</span>{fact.secret && <span className="text-amber-400">비밀 · PC가 모를 수 있음</span>}</div>
         <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{fact.text}</p>
@@ -138,13 +140,13 @@ export default function SessionInformationSettings({ session, busy, onUpdate }: 
         <div className="mt-3 divide-y divide-slate-500/20 border-t border-slate-500/20">{actors.map(actor => {
           const value = relations.get(`${fact.id}\0${actor.name}`);
           return <button key={actor.name} type="button" className="block w-full min-w-0 py-3 text-left" aria-label={`${actor.name}: ${fact.text} — ${knowledgeSymbol(value?.status)}`} aria-expanded={inspect?.fact.id === fact.id && inspect.actor === actor.name} onClick={() => selectCell(fact, actor.name)}>
-            <span className="flex items-start gap-2"><span className="w-6 shrink-0 font-semibold text-brand">{knowledgeSymbol(value?.status)}</span><span className="min-w-0 break-words text-sm font-semibold">{actor.name}{actor.pc ? ' (PC)' : ''}{value?.status === 'believes' ? ' · 오해/소문' : value?.status === 'suspects' ? ' · 의심' : ''}</span></span>
-            <span className="mt-1 block whitespace-pre-wrap break-words pl-8 text-sm leading-relaxed text-slate-400">{value?.reason || (value && value.status !== 'unknown' ? '저장된 인지 경위가 없어요. 원문을 확인해 주세요.' : '인지 근거 없음')}</span>
+            <span className="flex items-start gap-2"><span className="w-6 shrink-0 font-semibold text-brand">{!value && actor.unprocessed ? '…' : knowledgeSymbol(value?.status)}</span><span className="min-w-0 break-words text-sm font-semibold">{actor.name}{actor.pc ? ' (PC)' : ''}{value?.status === 'believes' ? ' · 오해/소문' : value?.status === 'suspects' ? ' · 의심' : ''}</span></span>
+            <span className="mt-1 block whitespace-pre-wrap break-words pl-8 text-sm leading-relaxed text-slate-400">{value?.reason || (!value && actor.unprocessed ? '미처리 대화에 등장 · 인지 판정 대기' : value && value.status !== 'unknown' ? '저장된 인지 경위가 없어요. 원문을 확인해 주세요.' : '인지 근거 없음')}</span>
           </button>;
         })}</div>
         {inspect?.fact.id === fact.id && inspector}
       </article>)}</div> : <><p className="inu-help">표는 가로로 밀어 볼 수 있어요. 세로 화면에서는 카드 보기가 편해요.</p>
-        <div className="max-h-[60vh] overflow-auto rounded-lg border border-slate-500/20"><table className="w-full border-collapse text-sm"><thead className="sticky top-0 z-20"><tr><th className="min-w-48 bg-surface p-3 text-left">정보</th>{actors.map(actor => <th key={actor.name} className="min-w-48 bg-surface p-3">{actor.name}{actor.pc ? ' (PC)' : ''}</th>)}</tr></thead><tbody>{facts.slice(0, limit).map(fact => <tr key={fact.id} className="border-t border-slate-500/20"><th className="bg-surface p-3 text-left font-normal">{fact.secret && <span className="mr-1 text-amber-400">비밀</span>}{fact.text}</th>{actors.map(actor => { const value = relations.get(`${fact.id}\0${actor.name}`); return <td key={actor.name} className="align-top p-2"><button type="button" onClick={() => selectCell(fact, actor.name)} className="min-h-11 w-full rounded-lg bg-surface2 p-3 text-left"><span className="font-semibold">{knowledgeSymbol(value?.status)}</span><span className="mt-1 block whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-400">{value?.reason || '인지 근거 없음'}</span></button></td>; })}</tr>)}</tbody></table></div>
+        <div className="max-h-[60vh] overflow-auto rounded-lg border border-slate-500/20"><table className="w-full border-collapse text-sm"><thead className="sticky top-0 z-20"><tr><th className="min-w-48 bg-surface p-3 text-left">정보</th>{actors.map(actor => <th key={actor.name} className="min-w-48 bg-surface p-3">{actor.name}{actor.pc ? ' (PC)' : ''}</th>)}</tr></thead><tbody>{facts.slice(0, limit).map(fact => <tr key={fact.id} className="border-t border-slate-500/20"><th className="bg-surface p-3 text-left font-normal">{fact.secret && <span className="mr-1 text-amber-400">비밀</span>}{fact.text}</th>{actors.map(actor => { const value = relations.get(`${fact.id}\0${actor.name}`); return <td key={actor.name} className="align-top p-2"><button type="button" onClick={() => selectCell(fact, actor.name)} className="min-h-11 w-full rounded-lg bg-surface2 p-3 text-left"><span className="font-semibold">{!value && actor.unprocessed ? '…' : knowledgeSymbol(value?.status)}</span><span className="mt-1 block whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-400">{value?.reason || (actor.unprocessed ? '인지 판정 대기' : '인지 근거 없음')}</span></button></td>; })}</tr>)}</tbody></table></div>
         {inspector}
       </>}
       {!loading && !facts.length && <p className="inu-help">아직 기록된 정보가 없어요. 정보 관리를 켜고 대화를 진행하면 기록돼요.</p>}

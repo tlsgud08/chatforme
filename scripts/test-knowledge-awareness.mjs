@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'vite';
+const server=await createServer({server:{middlewareMode:true},appType:'custom'});
+try {
+ const {awarenessPatch,appearanceFact}=await server.ssrLoadModule('/src/lib/knowledge/awareness.ts');
+ const {applyPatch,emptyState,visibleFact,knowledgeBlock}=await server.ssrLoadModule('/src/lib/knowledge/core.ts');
+ const {recorderFacts}=await server.ssrLoadModule('/src/lib/knowledge/compact.ts');
+ const {replayContext}=await server.ssrLoadModule('/src/lib/knowledge/runtime.ts');
+ const actors=[{name:'히나',aliases:['PC'],pc:true},{name:'아리사카 미키오',aliases:[],pc:false},{name:'원격 인물',aliases:[],pc:false}];
+ const profile={id:'pc-profile:히나',kind:'pc',subjects:['히나'],secret:true,text:'전체 설정',quote:'은색 머리+붉은눈+여우귀와 꼬리+비밀 조직 첩자+목적: 조직 파괴',origin:'setup'};
+ const contract={id:'contract',kind:'event',subjects:['히나','아리사카 미키오'],secret:false,text:'아리사카 미키오가 히나에게 데이터 칩 회수 의뢰를 제시했다.',quote:'데이터 칩을 회수해.',origin:'assistant'};
+ const entry={id:'m1',turn_index:1,content:'*미키오는 차가운 눈으로 히나를 응시한다.*\n\n**아리사카 미키오** │ "데이터 칩을 회수해."\n\n*원격 인물이 통신 영상 속 히나를 바라보고 있다.*',patch:null};
+ const state={...emptyState(),actors,facts:[profile,contract]};
+ const derived=applyPatch(state,awarenessPatch(state,[entry]));
+ const appearance=derived.facts.find(f=>f.aspect==='appearance');assert.ok(appearance);assert.ok(!appearance.text.includes('첩자'));assert.ok(!appearance.text.includes('파괴'));
+ assert.ok(derived.knowledge.some(k=>k.fact===appearance.id&&k.actor==='아리사카 미키오'&&k.status==='knows'));
+ assert.ok(derived.knowledge.some(k=>k.fact===contract.id&&k.actor==='아리사카 미키오'&&k.status==='knows'));
+ assert.ok(!derived.knowledge.some(k=>k.fact===profile.id),'visible appearance never unlocks a mixed secret profile');
+ assert.ok(!derived.knowledge.some(k=>k.actor==='원격 인물'),'remote contact does not prove physical observation');
+ const manual={fact:appearance.id,actor:'아리사카 미키오',status:'unknown',reason:'사용자 정정',quote:'사용자 직접 정정',source:'edit'};
+ // Retain explicit X tombstones so deterministic evidence cannot undo a user correction.
+ const corrected=applyPatch(derived,{...emptyState(),knowledge:[manual]});
+ assert.ok(!awarenessPatch(corrected,[entry]).knowledge.some(k=>k.fact===manual.fact&&k.actor===manual.actor));
+ const context={entries:[{...entry,patch:state},{id:'m2',turn_index:2,content:'```\n[관계]\n[ 츠키카게｜만난 인물 ]\n```',patch:null}]};
+ const replay=replayContext(context);assert.ok(replay.state.actors.some(a=>a.name==='츠키카게'),'pending INFO roster is not hidden until paid extraction finishes');assert.equal(replay.pending.length,1);
+ const detail={...contract,id:'swing',text:'히나가 칼을 휘둘렀다.'};
+ const archived=applyPatch({...state,facts:[profile,contract,detail]}, {...emptyState(),detailFacts:['swing','pc-profile:히나']});
+ assert.equal(archived.facts.find(f=>f.id==='swing').detailOnly,true);assert.ok(!visibleFact(archived.facts.find(f=>f.id==='swing')));assert.ok(archived.facts.some(f=>f.id===profile.id),'detail review never deletes profile evidence');
+ const status='```\n[종족]｜요괴 (야코)\n[소속]｜무소속\n[소지품]｜샤드\n[관계]\n[ 아리사카 미키오｜고용주 ]\n```';
+ const wrong={id:'m3:0:N1',kind:'pc',subjects:['아리사카 미키오'],secret:true,text:'아리사카 미키오는 야코다',quote:'[종족]｜요괴 (야코)'};
+ const wrongState=applyPatch(emptyState(),{...state,facts:[wrong]});
+ const cleaned=applyPatch(wrongState,awarenessPatch(wrongState,[{id:'m3',content:status,patch:state}]));
+ assert.equal(cleaned.facts.some(f=>f.id===wrong.id),false,'PC status cannot become an NPC species');
+ const realNpc={...wrong,id:'npc-equipment',quote:'미키오의 검은 정장',text:'미키오는 검은 정장을 입었다.'};
+ assert.equal(applyPatch(emptyState(),{...state,facts:[realNpc]}).facts[0].kind,'npc');
+ const large={...derived,actors:[...actors,...Array.from({length:37},(_,i)=>({name:'NPC'+i,aliases:[],pc:false}))],facts:Array.from({length:240},(_,i)=>({...contract,id:'f'+i,text:'사건 '+i+'의 기록',quote:'원문 근거 '.repeat(70)})),knowledge:[]};
+ large.knowledge=large.facts.flatMap(f=>actors.slice(0,2).map(a=>({fact:f.id,actor:a.name,status:'knows',reason:'실제 현장에서 목격함',quote:f.quote,source:'m'})));
+ const selected=recorderFacts(large,'새 장면');assert.ok(selected.length<=44);assert.ok(selected.length<large.facts.length/4);
+ const block=knowledgeBlock(large);assert.ok(!block.includes('원문 근거'));assert.ok(block.includes('명시하지 않은 인물은 X'));assert.ok(block.includes('NPC36'));assert.ok(block.includes('사건 0의 기록'));assert.ok(block.includes('사건 239의 기록'));
+ const oldWire=large.facts.map(f=>JSON.stringify(f)+large.actors.map(a=>JSON.stringify(large.knowledge.find(k=>k.fact===f.id&&k.actor===a.name)??'X')).join('')).join('\n');
+ assert.ok(block.length<oldWire.length/4);console.log(`Awareness/cost: own contract, witnessed public appearance, secret/remote/manual boundaries, pending roster, detail archive and bounded retrieval passed. Synthetic main context ${oldWire.length} -> ${block.length} characters; recorder refs ${large.facts.length} -> ${selected.length}.`);
+}finally{await server.close();}

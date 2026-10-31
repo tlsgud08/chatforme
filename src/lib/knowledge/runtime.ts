@@ -5,14 +5,18 @@ import { stripSyncDateTags } from '../syncDate';
 import { emptyState, applyPatch } from './core';
 import { structured, needsKnowledgeUpdate } from './model';
 import { readableSetup, pcSetup, pcProfileFacts, pcStatusFacts, encounteredActors } from './evidence';
+import { recorderFacts } from './compact';
+import { awarenessPatch } from './awareness';
 import { consolidateIncidents, type IncidentGroup } from './consolidate';
 import { DEFAULT_KNOWLEDGE_CONFIG, type Actor, type Fact, type Knowledge, type KnowledgePatch, type KnowledgeState, type KnowledgeEntry, type KnowledgeConfig, type KnowledgeContext } from './types';
 const INCIDENT_RULES = `
-## 기록 단위와 누락 방지 (출력 형식 규칙)
-사건은 “언제·누가·어디에서·무엇을 했는가”를 알 수 있는 장면 단위다. 전투의 베기·막기·회피·자세와 대사 한마디를 각각 사건으로 추가하지 않는다. 예: “히나와 히유키가 요시와라에서 전투했다.” 부상·파손·임무 성패·정체 노출 등 독립적으로 알아야 하는 결과만 별도 행으로 남긴다. 도서관에서 하루를 함께 보낸 일처럼 일상적인 사건도 기록한다.
-이미 기록된 사건의 진행은 같은 사건을 참조한다. groups에는 같은 장면의 중복·미세 행동을 묶을 F#/N# refs와 사실만으로 쓴 대표 text를 반환한다. 서로 다른 날짜·장소의 사건, 결과와 숨겨진 범인·동기, 인지 상태가 다른 사실, 의심·오해의 명제는 합치지 않는다. 독립적인 부상·파손·비밀은 유지한다. 통합하지 않을 때 groups=[]. reasons에는 인지한 인물의 경위를 사건 단위로 짧게 요약하고, quote는 그 인물의 기존 인지 근거에서 그대로 가져온다. 예: 직접 전투 참여, 현장 목격, 실제 연락 수신. 없던 전달을 만들지 않는다. 원래 세부 경위와 근거는 코드가 보존한다.
-PC의 배경·신분·종족·소속·목적·임무는 pc 유형이다. 설정의 persona/personas와 본문의 상태창을 확인한다. 미설정·미정은 사실로 만들지 않는다. 기존 PC 기본 설정 행만으로 모든 PC 정보가 기록됐다고 간주하지 않는다. INFO/관계창 또는 실제 대사·조우에 등장한 인물이 빠지지 않았는지 확인한다.
-일반 서술/상태창에서 메타적으로 확인되는 사실은 그 자체로 타 인물이 알게 된 근거가 아니다. 대사를 들었다면 그 발언을 들은 것이며 발언 속 주장·추측이 진실임을 알게 된 것은 아니다.`;
+# 우선 적용: 간결한 정보 기록
+- 사건은 “히나와 히유키가 요시와라에서 전투했다”처럼 짧은 한 문장(보통 20~80자)이다. 이번 변화는 통상 0~2행이면 충분하다. 중요한 독립 결과는 유지하되 개별 공격·방어·자세·반복 대사를 별도 사건으로 쌓지 않는다. 일상 방문·약속도 의미 있으면 남긴다.
+- 기존 사실은 F#를 재사용하고 인지만 갱신한다. detailFacts에 불필요한 미세 동작의 F#/N#를 넣는다. 부상·파손·사망·의뢰 조건·비밀 공개는 제외한다. groups는 같은 사건을 묶는 refs,text,reasons다. 원본 근거는 저장소에 유지된다.
+- reason은 짧게(15~40자), quote는 필요한 원문만 쓴다. 변경 없는 O·X·인물을 반복 출력하지 않는다.
+- 직접 대면해 실제로 본 외모, 본인이 내린 의뢰·지시·약속은 그 경험이 O의 근거다. “안다”는 선언은 필요 없다. 전화·가면·변장은 관찰 범위를 따진다. 외모와 숨겨진 신분·목적은 분리한다. 의뢰자는 의뢰 내용을 알지만 약속한 결과의 실현까지 확정된 것은 아니다. 같은 내용의 PC 임무 행 인지도 연결한다.
+- 기본 설정은 추출용 참고자료다. PC 상태창의 종족·소속·임무·장비를 직전에 말한 NPC에게 붙이지 않는다. kind=pc의 subjects는 실제 PC여야 한다. INFO 인물은 누락하지 않는다.
+- record 출처는 제공된 기존 원문 quote를 재사용할 때만 쓴다. 모델이 읽은 정보가 등장인물에게 저절로 전달되지는 않는다. 의심·오해는 △로 유지한다.`;
 const textSchema = { type: "string" },
   boolSchema = { type: "boolean" };
 const array = (items: unknown) => ({ type: "array", items });
@@ -44,6 +48,7 @@ interface Extraction {
   }[];
   scene: string[];
   groups?: IncidentGroup[];
+  detailFacts?: string[];
 }
 const extractionSchema = object({
   actors: array(
@@ -56,7 +61,7 @@ const extractionSchema = object({
       text: textSchema,
       secret: boolSchema,
       subjects: array(textSchema),
-      source: { type: "string", enum: ["user", "assistant", "setup"] },
+      source: { type: "string", enum: ["user", "assistant", "setup", "record"] },
       quote: textSchema,
     }),
   ),
@@ -66,12 +71,13 @@ const extractionSchema = object({
       actor: textSchema,
       status: { type: "string", enum: ["knows", "suspects", "believes", "unknown"] },
       reason: textSchema,
-      source: { type: "string", enum: ["user", "assistant", "setup"] },
+      source: { type: "string", enum: ["user", "assistant", "setup", "record"] },
       quote: textSchema,
       informer: textSchema,
     }),
   ),
   scene: array(textSchema),
+  detailFacts: array(textSchema),
   groups: array(object({ refs: array(textSchema), text: textSchema, reasons: array(object({ actor: textSchema, reason: textSchema, quote: textSchema })) })),
 });
 export const cleanNarrative = (s: string) =>
@@ -134,6 +140,7 @@ export function replayContext(context: KnowledgeContext): {
     if (stale) pending.push(row);
     else state = applyPatch(state, row.patch!);
   }
+  state = applyPatch(state, awarenessPatch(state, context.entries));
   return { state, pending };
 }
 function chunks(text: string) {
@@ -155,7 +162,7 @@ export async function extractEntry(
 ): Promise<KnowledgePatch> {
   const foundActors = encounteredActors(cleanNarrative(entry.content), state.actors);
   let interim = applyPatch(state, { ...emptyState(), actors: foundActors, scene: state.scene });
-  const finalPatch = { ...emptyState(), actors: foundActors };
+  const finalPatch: KnowledgePatch = { ...emptyState(), actors: foundActors };
   const userParts = chunks(cleanNarrative(entry.user_text)),
     assistantParts = chunks(cleanNarrative(entry.content));
   // Never truncate a long source silently: process separate bounded fragments.
@@ -187,7 +194,7 @@ export async function extractEntry(
     const profiles = [...pcProfileFacts(setup, pcs), ...pcStatusFacts(sources.assistant, pcs)].filter(f => !interim.facts.some(old => old.id === f.id));
     interim = applyPatch(interim, { ...emptyState(), facts: profiles, scene: interim.scene });
     finalPatch.facts.push(...profiles);
-    const relevant = interim.facts;
+    const relevant = recorderFacts(interim, sources.user + "\n" + sources.assistant);
     const references = Object.fromEntries(
       relevant.map((f, i) => [`F${i + 1}`, f]),
     );
@@ -196,7 +203,8 @@ export async function extractEntry(
       kind: f.kind,
       text: f.text,
       secret: f.secret,
-      quote: f.quote, origin: f.origin, subjects: f.subjects,
+      quote: f.quote?.slice(0, 160), origin: f.origin, subjects: f.subjects,
+      detailOnly: f.detailOnly,
       knowers: interim.knowledge
         .filter((k) => k.fact === f.id && k.status === "knows")
         .map((k) => k.actor),
@@ -204,11 +212,11 @@ export async function extractEntry(
     const output = await structured<Extraction>(
       { apiKey, sessionId, model: prompts.model, reasoning: prompts.reasoning, signal },
       prompts.recordPrompt +
-        "\nReturn JSON changes only. facts.key uses N1,N2... for new facts; knowledge.fact references an existing F# or a new N#. All evidence quotes must be exact substrings of the indicated user/assistant/setup source. Do not register every name in setup: only PCs and characters encountered in the actual scene or INFO. Keep every registered actor, including absent/dead/hostile actors. Return current scene names; do not treat every INFO entry as physically present. No arbitrary deletion. Use groups only for incident consolidation. Setup can establish a character knowing their own identity only when explicitly supported. Do not make intentions into completed events. User action text alone does not prove a successful event: require the assistant result for completed outcomes. Return every supported change in this fragment; do not omit facts to fill an arbitrary quota. For a new actor, quote must be an exact assistant-source excerpt demonstrating INFO registration or encounter. Never create new actor columns from setup alone. For setup evidence in later turns, quote the provided setup fragment or exact originating quotes on existing facts whose origin is setup. Known facts are reference material, not fresh events.\n" +
+        "\nJSON changes only. New facts use N1,N2; knowledge references N# or provided F#. Quotes must be exact substrings of the indicated source (record=an existing supplied fact quote). New actors require assistant evidence of encounter/INFO, never setup alone. Keep canonical actor names and absent actors. Return scene names. Intentions are not completed outcomes.\n" +
         INCIDENT_RULES,
-      { sources, actors: interim.actors, existing, knowledge: interim.knowledge, scene: interim.scene },
+      { sources, actors: interim.actors, existing, knowledge: interim.knowledge.filter(k => relevant.some(f => f.id === k.fact)).map(k => ({ ...k, fact: Object.entries(references).find(([, f]) => f.id === k.fact)?.[0], quote: k.quote.slice(0, 160) })), scene: interim.scene },
       extractionSchema,
-      prompts.maxOutputTokens,
+      Math.min(prompts.maxOutputTokens, 2000),
     );
     if (
       !Array.isArray(output.actors) ||
@@ -224,7 +232,7 @@ export async function extractEntry(
       (output.groups !== undefined && (!Array.isArray(output.groups) || output.groups.length > 80))
     )
       throw new Error("한 번에 너무 많은 정보 기록이 생성되었습니다.");
-    const patch = emptyState(),
+    const patch: KnowledgePatch = emptyState(),
       validActors = new Map(interim.actors.map((a) => [a.name, a]));
     for (const a of output.actors) {
       if (
@@ -248,9 +256,9 @@ export async function extractEntry(
     }
     const factMap = new Map<string, Fact>(Object.entries(references));
     const evidence = (source: string, quote: string) =>
-      ["user", "assistant", "setup"].includes(source) &&
+      ["user", "assistant", "setup", "record"].includes(source) &&
       bounded(quote, 800) &&
-      ((sources[source as keyof typeof sources] || "").includes(quote) || (source === "setup" && interim.facts.some(f => f.origin === "setup" && f.quote?.includes(quote))));
+      ((source === "record" && relevant.some(f => f.quote?.includes(quote))) || (sources[source as keyof typeof sources] || "").includes(quote) || (source === "setup" && interim.facts.some(f => f.origin === "setup" && f.quote?.includes(quote))));
     for (const f of output.facts) {
       if (
         !bounded(f.key, 30) ||
@@ -263,12 +271,15 @@ export async function extractEntry(
       )
         throw new Error("잘못된 사실 기록입니다.");
       if (!evidence(f.source, f.quote)) continue;
+      const pcNames = [...validActors.values()].filter(a => a.pc).flatMap(a => [a.name, ...a.aliases]);
+      const ownsPc = f.subjects.some(n => pcNames.includes(n));
+      if (!ownsPc && /^\[(종족|소속|신분|임무|목적|장비)\][｜|│:]/.test(f.quote.trim()) && pcStatusFacts(sources.assistant, [...validActors.values()].filter(a => a.pc)).length) continue;
       const old =
         interim.facts.find((v) => v.text === f.text) ??
         patch.facts.find((v) => v.text === f.text);
       const fact = old ?? {
         id: `${entry.id}:${index}:${f.key}`,
-        kind: f.kind,
+        kind: f.kind === "pc" && !ownsPc ? "npc" : f.kind,
         text: f.text,
         secret: f.secret,
         quote: f.quote, origin: f.source,
@@ -309,6 +320,7 @@ export async function extractEntry(
       };
       patch.knowledge.push(knowledge);
     }
+    if (Array.isArray(output.detailFacts)) patch.detailFacts = output.detailFacts.map(ref => factMap.get(ref)?.id).filter((id): id is string => !!id);
     const mergedState = applyPatch(interim, patch);
     const grouped = consolidateIncidents(mergedState, Array.isArray(output.groups) ? output.groups : [], factMap, `${entry.id}:${index}`);
     patch.facts.push(...grouped.facts); patch.knowledge.push(...grouped.knowledge);
@@ -318,10 +330,11 @@ export async function extractEntry(
     interim = applyPatch(interim, patch);
     finalPatch.actors.push(...patch.actors);
     finalPatch.facts.push(...patch.facts);
+    finalPatch.detailFacts = [...(finalPatch.detailFacts ?? []), ...(patch.detailFacts ?? [])];
     finalPatch.knowledge.push(...patch.knowledge);
     finalPatch.scene = patch.scene;
   }
-  return { ...finalPatch, formatVersion: 2 };
+  return { ...finalPatch, formatVersion: 3 };
 }
 
 
@@ -355,23 +368,10 @@ export async function prepareKnowledge(o: KnowledgeOptions) {
     const completed = context.entries.slice(0, context.entries.length - replay.pending.length);
     for (const entry of completed) state = applyPatch(state, { ...emptyState(), actors: encounteredActors(cleanNarrative(entry.content), state.actors), scene: state.scene });
     o.onProgress?.(0, replay.pending.length);
-    const last = completed.at(-1);
-    const needsRepair = !!last?.patch && last.patch.formatVersion !== 2;
-    // Old records are compacted from their stored evidence, rather than paying to replay the whole history.
-    // Existing CAS forbids manual rewrites during a lease, so stage the change and publish after release.
-    if (needsRepair && !replay.pending.length && o.beforeTurn === undefined) {
-      o.onProgress?.(0, 1);
-      const repair = await extractEntry(o.sessionId, { ...last, id: `${last.id}:repair2` }, state, o.apiKey, config, o.setup, signal, true);
-      repair.actors.unshift(...state.actors);
-      repair.scene = state.scene;
-      const desired = { ...repair, actors: [...last.patch!.actors, ...repair.actors], facts: [...last.patch!.facts, ...repair.facts], knowledge: [...last.patch!.knowledge, ...repair.knowledge] };
-      return { config, state: applyPatch(state, repair), processed: 1, repair: { last, desired } };
-    }
     for (const [index, entry] of replay.pending.entries()) {
-      const repair = needsRepair && index === 0;
       const roster = encounteredActors(cleanNarrative(entry.content), state.actors);
       const missingPcFields = pcStatusFacts(cleanNarrative(entry.content), state.actors.filter(a => a.pc)).some(f => !state.facts.some(old => old.id === f.id));
-      const changed = repair || entry.turn_index === -1 || roster.length > 0 || missingPcFields || await needsKnowledgeUpdate(
+      const changed = entry.turn_index === -1 || roster.length > 0 || missingPcFields || await needsKnowledgeUpdate(
         { apiKey: o.apiKey, sessionId: o.sessionId, model: config.detectorModel, signal },
         config.detectorPrompt + '\n이미 기록된 같은 전투·방문 장면의 개별 공격·방어·회피·반복 대사만 이어지면 새 사건이 아니다. 별도 기록할 부상·피해·성패·정체 노출·인지 변화가 없다면 false로 판단할 수 있다. 누구와 어디에서 시간을 보냈는지 같은 새 일상 사건은 유지한다.',
         {
@@ -381,10 +381,13 @@ export async function prepareKnowledge(o: KnowledgeOptions) {
         },
       );
       const patch = changed
-        ? await extractEntry(o.sessionId, entry, state, o.apiKey, config, o.setup, signal, repair)
-        : { ...emptyState(), scene: state.scene, formatVersion: 2 };
+        ? await extractEntry(o.sessionId, entry, state, o.apiKey, config, o.setup, signal)
+        : { ...emptyState(), scene: state.scene, formatVersion: 3 };
       // Persist the deterministic roster as well, including PCs and previously missed speakers.
+      const awareness = awarenessPatch(applyPatch(state, patch), [...completed, ...replay.pending.slice(0, index + 1).map(row => ({ ...row, patch }))]);
+      patch.facts.push(...awareness.facts); patch.knowledge.push(...awareness.knowledge);
       patch.actors.unshift(...state.actors);
+      patch.actors.push(...awareness.actors);
       signal.throwIfAborted();
       const { data, error } = await supabase.rpc('save_knowledge_event', {
         target_session: o.sessionId, target_message: entry.id, expected_hash: entry.source_hash,
@@ -394,18 +397,8 @@ export async function prepareKnowledge(o: KnowledgeOptions) {
       state = applyPatch(state, patch);
       o.onProgress?.(index + 1, replay.pending.length);
     }
-    return { config, state, processed: replay.pending.length, repair: null };
+    return { config, state, processed: replay.pending.length };
   });
-  if (result.repair) {
-    o.signal.throwIfAborted();
-    const { last, desired } = result.repair;
-    const { data, error } = await supabase.rpc('save_knowledge_event', {
-      target_session: o.sessionId, target_message: last.id, expected_hash: last.source_hash,
-      desired, setup_hash: hash, expected_revision: o.revision, expected_previous: last.patch,
-    });
-    if (error || data !== true) throw error ?? new Error('정보표가 변경되었습니다. 다시 갱신해 주세요.');
-    o.onProgress?.(1, 1);
-  }
   return { config: result.config, state: result.state, processed: result.processed };
 }
 
