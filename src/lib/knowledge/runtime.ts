@@ -345,7 +345,7 @@ export async function prepareKnowledge(o: KnowledgeOptions) {
       if (error) throw error;
       state = applyPatch(state, patch);
     }
-    return { config, state };
+    return { config, state, processed: replay.pending.length };
   });
 }
 
