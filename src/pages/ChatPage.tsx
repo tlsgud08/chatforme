@@ -565,8 +565,8 @@ export default function ChatPage() {
   async function readLiveThemeContext(withCatalog=true, signal?: AbortSignal){
     if(!session||!profile)throw new Error('테마 설정을 불러오지 못했습니다.');
     const roomColumns = session.work_combination_enabled !== undefined
-      ? 'knowledge_enabled,knowledge_revision,theme_anywhere_enabled,theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids'
-      : 'knowledge_enabled,knowledge_revision,theme_anywhere_enabled,theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period';
+      ? 'knowledge_enabled,knowledge_revision,theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids'
+      : 'knowledge_enabled,knowledge_revision,theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period';
     const [account,room]=await Promise.all([
       supabase.from('profiles').select('preferred_theme_mode,preferred_theme_variant,prefer_work_theme,preferred_theme_id').eq('id',session.user_id).abortSignal(signal ?? messageReadControllerRef.current.signal).single(),
       supabase.from('sessions').select(roomColumns).eq('id',session.id).eq('user_id',session.user_id).abortSignal(signal ?? messageReadControllerRef.current.signal).returns<Partial<Session>[]>().single(),
@@ -589,7 +589,7 @@ export default function ChatPage() {
   useEffect(()=>{
     if(!session)return;
     const latest=[...messages].reverse().find(m=>m.role==='assistant'&&!m.is_hidden&&m.is_active_variant!==false&&m.generation_status!=='streaming');
-    const {observation,changed}=observeThemeDirective(themeMessageRef.current,session.id,latest??null,session.theme_anywhere_enabled===true);
+    const {observation,changed}=observeThemeDirective(themeMessageRef.current,session.id,latest??null);
     themeMessageRef.current=observation;
     const fingerprint=observation.fingerprint;
     // Mode/option changes and initial load never replay old tags.
@@ -601,7 +601,7 @@ export default function ChatPage() {
         if(!automaticThemeEnabled(live.session,live.themes,live.dayNight,!!live.scope)||themeMessageRef.current?.sessionId!==targetSessionId||themeMessageRef.current?.fingerprint!==fingerprint)return;
         const requestScope=themeRequestScopeRef.current;
         if(requestScope?.messageId===latest.id&&requestScope.scope!==workThemeScopeKey(live.session))return;
-        const choice=resolveThemeDirectiveChoice(finalThemeDirective(latest.content,live.session.theme_anywhere_enabled===true,name=>name==='keep'||!!resolveThemeDirectiveChoice(name,live.themes,live.dayNight,!!live.scope)),live.themes,live.dayNight,!!live.scope);
+        const choice=resolveThemeDirectiveChoice(finalThemeDirective(latest.content,name=>name==='keep'||!!resolveThemeDirectiveChoice(name,live.themes,live.dayNight,!!live.scope)),live.themes,live.dayNight,!!live.scope);
         if(!choice)return;
         const {theme:selected,period}=choice;
         if(!paletteFor(selected,period==='night'?'dark':live.variant))return;
@@ -623,7 +623,7 @@ export default function ChatPage() {
         requestThemeRefresh();
       }catch(error){addError('자동 테마 변경 실패: '+describeUnknownError(error));}
     })();
-  },[messages,session?.id,session?.theme_override,session?.theme_day_night_enabled,session?.theme_anywhere_enabled,themeSelectionKey,workThemes]);
+  },[messages,session?.id,session?.theme_override,session?.theme_day_night_enabled,themeSelectionKey,workThemes]);
 
   function getActiveKeywordContents(history: Message[], currentInput: string): string[] {
     const userMsgs = [...history.filter((m) => m.role === 'user').map((m) => m.content), currentInput];

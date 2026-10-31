@@ -242,7 +242,7 @@ export default function MultichatPage() {
       setPending(completion); if (user && roomId) { try { localStorage.setItem(storedKey(user.id, roomId), JSON.stringify(completion)); } catch { /* retain in memory */ } }
       await commit(completion); completedRound = ticket.round;
       if (knowledgeOptions) void queueKnowledge(knowledgeOptions).catch(error => report('답변은 저장됐지만 정보표 갱신을 마치지 못했어요: ' + errorText(error)));
-      const choice = prepared.auto ? resolveThemeDirectiveChoice(finalThemeDirective(result.text,prepared.session.theme_anywhere_enabled===true,name=>name==='keep'||!!resolveThemeDirectiveChoice(name,prepared.catalog.themes,prepared.dayNight,!!prepared.catalog.scope)), prepared.catalog.themes, prepared.dayNight, !!prepared.catalog.scope) : null;
+      const choice = prepared.auto ? resolveThemeDirectiveChoice(finalThemeDirective(result.text,name=>name==='keep'||!!resolveThemeDirectiveChoice(name,prepared.catalog.themes,prepared.dayNight,!!prepared.catalog.scope)), prepared.catalog.themes, prepared.dayNight, !!prepared.catalog.scope) : null;
       if (choice) {
         const palette = paletteFor(choice.theme, prepared.session.theme_variant ?? 'light');
         const { error } = await supabase.from('sessions').update({ theme_id: choice.theme.id, theme_variant: palette?.variant ?? 'light', theme_period: choice.period }).eq('id', data.room.id).is('theme_override', null);

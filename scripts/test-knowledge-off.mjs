@@ -6,7 +6,7 @@ const harness = readFileSync(
   new URL("./test-reroll.mjs", import.meta.url),
   "utf8",
 );
-// Recorded from commit 26eb265 before adding either optional feature.
+// Recorded from commit 26eb265 before adding information-access processing.
 function run(source, explicitOff) {
   const file = new URL(`./.knowledge-off-fixture-${crypto.randomUUID()}.mjs`, import.meta.url);
   let script = harness.replace(
@@ -16,7 +16,7 @@ function run(source, explicitOff) {
   if (explicitOff)
     script = script.replace(
       "const send = vm.runInNewContext",
-      "session.knowledge_enabled=false;session.theme_anywhere_enabled=false;\n  const send = vm.runInNewContext",
+      "session.knowledge_enabled=false;\n  const send = vm.runInNewContext",
     );
   script +=
     "\nprocess.stdout.write('KNOWLEDGE_BODIES='+JSON.stringify(bodies)+'\\n');\n";

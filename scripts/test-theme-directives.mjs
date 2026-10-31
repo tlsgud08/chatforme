@@ -13,7 +13,7 @@ const {assemblePrompt}=await import(uri(transpile(assemblySource)));
 const text='장면 본문\n{{theme::밤거리}}';
 assert.equal(h.stripThemeDirectives(text),'장면 본문\n');
 assert.equal(h.finalThemeDirective(text),'밤거리');
-assert.equal(h.finalThemeDirective('{{theme::밤거리}}\n본문'),null);
+assert.equal(h.finalThemeDirective('{{theme::밤거리}}\n본문'),'밤거리');
 assert.equal(h.resolveDirectiveTheme('keep',[]),null);
 const tag='{{theme::밤거리}}';
 for(let i=1;i<=tag.length;i++)assert.equal(h.stripThemeDirectives('본문\n'+tag.slice(0,i),true),'본문\n');
