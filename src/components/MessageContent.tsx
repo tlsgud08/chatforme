@@ -1,5 +1,5 @@
-import { memo } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { memo, useMemo } from 'react';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkSpoiler from '@/lib/remarkSpoiler';
 import Spoiler from './Spoiler';
@@ -17,10 +17,9 @@ const MessageContent = memo(function MessageContent({ content, role, status, sho
   content: string; role: Message['role']; status: Message['generation_status']; showImages: boolean;
 }) {
   const mutedTextClassName = role === 'user' ? 'chat-user-muted-text' : 'chat-muted-text';
-  return (
-    <ReactMarkdown
-      remarkPlugins={status === 'streaming' ? streamingRemarkPlugins : remarkPlugins}
-      components={{
+  // Keep renderer identities stable as tokens arrive, including image ancestors.
+  // Recreating them remounts images and resets their loading/fallback state.
+  const components = useMemo<Components>(() => ({
         span: ({ node, children }) => node?.properties && ('dataSpoiler' in node.properties || 'data-spoiler' in node.properties)
           ? <Spoiler>{children}</Spoiler> : <span>{children}</span>,
         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
@@ -55,7 +54,11 @@ const MessageContent = memo(function MessageContent({ content, role, status, sho
         a: ({ href, children }) => (
           <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
         ),
-      }}
+  }), [mutedTextClassName, showImages]);
+  return (
+    <ReactMarkdown
+      remarkPlugins={status === 'streaming' ? streamingRemarkPlugins : remarkPlugins}
+      components={components}
     >
       {(role==='assistant'?stripSyncDateTags(stripThemeDirectives(content,status==='streaming'),status==='streaming'):content) || (status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
     </ReactMarkdown>
