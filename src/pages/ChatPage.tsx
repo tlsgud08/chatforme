@@ -412,7 +412,7 @@ export default function ChatPage() {
       checking = true;
       try {
         const changed = await recoverExpiredResponses(sessionId);
-        if (live && changed) await loadLatestMessages();
+        if (live && (changed || hasStoredStreamingResponse)) await loadLatestMessages();
       } catch (error) { if (live) addError('중단된 생성 확인 실패: ' + describeUnknownError(error)); }
       finally { checking = false; }
     };
