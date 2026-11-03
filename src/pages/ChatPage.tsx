@@ -11,6 +11,7 @@ import { useChatScroll } from '@/hooks/useChatScroll';
 import { getApiKey } from '@/lib/apiKeys';
 import { generate } from '@/lib/llm';
 import { createDraftWriter } from '@/lib/draftWriter';
+import { startResponseHeartbeat } from '@/lib/responseHeartbeat';
 import { beginResponse, commitResponse, retainResponse, pendingResponse, forgetResponse, recoverExpiredResponses, type ResponseCommit, type CommittedResponse } from '@/lib/responseRecovery';
 import { loadChatRoom, loadChatContext, type ChatContext } from '@/lib/chatRoomData';
 import { mutateMessage } from '@/lib/messageMutations';
@@ -276,6 +277,7 @@ export default function ChatPage() {
   const pendingSaveLockRef = useRef(false);
 
   const [streamingContent, setStreamingContent] = useState('');
+  const hasStoredStreamingResponse = messages.some(message => message.generation_status === 'streaming');
   const abortControllerRef = useRef<AbortController | null>(null);
   const { scrollRef, rememberScroll } = useChatScroll(sessionId, !!session && !!work);
   const olderMessagesSentinelRef = useRef<HTMLDivElement>(null);
@@ -404,11 +406,22 @@ export default function ChatPage() {
   useEffect(() => {
     if (!sessionId || !session || activeGenerations.has(sessionId)) return;
     let live = true;
-    void recoverExpiredResponses(sessionId).then(changed => {
-      if (live && changed) void loadLatestMessages().catch(error => addError('중단된 대화 다시 불러오기 실패: ' + describeUnknownError(error)));
-    }).catch(error => { if (live) addError('중단된 생성 확인 실패: ' + describeUnknownError(error)); });
-    return () => { live = false; };
-  }, [session?.id, sessionId, loadLatestMessages]);
+    let checking = false;
+    const check = async () => {
+      if (checking || activeGenerations.has(sessionId)) return;
+      checking = true;
+      try {
+        const changed = await recoverExpiredResponses(sessionId);
+        if (live && (changed || hasStoredStreamingResponse)) await loadLatestMessages();
+      } catch (error) { if (live) addError('중단된 생성 확인 실패: ' + describeUnknownError(error)); }
+      finally { checking = false; }
+    };
+    void check();
+    const timer = hasStoredStreamingResponse
+      ? window.setInterval(() => { void check(); }, 30_000) : undefined;
+    window.addEventListener('focus', check);
+    return () => { live = false; clearInterval(timer); window.removeEventListener('focus', check); };
+  }, [session?.id, sessionId, loadLatestMessages, hasStoredStreamingResponse, sending]);
 
   function applyCommittedResponse(result: CommittedResponse) {
     const message = result.message;
@@ -942,9 +955,11 @@ export default function ChatPage() {
     let startAttempted = false;
     let completionForRecovery: ResponseCommit | null = null;
     let retainedOnDisk = false;
+    let stopHeartbeat: (() => void) | undefined;
     const draftWriter = createDraftWriter(async text => {
       if (!draftMessageId) return;
-      const { error } = await supabase.from('messages').update({ content: text }).eq('id', draftMessageId);
+      const { error } = await supabase.from('messages').update({ content: text }).eq('id', draftMessageId)
+        .eq('generation_status', 'streaming').abortSignal(AbortSignal.timeout(15_000));
       if (error) throw error;
     }, DRAFT_SAVE_INTERVAL_MS);
     const onChunk = (t: string) => {
@@ -1023,6 +1038,7 @@ export default function ChatPage() {
       }
       if (draft.generation_status !== 'streaming') { await loadLatestMessages(); sendCompleted = draft.generation_status === 'complete'; return; }
       if (controller.signal.aborted) throw new DOMException('생성을 중단했습니다.', 'AbortError');
+      stopHeartbeat = startResponseHeartbeat(session.id, draft.id, controller);
       themeRequestScopeRef.current={messageId:draft.id,scope:workThemeScopeKey(liveTheme.session)};
       startGenerationTimeout();
       const outgoing = semiContext ? assembled : withoutSyncDateTags(assembled);
@@ -1090,6 +1106,7 @@ export default function ChatPage() {
         }
       } else if (!isAbort) reportSendError(describeUnknownError(err));
     } finally {
+      stopHeartbeat?.();
       await draftWriter.stop();
       if (generationTimeout) clearTimeout(generationTimeout);
       // The user turn exists even when the model or final save failed.

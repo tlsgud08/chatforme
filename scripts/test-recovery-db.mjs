@@ -108,6 +108,30 @@ try {
  assert.equal((await query('select recover_expired_session_responses($1) n',[room]))[0].n,0);
  await db.query("insert into messages(session_id,role,content,turn_index,generation_status)values($1,'assistant','LIVE',4,'streaming')",[room]);
  assert.equal((await query('select recover_expired_session_responses($1) n',[room]))[0].n,0,'live attempt cannot be expired');
+ // A silent-but-live reasoning request renews without changing its source hash.
+ const heartbeatRoom='20000000-0000-0000-0000-000000000006';
+ await db.query('insert into sessions(id,user_id,work_id)values($1,$2,$3)',[heartbeatRoom,a,work]);
+ const liveId='30000000-0000-0000-0000-000000000010', staleId='30000000-0000-0000-0000-000000000011';
+ await db.query(`insert into messages(id,session_id,role,content,turn_index,generation_status,created_at,generation_heartbeat_at)
+   values($1,$3,'assistant','LIVE REASONING',1,'streaming',now()-interval '12 minutes',now()),
+   ($2,$3,'assistant','KEEP STALE PARTIAL',2,'streaming',now()-interval '3 minutes',now()-interval '3 minutes')`,[liveId,staleId,heartbeatRoom]);
+ const liveVersion=(await query('select content_version from messages where id=$1',[liveId]))[0].content_version;
+ const liveHash=(await query('select session_response_context_hash($1) v',[heartbeatRoom]))[0].v;
+ assert.equal((await query('select touch_session_response($1,$2) v',[heartbeatRoom,liveId]))[0].v,true);
+ assert.equal((await query('select content_version from messages where id=$1',[liveId]))[0].content_version,liveVersion);
+ assert.equal((await query('select session_response_context_hash($1) v',[heartbeatRoom]))[0].v,liveHash);
+ assert.equal((await query('select touch_session_response($1,$2) v',[heartbeatRoom,staleId]))[0].v,false,'an expired heartbeat cannot revive a draft');
+ assert.equal((await query('select recover_expired_session_responses($1) v',[heartbeatRoom]))[0].v,1);
+ assert.equal((await query('select content from messages where id=$1',[staleId]))[0].content,'KEEP STALE PARTIAL');
+ await assert.rejects(db.query("select mutate_session_message($1,$2,'delete',0)",[heartbeatRoom,staleId]),e=>e.code==='PT409' && /generating/.test(e.message));
+ await login(b);await assert.rejects(db.query('select touch_session_response($1,$2)',[heartbeatRoom,liveId]),/inaccessible/);
+ await login(null);await assert.rejects(db.query('select touch_session_response($1,$2)',[heartbeatRoom,liveId]),/permission denied/);
+ await login(a);
+ await db.query("update messages set generation_heartbeat_at=now()-interval '3 minutes' where id=$1",[liveId]);
+ const deleted=(await query("select mutate_session_message($1,$2,'delete',0) v",[heartbeatRoom,staleId]))[0].v;
+ assert.equal(deleted.deleted,true,'delete recovers an abandoned peer draft atomically');
+ assert.equal((await query('select generation_status from messages where id=$1',[liveId]))[0].generation_status,'interrupted');
+ assert.equal((await query("select count(*)::int n from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.prosrc ~* 'errcode[[:space:]]*=[[:space:]]*''40001'''"))[0].n,0,'no business guard may trigger the PostgREST retry loop');
  await login(b);await assert.rejects(db.query('select recover_expired_session_responses($1)',[room]),/inaccessible/);
  await login(null);await assert.rejects(db.query('select recover_expired_session_responses($1)',[room]),/permission denied/);
  await login(a);

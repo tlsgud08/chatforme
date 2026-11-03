@@ -12,6 +12,7 @@ const original = {
 };
 const edit = { content: 'edited body', command_id: null, command_name: null };
 let mode, remote, posts, reads, writes;
+let conflictCode = 'PT409';
 const json = data => new Response(JSON.stringify(data), { headers: { 'content-type': 'application/json' } });
 const client = createClient('https://version-sync.test', 'fixture', {
   auth: { persistSession: false, autoRefreshToken: false }, db: { retry: false },
@@ -20,12 +21,13 @@ const client = createClient('https://version-sync.test', 'fixture', {
     if (init.method === 'GET') { reads++; return json([remote]); }
     assert(url.pathname.endsWith('mutate_session_message'));
     posts++;
+    if (mode === 'timeout') return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }));
     const args = JSON.parse(init.body);
-    if (mode === 'generating') return new Response(JSON.stringify({ code: '40001', message: 'Response is generating in another screen' }), { status: 409 });
+    if (mode === 'generating') return new Response(JSON.stringify({ code: conflictCode, message: 'Response is generating in another screen' }), { status: 409 });
     if (mode === 'network-same-window' && posts === 1) throw new TypeError('Load failed');
     if (mode === 'changed-again' && posts === 2) remote = { ...remote, content: 'second external edit', content_version: 3 };
     if (remote.content === args.message_text) return json({ message: remote, session: { id: 'room' }, replacement: null, deleted: false });
-    if (remote.content_version !== args.expected_version) return new Response(JSON.stringify({ code: '40001', message: 'Message changed; preserve your draft and refresh' }), { status: 409 });
+    if (remote.content_version !== args.expected_version) return new Response(JSON.stringify({ code: conflictCode, message: 'Message changed; preserve your draft and refresh' }), { status: 409 });
     writes++;
     remote = { ...remote, content: args.message_text, content_version: remote.content_version + 1 };
     if (mode === 'lost-reply' && posts === 1) throw new TypeError('Load failed');
@@ -59,9 +61,11 @@ try {
   reset('changed-again');
   await assert.rejects(mutateMessage({ ...original }, edit), /변경/);
   assert.equal(writes, 0); assert.equal(posts, 2);
-  reset('generating');
-  await assert.rejects(mutateMessage({ ...original }, edit), /생성/);
-  assert.equal(posts, 1); assert.equal(reads, 0); assert.equal(writes, 0);
+  for (const code of ['PT409', '40001']) {
+    conflictCode = code; reset('generating');
+    await assert.rejects(mutateMessage({ ...original }, edit), /생성/);
+    assert.equal(posts, 1); assert.equal(reads, 0); assert.equal(writes, 0);
+  }
   reset('lost-reply'); remote = { ...original };
   assert.equal((await mutateMessage({ ...original }, edit)).message.content, edit.content);
   assert.equal(writes, 1); assert.equal(posts, 2);
@@ -69,5 +73,13 @@ try {
   const unversioned = { ...original }; delete unversioned.content_version;
   assert.equal((await mutateMessage(unversioned, edit)).message.content, edit.content);
   assert.equal(writes, 1);
+  const timeout = AbortSignal.timeout;
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    AbortSignal.timeout = ms => { assert.equal(ms, 15_000); return timeout(5); };
+    reset('timeout');
+    await assert.rejects(mutateMessage({ ...original }, null), /서버 응답이 지연되어 삭제 여부/);
+    assert.equal(posts, 2); assert.equal(reads, 1); assert.equal(writes, 0);
+  } finally { AbortSignal.timeout = timeout; clearTimeout(keepAlive); }
   console.log('Edit version sync: same-window stale version/network recovery, actual conflicts, generation guard, lost reply and missing-version refresh passed');
 } finally { delete globalThis.__versionSyncClient; }
