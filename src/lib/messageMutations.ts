@@ -4,7 +4,7 @@ import type { Message, Session } from '@/types/db';
 export interface MessageMutation { message: Message | null; replacement: Message | null; session: Session; deleted: boolean; }
 export type MessageEdit = Pick<Message, 'content' | 'command_id' | 'command_name'>;
 const networkFailure = (error: unknown) => !!error && typeof error === 'object' && 'message' in error
-  && /load failed|failed to fetch|networkerror|network request failed/i.test(String(error.message));
+  && /load failed|failed to fetch|networkerror|network request failed|aborterror|timeouterror|timed? ?out|timeout/i.test(String(error.message));
 const same = (row: Message, value: MessageEdit) => row.content === value.content
   && (row.command_id ?? null) === (value.command_id ?? null) && (row.command_name ?? null) === (value.command_name ?? null);
 // A version can change when this same tab selects a variant. Never equate a
@@ -21,7 +21,7 @@ const changedMessage = () => new Error('저장된 메시지가 변경되었습�
 
 async function readMessage(original: Message): Promise<Message | null> {
   const { data, error } = await supabase.from('messages').select('*')
-    .eq('id', original.id).eq('session_id', original.session_id).maybeSingle();
+    .eq('id', original.id).eq('session_id', original.session_id).abortSignal(AbortSignal.timeout(15_000)).maybeSingle();
   if (error) throw new Error('저장 여부를 확인하지 못했습니다. 편집 내용은 유지되어 있습니다.');
   return data as Message | null;
 }
@@ -45,15 +45,15 @@ export async function mutateMessage(original: Message, edit: MessageEdit | null)
     message_group: original.reroll_group_id ?? original.id,
   };
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { data, error } = await supabase.rpc('mutate_session_message', args);
+    const { data, error } = await supabase.rpc('mutate_session_message', args).abortSignal(AbortSignal.timeout(15_000));
     if (!error && data?.session && (edit ? !!data.message : data.deleted === true)) return data as MessageMutation;
     if (error?.code === 'PGRST202') throw new Error('메시지 저장 DB 업데이트가 필요합니다. 현재 대화와 편집 내용은 보존했습니다.');
-    const conflict = error?.code === '40001';
-    if (conflict && /generating/i.test(error.message ?? '')) throw new Error('이 채팅방에 생성 중으로 남은 답변이 있습니다. 생성 상태를 확인한 뒤 다시 시도해 주세요. 편집 내용은 유지되어 있습니다.');
+    const conflict = error?.code === 'PT409' || error?.code === '40001';
+    if (conflict && /generating/i.test(error.message ?? '')) throw new Error('아직 생성 중으로 확인되는 답변이 있어요. 실제 생성이 멈췄다면 잠시 후 다시 시도해 주세요.');
     if (!conflict && !networkFailure(error)) throw error ?? new Error('메시지 저장 결과를 확인하지 못했습니다.');
     if (attempt === 1) {
       if (conflict) throw changedMessage();
-      throw new Error('저장 여부를 확인하지 못했습니다. 편집 내용은 유지되어 있으니 연결이 돌아온 뒤 다시 시도해 주세요.');
+      throw new Error(edit ? '서버 응답이 지연되어 저장 여부를 확인하지 못했습니다. 편집 내용은 유지되어 있으니 대화를 다시 확인해 주세요.' : '서버 응답이 지연되어 삭제 여부를 확인하지 못했습니다. 대화를 다시 불러와 확인해 주세요.');
     }
     const row = await readMessage(original);
     if (edit && !row) throw new Error('메시지가 삭제되었거나 접근 권한이 없습니다.');

@@ -71,6 +71,7 @@ try {
     automaticThemeEnabled: () => false, themeCatalogPrompt: () => '', workThemeScopeKey: () => 'work',
     assemblePrompt, applySemiContext, withoutSyncDateTags, resolvePromptCache, generate,
     createDraftWriter: () => ({ push() {}, stop: async () => {} }),
+    startResponseHeartbeat: () => () => {},
     beginResponse: async args => { saved.push(['begin', structuredClone(args)]); return { draft: { id: 'draft', generation_status: 'streaming' } }; },
     retainResponse: (_owner, args) => { saved.push(['retain', structuredClone(args)]); return true; },
     commitResponse: async args => { saved.push(['commit', structuredClone(args)]); if (failure === 'save') throw Error('fixture save failure'); return { message: { id: 'draft' }, session }; },
