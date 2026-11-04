@@ -13,7 +13,10 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 
-type SessionRow = Pick<Session, 'id' | 'title'> & { works: { title: string; thumbnail_url: string | null } | null };
+type SessionRow = Pick<Session, 'id' | 'title'> & {
+  works: { title: string; thumbnail_url: string | null } | null;
+  personas: { name: string } | null;
+};
 type RoomActionTarget = { id: string; title: string; multichat?: boolean };
 type ViewTab = 'active' | 'multichat' | 'archived';
 type SelectMode = 'none' | 'archive' | 'delete';
@@ -43,7 +46,7 @@ export default function SessionsPage() {
     queryFn: async ({ signal }) => {
       const { data, error } = await supabase
         .from('sessions')
-        .select('id,title,works(title,thumbnail_url)')
+        .select('id,title,works(title,thumbnail_url),personas(name)')
         .eq('user_id', user!.id).is('multichat_room_id', null)
         .eq('is_archived', viewTab === 'archived')
         .order('updated_at', { ascending: false }).abortSignal(signal);
@@ -53,6 +56,7 @@ export default function SessionsPage() {
     },
     enabled: !!user && viewTab !== 'multichat',
     staleTime: 30_000,
+    refetchOnMount: 'always',
   });
 
   const { data: turnCountMap = {}, isError: countsError, refetch: refetchCounts } = useQuery({
@@ -336,7 +340,7 @@ export default function SessionsPage() {
               <Link
                 to={selectMode !== 'none' ? '#' : `/chat/${s.id}`}
                 onClick={selectMode !== 'none' ? (e) => { e.preventDefault(); toggleSelect(s.id); } : undefined}
-                className="flex flex-1 items-center gap-3 p-4 active:bg-surface"
+                className="flex min-w-0 flex-1 items-center gap-3 p-4 active:bg-surface"
               >
                 <div className="session-list-thumb h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface2">
                   {s.works?.thumbnail_url && (
@@ -347,8 +351,14 @@ export default function SessionsPage() {
                   <p className="truncate font-semibold text-white">
                     {s.title || s.works?.title || '채팅방'}
                   </p>
-                  <p className="text-xs text-slate-500">
-                    {turnCountMap[s.id] ?? (countsError ? '—' : '…')} 대화
+                  <p className="flex min-w-0 items-center gap-1 text-xs text-slate-500">
+                    <span className="shrink-0">{turnCountMap[s.id] ?? (countsError ? '—' : '…')}턴</span>
+                    {s.personas?.name.trim() && <>
+                      <span aria-hidden="true" className="shrink-0">|</span>
+                      <span className="truncate" title={s.personas.name.trim()}>
+                        {s.personas.name.trim()}
+                      </span>
+                    </>}
                   </p>
                 </div>
               </Link>
