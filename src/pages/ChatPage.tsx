@@ -1015,6 +1015,12 @@ export default function ChatPage() {
       const draft = claimed.draft;
       timing.mark('start-save');
       draftMessageId = draft.id;
+      // The server removes unselected answers only after a new turn is claimed.
+      // Match that transaction locally, including continuation without user text.
+      if (!options?.reroll) {
+        setMessages(current => current.filter(message => !(message.role === 'assistant'
+          && message.is_active_variant === false && message.turn_index < draft.turn_index)));
+      }
       if (claimed.userMessage) {
         setMessages(current => [...current.filter(message => message.id !== claimed.userMessage!.id), claimed.userMessage!]);
         const count = completeMessages.filter(message => message.role === 'user' && !message.is_hidden && message.is_active_variant !== false).length + 1;
