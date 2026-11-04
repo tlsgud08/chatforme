@@ -353,12 +353,10 @@ export default function SessionsPage() {
                   </p>
                   <p className="flex min-w-0 items-center gap-1 text-xs text-slate-500">
                     <span className="shrink-0">{turnCountMap[s.id] ?? (countsError ? '—' : '…')}턴</span>
-                    {s.personas?.name.trim() && <>
-                      <span aria-hidden="true" className="shrink-0">|</span>
-                      <span className="truncate" title={s.personas.name.trim()}>
-                        {s.personas.name.trim()}
-                      </span>
-                    </>}
+                    <span aria-hidden="true" className="shrink-0">|</span>
+                    <span className="truncate" title={s.personas?.name.trim() || '없음'}>
+                      {s.personas?.name.trim() || '없음'}
+                    </span>
                   </p>
                 </div>
               </Link>
