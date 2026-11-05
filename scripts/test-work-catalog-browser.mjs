@@ -1,0 +1,58 @@
+// Real mobile routes with fixture-only auth/data; no live account or model requests.
+import assert from 'node:assert/strict';
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+process.env.VITE_SUPABASE_URL='https://catalog-check.test';
+process.env.VITE_SUPABASE_ANON_KEY='mock-anon-key';
+const userId='10000000-0000-0000-0000-000000000001',workId='20000000-0000-0000-0000-000000000001';
+const user={id:userId,email:'fixture@example.test',aud:'authenticated',role:'authenticated'};
+const work={id:workId,creator_id:userId,title:'빅토리아 3',description:'Fixture description',visibility:'public',thumbnail_url:null,created_at:'2026-01-01',updated_at:'2026-01-01'};
+const server=await createServer({server:{host:'127.0.0.1',port:0}});
+await server.listen();
+const origin=`http://127.0.0.1:${server.httpServer.address().port}`;
+let browser;
+try {
+ browser=await chromium.launch({executablePath:process.env.PLAYWRIGHT_EXECUTABLE_PATH||'/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+ const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+ await context.addInitScript(({user})=>{
+  localStorage.setItem('sb-catalog-check-auth-token',JSON.stringify({access_token:'fixture-access',refresh_token:'fixture-refresh',expires_at:Math.floor(Date.now()/1000)+3600,token_type:'bearer',user}));
+  localStorage.setItem('inuchat.exchange.usd-krw',JSON.stringify({rate:1400,fallback:false,updatedAt:Date.now()}));
+ },{user});
+ const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await context.route('https://catalog-check.test/**',async route=>{
+  const req=route.request(),url=new URL(req.url()),path=url.pathname.replace('/rest/v1/','');
+  const single=req.headers().accept?.includes('vnd.pgrst.object');let data=[];
+  if(url.pathname==='/auth/v1/user')data=user;
+  else if(path==='works')data=single?work:[work];
+  else if(path==='profiles')data=single?{id:userId,display_name:'Fixture'}:[{id:userId,display_name:'Fixture'}];
+  else if(path==='public_profiles')data=[{id:userId,display_name:'Fixture'}];
+  else if(path==='rpc/is_settings_admin')data=false;
+  else if(path==='rpc/work_usage_totals')data=[{turn_count:1956,total_cost_usd:1.25}];
+  else if(path==='rpc/work_catalog_rankings')data=[{work_id:workId,session_count:12,total_cost_usd:1.25}];
+  else if(path==='start_configs')data=[{id:'start',work_id:workId,name:'빅토리아',is_default:true}];
+  else if(path==='personas')data=[{id:'persona',name:'이사벨라',is_default:true}];
+  await route.fulfill({status:200,contentType:'application/json',headers:{'content-range':'0-0/0'},body:JSON.stringify(data)});
+ });
+ await page.goto(origin+'/works');
+ const trigger=page.getByRole('button',{name:'작품 정렬',exact:true});await trigger.waitFor();
+ assert.equal(await page.locator('select[aria-label="작품 정렬"]').count(),0,'no native select popup');
+ await trigger.click();const menu=page.getByRole('menu',{name:'작품 정렬 기준'});await menu.waitFor();
+ assert.equal(await menu.getByRole('menuitemradio').count(),3);
+ await menu.getByRole('menuitemradio',{name:'세션',exact:true}).click();
+ await page.waitForURL('**/works?sort=sessions');assert.equal(await menu.count(),0);
+ await trigger.click();await page.keyboard.press('Escape');assert.equal(await menu.count(),0);
+ await trigger.click();await page.getByRole('heading',{name:'작품',exact:true}).click();assert.equal(await menu.count(),0);
+ await trigger.focus();await page.keyboard.press('ArrowDown');await page.keyboard.press('End');await page.keyboard.press('Enter');
+ await page.waitForURL('**/works?sort=cost');
+ await trigger.click();await page.screenshot({path:'/tmp/inuchat-sort-dropdown.png'});
+ await page.goto(origin+'/works/'+workId);
+ await page.getByText('1,956턴',{exact:true}).waitFor();
+ await page.getByText('$1.250000',{exact:true}).waitFor();
+ assert.equal(await page.getByLabel('작품 총 사용 금액').locator('svg').count(),1);
+ await page.evaluate(()=>localStorage.setItem('inuchat.showCostKrw','1'));await page.reload();
+ await page.getByText('1,750원',{exact:true}).waitFor();
+ await page.screenshot({path:'/tmp/inuchat-work-stats.png'});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true,'mobile layout does not overflow');
+ assert.deepEqual(errors,[],'no runtime errors');
+ console.log('Mobile browser: custom dropdown, selection, outside/Escape, keyboard, detail turns/coin, USD/KRW, no overflow or runtime errors passed');
+} finally {if(browser)await browser.close();await server.close();}

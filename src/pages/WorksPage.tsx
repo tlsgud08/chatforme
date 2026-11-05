@@ -4,6 +4,7 @@ import PluginMenu from '@/components/PluginMenu';
 import ThemeMenu from '@/components/ThemeMenu';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import WorkPosterCard from '@/components/WorkPosterCard';
+import WorkSortDropdown from '@/components/WorkSortDropdown';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchWorkList, fetchWorkCreators } from '@/lib/works';
@@ -80,13 +81,11 @@ export default function WorksPage() {
     <div className="catalog-page flex flex-col pb-4">
       <div className="catalog-heading sticky top-0 z-10 flex items-center border-b border-surface2 bg-bg px-4 py-3">
         <h1 className="font-bold text-white">{labels[selected]}</h1>
-        {selected === 'works' && <select aria-label="작품 정렬" value={sort}
-          onChange={event => { const value = workSort(event.target.value); setParams(current => {
+        {selected === 'works' && <WorkSortDropdown value={sort}
+          onChange={value => { setParams(current => {
             const next = new URLSearchParams(current); if (value === 'latest') next.delete('sort'); else next.set('sort', value); return next;
           }, { replace: true }); }}
-          className="ml-auto max-w-[55%] rounded bg-surface px-2 py-1 text-xs text-slate-400">
-          <option value="latest">최신순</option><option value="sessions">세션</option><option value="cost">크레딧</option>
-        </select>}
+        />}
       </div>
       <nav aria-label="콘텐츠 종류" className="category-tabs flex gap-2 overflow-x-auto px-4 py-3">
         {(['works', 'commands', 'plugins', 'themes'] as const).map((value) => <button key={value} type="button"

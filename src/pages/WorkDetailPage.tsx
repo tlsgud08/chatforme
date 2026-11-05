@@ -1,4 +1,5 @@
 import InterfaceIcon from '@/components/InterfaceIcon';
+import WorkUsageStats from '@/components/WorkUsageStats';
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -234,8 +235,9 @@ export default function WorkDetailPage() {
         )}
       </div>
 
-      <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
         <span><InterfaceIcon name="heart" /> {formatCount(favoriteCount)}</span>
+        <WorkUsageStats key={work.id} workId={work.id} />
       </div>
 
       <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">{work.description}</p>
