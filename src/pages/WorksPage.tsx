@@ -4,9 +4,11 @@ import PluginMenu from '@/components/PluginMenu';
 import ThemeMenu from '@/components/ThemeMenu';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import WorkPosterCard from '@/components/WorkPosterCard';
+import WorkSortDropdown from '@/components/WorkSortDropdown';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchWorkList, fetchWorkCreators } from '@/lib/works';
+import { fetchWorkRankings, rankWorks, workSort } from '@/lib/workRanking';
 import { measureOperation } from '@/lib/operationTiming';
 import { showToast } from '@/lib/toast';
 import { useRef } from 'react';
@@ -15,6 +17,7 @@ export default function WorksPage() {
   const { user, isAdmin } = useAuth();
   const [params, setParams] = useSearchParams();
   const category = params.get('category');
+  const sort = workSort(params.get('sort'));
   const selected = category === 'commands' || category === 'plugins' || category === 'themes' ? category : 'works';
   const labels = { works: '작품', commands: '명령어', plugins: '플러그인', themes: '테마' };
   const queryClient = useQueryClient();
@@ -26,6 +29,17 @@ export default function WorksPage() {
     staleTime: 30_000,
   });
   const latest = data ?? [];
+  const workIds = latest.map(work => work.id).sort();
+  const { data: rankings, isError: rankingsError, isFetching: rankingsFetching, refetch: refetchRankings } = useQuery({
+    queryKey: ['work-rankings', user?.id, workIds],
+    queryFn: ({ signal }) => fetchWorkRankings(workIds, signal),
+    enabled: selected === 'works' && sort !== 'latest' && !!user && workIds.length > 0,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+  const waitingForRankings = sort !== 'latest' && !rankings && !rankingsError;
+  const ordered = sort === 'latest' || !rankings ? latest : rankWorks(latest, sort, rankings);
   const creatorIds = [...new Set(latest.map(work => work.creator_id))].sort();
   const { data: creators = {} } = useQuery({
     queryKey: ['work-creators', creatorIds],
@@ -67,7 +81,11 @@ export default function WorksPage() {
     <div className="catalog-page flex flex-col pb-4">
       <div className="catalog-heading sticky top-0 z-10 flex items-center border-b border-surface2 bg-bg px-4 py-3">
         <h1 className="font-bold text-white">{labels[selected]}</h1>
-        {selected === 'works' && latest.length > 0 && <span className="ml-auto text-xs text-slate-500">최신순</span>}
+        {selected === 'works' && <WorkSortDropdown value={sort}
+          onChange={value => { setParams(current => {
+            const next = new URLSearchParams(current); if (value === 'latest') next.delete('sort'); else next.set('sort', value); return next;
+          }, { replace: true }); }}
+        />}
       </div>
       <nav aria-label="콘텐츠 종류" className="category-tabs flex gap-2 overflow-x-auto px-4 py-3">
         {(['works', 'commands', 'plugins', 'themes'] as const).map((value) => <button key={value} type="button"
@@ -86,9 +104,11 @@ export default function WorksPage() {
         {!isLoading && !error && latest.length === 0 && (
           <p className="p-6 text-slate-400">아직 작품이 없습니다. 제작 탭에서 만들어보세요.</p>
         )}
-        {latest.length > 0 && (
+        {latest.length > 0 && waitingForRankings && <p role="status" className="px-4 py-2 text-xs text-slate-400">정렬 통계를 불러오는 중…</p>}
+        {sort !== 'latest' && rankingsError && <p className="px-4 py-2 text-xs text-slate-400">{rankings ? '이전 통계로 표시 중입니다.' : '정렬 통계를 불러오지 못해 최신순으로 표시 중입니다.'} <button type="button" disabled={rankingsFetching} onClick={() => void refetchRankings()} className="underline disabled:opacity-50">다시 불러오기</button></p>}
+        {latest.length > 0 && !waitingForRankings && (
           <div className="works-grid grid grid-cols-3 gap-x-3 gap-y-5 p-4">
-            {latest.map((work) => (
+            {ordered.map((work) => (
               <WorkPosterCard
                 key={work.id}
                 work={{ ...work, creator_name: creators[work.creator_id] ?? '알 수 없음' }}
