@@ -16,14 +16,14 @@ try {
     React.createElement(AuthProvider, null, React.createElement(Stats, { workId: 'fixture' }))));
   client.setQueryData(['work-display-stats',undefined,'fixture',false],{sessions:12,messages:1234});
   let hidden = render();
-  assert(hidden.includes('12세션 / 1,234턴'),'counts remain visible with credits disabled');
+  assert(hidden.includes('12세션') && hidden.includes('1,234턴'),'counts remain visible with credits disabled');
   assert(!hidden.includes('작품 총 사용 금액'),'credit display defaults off');
   values.set('inuchat.workCreditsEnabled', '1');
   client.setQueryData(key, { sessions: 12, messages: 1234, dollars: 1.25 });
   let html = render();
   assert(html.includes('1,234턴') && html.includes('$1.250000'));
-  assert(html.includes('12세션 / 1,234턴'),'detail distinguishes rooms from user turns');
-  assert.equal((html.match(/<svg/g) ?? []).length, 2, 'chat and coin use SVG icons');
+  assert(html.includes('12세션') && html.includes('1,234턴'),'detail distinguishes rooms from user turns');
+  assert.equal((html.match(/<svg/g) ?? []).length, 3, 'separate session, turn and coin SVG icons');
   values.set('inuchat.showCostKrw', '1');
   values.set('inuchat.exchange.usd-krw', JSON.stringify({ rate: 1400, fallback: false, updatedAt: Date.now() }));
   html = render();
