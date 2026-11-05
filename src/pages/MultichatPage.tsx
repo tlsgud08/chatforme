@@ -8,6 +8,8 @@ import { useChatScroll } from '@/hooks/useChatScroll';
 import { getApiKey } from '@/lib/apiKeys';
 import { generate, type CacheDiagnostic } from '@/lib/llm';
 import { createDraftWriter } from '@/lib/draftWriter';
+import { createGenerationProgress } from '@/lib/generationProgress';
+import GenerationStatus from '@/components/GenerationStatus';
 import { multichatGenerationSlot, multichatRoundReady, type MultichatTurnState, multichatNarrative, multichatParticipantName } from '@/lib/multichat';
 import { useMultichatEditing, type MultichatItemKind } from '@/hooks/useMultichatEditing';
 import { showConfirmDialog } from '@/lib/dialog';
@@ -59,6 +61,8 @@ export default function MultichatPage() {
   const [data, setData] = useState<RoomData | null>(null), [loadError, setLoadError] = useState('');
   const [input, setInput] = useState(''), [menuOpen, setMenuOpen] = useState(false), [billingOpen, setBillingOpen] = useState(false);
   const [busy, setBusy] = useState(false), [generating, setGenerating] = useState(false), [summaryGenerating, setSummaryGenerating] = useState(false);
+  const [generationProgress] = useState(createGenerationProgress);
+  const [generationMessageId, setGenerationMessageId] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<Record<string, CacheDiagnostic>>({});
   const [display, setDisplay] = useState(initialDisplay), [errors, setErrors] = useState<ErrorEntry[]>([]);
   const [commandOpen, setCommandOpen] = useState(false), [command, setCommand] = useState<Command | null>(null);
@@ -211,6 +215,8 @@ export default function MultichatPage() {
     if (!data?.profile || !me || lock.current || pending || summaryLock.current) return;
     const key = getApiKey('openrouter'); if (!key.trim()) { report(`PC${me.slot}의 API 키를 설정하거나 키 사용 규칙을 변경해 주세요.`); return; }
     lock.current = true; setGenerating(true);
+    const progressAttempt = generationProgress.start();
+    setGenerationMessageId(null);
     const abort = new AbortController(); controller.current = abort; const unregister = registerAccountTask(abort);
     const timeout = setTimeout(() => abort.abort('생성 시간이 초과되었습니다.'), 8 * 60_000);
     let ticket: Ticket | null = null, partial = '', completion: Completion | null = null;
@@ -219,6 +225,7 @@ export default function MultichatPage() {
     try {
       const claim = await supabase.rpc('claim_multichat_response', { target_room: data.room.id, retry });
       if (claim.error) throw claim.error; if (!claim.data) return; ticket = claim.data as Ticket;
+      setGenerationMessageId(ticket.messageId);
       const prepared = await prepareMultichatContext(data.room.id, ticket.round, data.profile, ticket);
       const knowledgeOptions = prepared.session.knowledge_enabled ? {
         sessionId: data.room.id, revision: prepared.session.knowledge_revision ?? 0, apiKey: key, signal: abort.signal,
@@ -233,10 +240,12 @@ export default function MultichatPage() {
       writer = createDraftWriter(async text => { const { error } = await supabase.rpc('stream_multichat_response', { target_message: ticket!.messageId, token: ticket!.token, partial_text: text }); if (error) throw error; });
       await refresh();
       const result = await generate('openrouter', { apiKey: key, sessionId: data.room.id, signal: abort.signal, model: prepared.model, reasoning: prepared.reasoning, maxOutputTokens: prepared.maxOutputTokens, sampling: prepared.sampling, ...prepared.assembled, cacheSystemOnly: prepared.cacheSystemOnly,
+        onPhase: progressAttempt.onPhase,
         onChunk: text => { partial = multichatNarrative(text, data.members); writer?.push(partial); setData(old => old ? { ...old, game: old.game.map(message => message.id === ticket!.messageId ? { ...message, content: partial } : message) } : old); },
       });
       if (!result.text.trim()) throw new Error('AI가 빈 응답을 반환했습니다.');
       setDiagnostics(old => ({ ...old, [ticket!.messageId]: result.cacheDiagnostic }));
+      progressAttempt.advance('saving');
       await writer.stop();
       completion = { target_message: ticket.messageId, token: ticket.token, response_text: multichatNarrative(result.text, data.members), in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost, read_tokens: result.usage.cacheReadTokens, write_tokens: result.usage.cacheCreationTokens, failed: false };
       setPending(completion); if (user && roomId) { try { localStorage.setItem(storedKey(user.id, roomId), JSON.stringify(completion)); } catch { /* retain in memory */ } }
@@ -249,11 +258,12 @@ export default function MultichatPage() {
         if (error) report('테마 저장 실패: ' + error.message); else requestThemeRefresh();
       }
     } catch (error) {
+      if (ticket) progressAttempt.advance('saving');
       await writer?.stop();
       if (ticket && !completion) { try { await commit({ target_message: ticket.messageId, token: ticket.token, response_text: partial, in_tokens: 0, out_tokens: 0, response_cost: 0, read_tokens: null, write_tokens: null, failed: true }); } catch (saveError) { report(saveError); } }
       report(completion ? '받은 응답의 저장을 확인하지 못했습니다. 보관한 응답을 다시 저장해 주세요.' : error);
     } finally {
-      clearTimeout(timeout); unregister(); controller.current = null; lock.current = false; setGenerating(false); await refresh().catch(report);
+      clearTimeout(timeout); unregister(); controller.current = null; lock.current = false; setGenerating(false); progressAttempt.finish(); setGenerationMessageId(null); await refresh().catch(report);
     }
     if (completedRound && data.session?.auto_summary_enabled && completedRound - data.session.summary_last_turn >= (data.session.summary_interval_override ?? data.profile.summary_interval ?? 10)) await summarize(completedRound);
   }
@@ -358,11 +368,15 @@ export default function MultichatPage() {
         <div className="chat-message-list flex w-full flex-col gap-3">{timeline.map(item => <article key={item.id} data-scroll-anchor={item.id} data-role={item.kind === 'assistant' ? 'assistant' : 'user'} className="chat-message flex min-w-0 flex-col gap-1">
           {item.pc && <div className="flex items-center justify-end gap-2 px-2 text-xs text-slate-500">{participantName(item.pc)}{item.kind === 'party' && <span>· 유저 간 대화 · AI 제외</span>}</div>}
           {editing?.id === item.id ? <div><textarea aria-label="메시지 수정" value={editing.content} onChange={event => setEditing(old => old ? { ...old, content: event.target.value } : old)} rows={4} className="w-full rounded-xl bg-surface p-3 text-sm text-white" /><div className="mt-2 flex justify-end gap-3"><button onClick={() => setEditing(null)} className="text-xs text-slate-400">취소</button><button disabled={busy} onClick={() => void saveEdit()} className="rounded-lg bg-brand px-3 py-2 text-xs text-white">저장</button></div></div> : <div className={`chat-message-body min-w-0 break-words px-4 py-2.5 text-sm leading-relaxed [overflow-wrap:anywhere] ${item.kind === 'party' ? 'ml-auto w-[90%] rounded-2xl border border-dashed border-slate-500 bg-surface text-slate-200' : item.kind === 'submission' ? 'rounded-2xl bg-brand text-white' : 'text-slate-100'}`}>
-            {item.commandName && <p className="mb-2 font-semibold">/{item.commandName}</p>}{display.spoiler && item.kind === 'submission' ? <Spoiler block><MessageContent content={item.content} role="user" status="complete" showImages={display.images} /></Spoiler> : <MessageContent content={item.content || (item.message?.generation_status === 'interrupted' ? '생성 중단 · 다시 시도해 주세요.' : '생각 중…')} role={item.kind === 'assistant' ? 'assistant' : 'user'} status={item.message?.generation_status ?? 'complete'} showImages={display.images} />}
+            {item.commandName && <p className="mb-2 font-semibold">/{item.commandName}</p>}
+            {display.spoiler && item.kind === 'submission' ? <Spoiler block><MessageContent content={item.content} role="user" status="complete" showImages={display.images} /></Spoiler>
+              : <MessageContent content={item.content} role={item.kind === 'assistant' ? 'assistant' : 'user'} status={item.message?.generation_status ?? 'complete'} showImages={display.images} generationProgress={generating && item.id === generationMessageId ? generationProgress : undefined} />}
           </div>}
           {otherEditors.some(editor => editor.target?.id === item.id && editor.target.kind === item.kind && data.members.some(member => member.user_id === editor.user_id)) && <p role="status" className="px-2 text-xs text-brand">상대방이 수정 중…</p>}
           {display.debug && item.message && <details className="rounded-lg bg-surface p-2 text-xs text-slate-400"><summary>생성·캐시 진단</summary><pre className="mt-2 whitespace-pre-wrap break-all">{JSON.stringify(diagnostics[item.id] ?? { round: item.round, cacheReadTokens: item.message.cache_read_tokens, cacheWriteTokens: item.message.cache_write_tokens, generationStatus: item.message.generation_status }, null, 2)}</pre></details>}<div className="chat-message-actions flex min-w-0 items-center gap-2 text-slate-500"><button disabled={busy || (item.kind !== 'party' && writing) || optimistic.current.has(item.id)} aria-label="메시지 편집" onClick={() => setEditing({ kind: item.kind, id: item.id, content: item.kind === 'submission' ? item.sourceContent : item.content, original: item.sourceContent })} className="chat-message-action disabled:opacity-40"><InterfaceIcon name="edit" /></button><button disabled={busy || (item.kind !== 'party' && writing) || optimistic.current.has(item.id)} aria-label="메시지 삭제" onClick={() => void deleteItem(item.kind, item.id, item.sourceContent)} className="chat-message-action text-red-400 disabled:opacity-40"><InterfaceIcon name="delete" /></button>{item.message && <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-[10px]">{display.cost && <span>{display.krw ? formatKrw(item.message.cost, exchange.rate) : `$${item.message.cost.toFixed(6)}`} · 출력 {item.message.output_tokens} tokens</span>}{display.cache && <span>캐시 읽기 {item.message.cache_read_tokens ?? '미보고'} · 쓰기 {item.message.cache_write_tokens ?? '미보고'}</span>}<span>{item.round}턴</span>{isHost && data.game.filter(m => m.role === 'assistant' && m.round_number === item.round && m.generation_status === 'complete').length > 1 && <select aria-label="리롤 답변 선택" disabled={writing} value={item.id} onChange={event => void supabase.rpc('select_multichat_variant', { target_room: room.id, target_message: event.target.value }).then(({ error }) => error ? report(error) : refresh())} className="max-w-28 bg-transparent text-xs text-slate-400">{data.game.filter(m => m.role === 'assistant' && m.round_number === item.round && m.generation_status === 'complete').sort((a, b) => a.reroll_index - b.reroll_index).map((m, index) => <option value={m.id} key={m.id}>답변 {index + 1}</option>)}</select>}{isHost && item.id === lastAI?.id && <button disabled={writing || busy} aria-label="다시 생성" onClick={() => void requestReroll()} className="text-brand disabled:opacity-40"><InterfaceIcon name="reroll" /></button>}</div>}</div>
-        </article>)}</div>
+        </article>)}
+        {generating && !timeline.some(item => item.id === generationMessageId) && <div className="px-4 py-2.5 text-sm"><GenerationStatus progress={generationProgress} /></div>}
+        </div>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-surface2 px-3 py-2 text-xs text-slate-400"><span>{(room.progress_mode === 'solo' ? [room.solo_slot!] : [1, 2]).map(slot => `${participantName(slot)} ${data.submissions.some(s => s.slot === slot && s.round_number === room.current_round) ? '제출 완료' : '입력 중'}`).join(' · ')}</span><button onClick={() => setBillingOpen(true)}>호출 · {participantName(nextPayer)} 키</button>{((!streaming || expired) && data.game.some(m => m.role === 'assistant' && m.generation_status === 'interrupted' && m.round_number >= room.current_round - 1) || expired) && <button disabled={generating || !!pending} onClick={() => void runGeneration(true)} className="text-brand">생성 다시 시도</button>}{streaming?.generation_user_id === user?.id && generating && <button onClick={() => controller.current?.abort()} className="text-red-400">중단</button>}</div>
       {command && <div className="flex items-center justify-between bg-surface px-3 py-2 text-xs text-brand"><span>/{command.name}</span><button onClick={() => setCommand(null)}>해제</button></div>}

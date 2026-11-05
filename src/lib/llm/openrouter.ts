@@ -19,7 +19,10 @@ export const openrouterAdapter: LLMAdapter = {
     const requestId = crypto.randomUUID();
 
     const streaming = !!opts.onChunk;
+    const observedPhases = new Set<Parameters<NonNullable<GenerateOptions['onPhase']>>[0]>();
     const phase = (value: Parameters<NonNullable<GenerateOptions['onPhase']>>[0]) => {
+      if (observedPhases.has(value)) return;
+      observedPhases.add(value);
       try { opts.onPhase?.(value); } catch { /* Timing observers cannot stop a generation. */ }
     };
 
@@ -56,7 +59,7 @@ export const openrouterAdapter: LLMAdapter = {
     if (streaming) {
       if (!res.body) throw new Error('OpenRouter 스트리밍 응답 본문이 없습니다.');
       const { text, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost, generationId, upstreamProvider } =
-        await readOpenAIStream(res.body, text => { phase('first-content'); opts.onChunk!(text); }, () => phase('model-event'));
+        await readOpenAIStream(res.body, text => { phase('first-content'); opts.onChunk!(text); }, () => phase('model-event'), () => phase('model-reasoning'));
       phase('model-complete');
       const usage = { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost };
       return { text, usage, cacheDiagnostic: await createCacheDiagnostic({ sessionId: opts.sessionId, model: opts.model, sources, usage, requestId: res.headers.get('x-request-id') ?? requestId, generationId, upstreamProvider }) };

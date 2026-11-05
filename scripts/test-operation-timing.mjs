@@ -30,7 +30,7 @@ try{
  const snapshot=JSON.parse(store.get('inuchat.timings.v1')).at(-1);
  assert.equal(snapshot.outcome,'complete');assert(snapshot.stages['first-content']>=snapshot.stages['model-event']);
  for(const field of ['private-key-fixture','private-session-fixture','private input','private system','private output','private reasoning'])assert(!store.get('inuchat.timings.v1').includes(field));
- assert.deepEqual([...new Set(phases)],['model-request','model-headers','model-event','first-content','model-complete']);
+ assert.deepEqual(phases,['model-request','model-headers','model-event','model-reasoning','first-content','model-complete']);
  // An observer failure cannot change the model payload or fail a paid result.
  globalThis.fetch=async(url,init)=>{bodies.push(init.body);return new Response('data: '+JSON.stringify({choices:[{delta:{content:'answer'}}]})+'\n\ndata: [DONE]\n\n');};
  assert.equal((await openrouterAdapter.generate({...options,onPhase:()=>{throw Error('observer unavailable');}})).text,'answer');
