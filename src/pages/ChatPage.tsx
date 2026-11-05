@@ -18,6 +18,7 @@ import { registerAccountTask } from '@/lib/accountTasks';
 import { branchSession, fetchMessagePage, generationContext, mergeLatestPage, selectResponse } from '@/lib/sessionData';
 import { cacheSessionCount } from '@/lib/sessionCounts';
 import { startOperation, measureOperation } from '@/lib/operationTiming';
+import { createGenerationProgress, type GenerationProgress } from '@/lib/generationProgress';
 import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '@/lib/llm/types';
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
@@ -106,6 +107,7 @@ function loadSessionSettings(session: Session, profile: Profile | null): Session
 interface ActiveGeneration {
   controller: AbortController;
   content: string;
+  progress: GenerationProgress;
   listeners: Set<(content: string | null) => void>;
 }
 const activeGenerations = new Map<string, ActiveGeneration>();
@@ -230,6 +232,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [generationProgress] = useState(() => activeGenerations.get(sessionId ?? '')?.progress ?? createGenerationProgress());
   const [rerollSessionId, setRerollSessionId] = useState<string | null>(null);
   const [workCombinationSaving, setWorkCombinationSaving] = useState(false);
   const workCombinationSavingRef = useRef(false);
@@ -812,16 +815,18 @@ export default function ChatPage() {
     if (!options?.reroll) { setInput(''); setSelectedCommand(null); }
     setSending(true);
     setStreamingContent('');
+    const progressAttempt = generationProgress.start();
     const controller = new AbortController();
     const unregisterTask = registerAccountTask(controller);
     abortControllerRef.current = controller;
-    if (sessionId) activeGenerations.set(sessionId, { controller, content: '', listeners: new Set() });
+    if (sessionId) activeGenerations.set(sessionId, { controller, content: '', progress: generationProgress, listeners: new Set() });
     const releaseSend = () => {
       timing.finish(sendCompleted ? 'complete' : controller.signal.aborted ? 'cancelled' : 'failed');
       unregisterTask();
       sendInFlightRef.current = false;
       setSending(false);
       setStreamingContent('');
+      progressAttempt.finish();
       abortControllerRef.current = null;
       if (sessionId) publishGeneration(sessionId, null);
     };
@@ -1032,7 +1037,10 @@ export default function ChatPage() {
       themeRequestScopeRef.current={messageId:draft.id,scope:workThemeScopeKey(liveTheme.session)};
       startGenerationTimeout();
       const outgoing = semiContext ? assembled : withoutSyncDateTags(assembled);
-      const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: outgoing.systemParts, messages: outgoing.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, onPhase: phase => timing.mark(phase), signal: controller.signal });
+      const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: outgoing.systemParts, messages: outgoing.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, onPhase: phase => { timing.mark(phase); progressAttempt.onPhase(phase); }, signal: controller.signal });
+      progressAttempt.advance('saving');
+      setStreamingContent(result.text);
+      if (sessionId) publishGeneration(sessionId, result.text);
       await draftWriter.stop();
       completionForRecovery = {
         target_session: session.id, target_message: draftMessageId, response_text: result.text,
@@ -1073,6 +1081,7 @@ export default function ChatPage() {
       if (!draftMessageId) restoreSubmitted();
       const isAbort = controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError');
       if (draftMessageId) {
+        progressAttempt.advance('saving');
         await draftWriter.stop();
         const interrupted: ResponseCommit = {
           interrupted: true, target_session: session.id, target_message: draftMessageId, response_text: partialText,
@@ -1358,11 +1367,7 @@ export default function ChatPage() {
             <>
             {visibleMessages.length > 0 && <hr className="chat-turn-divider" aria-label="메시지 구분" />}
             <div data-scroll-anchor="streaming-response" className="chat-stream w-full min-w-0 max-w-full px-4 py-2.5 text-sm leading-relaxed text-slate-100">
-              {streamingContent ? (
-                <MessageContent content={streamingContent} role="assistant" status="streaming" showImages={showImages} />
-              ) : (
-                <span className="text-slate-400">생각 중…</span>
-              )}
+              <MessageContent content={streamingContent} role="assistant" status="streaming" showImages={showImages} generationProgress={generationProgress} />
             </div>
             </>
           )}

@@ -1,7 +1,7 @@
 // Bounded, tab-local timings only. Never pass prompts, keys, URLs or account IDs.
 type Operation = 'send' | 'works' | 'session-counts' | 'message-page';
 type Stage = 'context' | 'settings' | 'themes' | 'prompt' | 'start-save' | 'model-request'
-  | 'model-headers' | 'model-event' | 'first-content' | 'model-complete' | 'save' | 'data';
+  | 'model-headers' | 'model-event' | 'model-reasoning' | 'first-content' | 'model-complete' | 'save' | 'data';
 type Outcome = 'complete' | 'failed' | 'cancelled';
 interface Timing {
   operation: Operation; build: string; at: string; elapsed: number;
@@ -20,7 +20,7 @@ try {
     .map(row => ({ operation: row.operation, build: row.build, at: row.at, elapsed: row.elapsed,
       outcome: row.outcome, stages: Object.fromEntries(Object.entries(row.stages)
         .filter(([key, value]) => ['context', 'settings', 'themes', 'prompt', 'start-save', 'model-request',
-          'model-headers', 'model-event', 'first-content', 'model-complete', 'save', 'data'].includes(key)
+          'model-headers', 'model-event', 'model-reasoning', 'first-content', 'model-complete', 'save', 'data'].includes(key)
           && typeof value === 'number' && Number.isFinite(value))) })));
 } catch { /* Storage can be disabled or contain an older invalid record. */ }
 const clock = () => typeof performance === 'undefined' ? Date.now() : performance.now();

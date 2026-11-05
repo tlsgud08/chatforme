@@ -24,6 +24,7 @@ try {
   const { DEFAULT_DARK, DEFAULT_LIGHT, paletteFor } = await server.ssrLoadModule('/src/lib/theme.ts');
   const { workThemeScopeKey } = await server.ssrLoadModule('/src/lib/workCombination.ts');
   const { emptyState } = await server.ssrLoadModule('/src/lib/knowledge/core.ts');
+  const { createGenerationProgress } = await server.ssrLoadModule('/src/lib/generationProgress.ts');
   const themes = ['정원', '실내'].map((name, index) => ({ id: String(index), name, work_id: 'work', dark_colors: DEFAULT_DARK, light_colors: DEFAULT_LIGHT }));
   const cases = [
     ['{{theme::정원}} 뒤 본문', '0'],
@@ -66,17 +67,19 @@ try {
     runEffect(); await tick();assert.equal(writes.length, count, 'fixed theme remains fixed');
     session.theme_override = null;
     writes.length = 0;
+    const generationProgress = createGenerationProgress();
     const prepared = { session, auto: true, assembled: { systemParts: {}, messages: [] }, catalog: { themes }, dayNight: false };
     const runGeneration = vm.runInNewContext(compile(generation) + '\nrunGeneration', {
       data: { profile: {}, session, room: { id: 'room' }, members: [] }, me: { slot: 2 }, user: null,
       lock: { current: false }, summaryLock: { current: false }, pending: null, controller: { current: null },
-      getApiKey: () => 'fixture', setGenerating() {}, AbortController, setTimeout, clearTimeout, registerAccountTask: () => () => {},
+      getApiKey: () => 'fixture', setGenerating() {}, generationProgress, setGenerationMessageId() {}, AbortController, setTimeout, clearTimeout, registerAccountTask: () => () => {},
       prepareMultichatContext: async () => prepared, createDraftWriter: () => ({ stop: async () => {} }), refresh: async () => {},
       generate: async () => ({ text: content, usage: { inputTokens: 1, outputTokens: 1, cost: 0 } }),
       multichatNarrative: text => text, setDiagnostics() {}, setPending() {}, commit: async value => committed.push(value),
       ...h, paletteFor, supabase, requestThemeRefresh() {}, report: error => errors.push(error), errorText: error => error.message,
     });
     await runGeneration(); assert.deepEqual(errors, []);assert.equal(committed[0].response_text, content, 'raw stored tags remain intact');
+    assert.equal(generationProgress.getSnapshot(), 'idle', 'status is cleared after the real multichat generation path');
     assert.equal(writes.length, expected === null ? 0 : 1);
     if (expected !== null) assert.equal(writes[0].theme_id, expected);
     checked += 2;

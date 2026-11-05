@@ -57,6 +57,8 @@ export interface SamplingSettings {
   frequencyPenaltySend: boolean;
 }
 
+export type ModelPhase = 'model-request' | 'model-headers' | 'model-event' | 'model-reasoning' | 'first-content' | 'model-complete';
+
 export interface GenerateOptions {
   apiKey: string;
   model: string;
@@ -71,7 +73,7 @@ export interface GenerateOptions {
   cacheSystemOnly?: boolean;
   onChunk?: (text: string) => void;
   /** Local observer; never serialized into the provider request. */
-  onPhase?: (phase: 'model-request' | 'model-headers' | 'model-event' | 'first-content' | 'model-complete') => void;
+  onPhase?: (phase: ModelPhase) => void;
   signal?: AbortSignal;
 }
 

@@ -8,13 +8,16 @@ import MarkdownCodeBlock from './MarkdownCodeBlock';
 import { stripThemeDirectives } from '@/lib/themeDirectives';
 import { stripSyncDateTags } from '@/lib/syncDate';
 import type { Message } from '@/types/db';
+import type { GenerationProgress } from '@/lib/generationProgress';
+import GenerationStatus from './GenerationStatus';
 
 const remarkPlugins = [remarkGfm, remarkSpoiler];
 const streamingRemarkPlugins = [remarkGfm, [remarkSpoiler, { streaming: true }] as [typeof remarkSpoiler, { streaming: boolean }]];
 
 /** Memoize only the body; actions, variants and costs remain live in ChatPage. */
-const MessageContent = memo(function MessageContent({ content, role, status, showImages }: {
+const MessageContent = memo(function MessageContent({ content, role, status, showImages, generationProgress }: {
   content: string; role: Message['role']; status: Message['generation_status']; showImages: boolean;
+  generationProgress?: GenerationProgress;
 }) {
   const mutedTextClassName = role === 'user' ? 'chat-user-muted-text' : 'chat-muted-text';
   // Keep renderer identities stable as tokens arrive, including image ancestors.
@@ -55,14 +58,17 @@ const MessageContent = memo(function MessageContent({ content, role, status, sho
           <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">{children}</a>
         ),
   }), [mutedTextClassName, showImages]);
-  return (
+  const visibleContent = role === 'assistant' ? stripSyncDateTags(stripThemeDirectives(content, status === 'streaming'), status === 'streaming') : content;
+  if (generationProgress && !visibleContent.trim()) return <GenerationStatus progress={generationProgress} />;
+  return (<>
     <ReactMarkdown
       remarkPlugins={status === 'streaming' ? streamingRemarkPlugins : remarkPlugins}
       components={components}
     >
-      {(role==='assistant'?stripSyncDateTags(stripThemeDirectives(content,status==='streaming'),status==='streaming'):content) || (status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
+      {visibleContent || (status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
     </ReactMarkdown>
-  );
+    {generationProgress && <GenerationStatus progress={generationProgress} savingOnly />}
+  </>);
 });
 
 export default MessageContent;

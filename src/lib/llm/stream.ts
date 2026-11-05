@@ -50,6 +50,7 @@ export async function readOpenAIStream(
   body: ReadableStream<Uint8Array>,
   onChunk: (fullText: string) => void,
   onEvent?: () => void,
+  onReasoning?: () => void,
 ): Promise<StreamResult> {
   let fullText = '';
   let inputTokens = 0;
@@ -61,6 +62,7 @@ export async function readOpenAIStream(
   let finishReason: string | null = null;
   let generationId: string | null = null;
   let upstreamProvider: string | null = null;
+  let reportedReasoning = false;
 
   await readLines(body, (line) => {
     const trimmed = line.trim();
@@ -76,9 +78,25 @@ export async function readOpenAIStream(
         const message = parsed.error.message ?? parsed.error.code ?? JSON.stringify(parsed.error);
         throw new Error(`OpenRouter 스트리밍 오류: ${message}`);
       }
-      const delta = parsed.choices?.[0]?.delta?.content;
-      if (typeof delta === 'string' && delta) {
-        fullText += delta;
+      const delta = parsed.choices?.[0]?.delta;
+      // Observe only the presence of actual reasoning data. Never retain it,
+      // request extra reasoning, or infer thinking from headers/keep-alives.
+      if (onReasoning && !reportedReasoning && !fullText) {
+        const nonempty = (value: unknown) => typeof value === 'string' && value.length > 0;
+        if (nonempty(delta?.reasoning) || nonempty(delta?.reasoning_content)
+          || (Array.isArray(delta?.reasoning_details) && delta.reasoning_details.some((detail: unknown) => {
+            if (!detail || typeof detail !== 'object') return false;
+            const row = detail as Record<string, unknown>;
+            return (row.type === 'reasoning.text' && nonempty(row.text))
+              || (row.type === 'reasoning.summary' && nonempty(row.summary))
+              || (row.type === 'reasoning.encrypted' && nonempty(row.data));
+          }))) {
+          reportedReasoning = true;
+          try { onReasoning(); } catch { /* A status observer must not interrupt a paid response. */ }
+        }
+      }
+      if (typeof delta?.content === 'string' && delta.content) {
+        fullText += delta.content;
         onChunk(fullText);
       }
       const usage = parsed.usage;
