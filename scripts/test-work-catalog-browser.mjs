@@ -28,7 +28,7 @@ try {
   else if(path==='public_profiles')data=[{id:userId,display_name:'Fixture'}];
   else if(path==='rpc/is_settings_admin')data=false;
   else if(path==='rpc/work_usage_totals')data=[{turn_count:1956,total_cost_usd:1.25}];
-  else if(path==='rpc/work_catalog_counts')data=[{work_id:workId,session_count:12,message_count:1956}];
+  else if(path==='rpc/work_catalog_stats')data=[{work_id:workId,session_count:12,message_count:1956,total_cost_usd:url.searchParams.get('include_credits')==='true'?1.25:null}];
   else if(path==='start_configs')data=[{id:'start',work_id:workId,name:'빅토리아',is_default:true}];
   else if(path==='personas')data=[{id:'persona',name:'이사벨라',is_default:true}];
   await route.fulfill({status:200,contentType:'application/json',headers:{'content-range':'0-0/0'},body:JSON.stringify(data)});
@@ -51,7 +51,9 @@ try {
  await page.reload();await trigger.waitFor();assert((await trigger.textContent()).includes('메시지'));
  await trigger.click();await page.screenshot({path:'/tmp/inuchat-sort-dropdown.png'});
  await page.goto(origin+'/works/'+workId);
- await page.getByText('1,956턴',{exact:true}).waitFor();
+ await page.getByText('12세션 / 1,956턴',{exact:true}).waitFor();
+ assert.equal(await page.getByLabel('작품 총 사용 금액').count(),0);
+ await page.evaluate(()=>localStorage.setItem('inuchat.workCreditsEnabled','1'));await page.reload();
  await page.getByText('$1.250000',{exact:true}).waitFor();
  assert.equal(await page.getByLabel('작품 총 사용 금액').locator('svg').count(),1);
  await page.evaluate(()=>localStorage.setItem('inuchat.showCostKrw','1'));await page.reload();

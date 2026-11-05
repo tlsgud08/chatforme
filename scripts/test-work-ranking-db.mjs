@@ -55,6 +55,11 @@ try {
  assert.equal((await rank([publicWork,work])).length,1,'private work excluded');
  assert.equal((await query('select * from private.work_catalog_counts($1)',[[work]])).length,0,'private helper checks access too');
  assert.deepEqual(await rank([]),[]);assert.deepEqual(await rank(null),[]);
+ const enabled=await query('select * from work_catalog_stats($1,true)',[[publicWork]]);
+ assert.equal(enabled[0].session_count,2);assert.equal(enabled[0].message_count,1202);assert.equal(enabled[0].total_cost_usd,'5');
+ const disabled=await query('select * from work_catalog_stats($1)',[[publicWork]]);assert.equal(disabled[0].total_cost_usd,null);
+ assert.deepEqual(await query('select * from work_catalog_stats($1,true)',[[work]]),[],'private credits remain inaccessible');
  await login(null);await assert.rejects(rank([publicWork]),/permission denied/);
+ await assert.rejects(query('select * from work_catalog_stats($1,true)',[[publicWork]]),/permission denied/);
  console.log('Work ranking DB: distinct room counts versus user-turn counts, legacy/hidden/inactive, all-user/archived totals, zero-play works, duplicate/null/empty IDs, private/anon and session privacy passed');
 } finally { await db.close(); }
