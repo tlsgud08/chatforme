@@ -8,16 +8,18 @@ import WorkSortDropdown from '@/components/WorkSortDropdown';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchWorkList, fetchWorkCreators } from '@/lib/works';
-import { fetchWorkRankings, rankWorks, workSort } from '@/lib/workRanking';
+import { fetchWorkRankings, rankWorks, workSort, loadWorkSort, saveWorkSort } from '@/lib/workRanking';
 import { measureOperation } from '@/lib/operationTiming';
 import { showToast } from '@/lib/toast';
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export default function WorksPage() {
   const { user, isAdmin } = useAuth();
   const [params, setParams] = useSearchParams();
   const category = params.get('category');
-  const sort = workSort(params.get('sort'));
+  const [savedSort, setSavedSort] = useState(loadWorkSort);
+  const sort = params.has('sort') ? workSort(params.get('sort')) : savedSort;
+  useEffect(() => { saveWorkSort(sort); setSavedSort(sort); }, [sort]);
   const selected = category === 'commands' || category === 'plugins' || category === 'themes' ? category : 'works';
   const labels = { works: '작품', commands: '명령어', plugins: '플러그인', themes: '테마' };
   const queryClient = useQueryClient();
@@ -31,7 +33,7 @@ export default function WorksPage() {
   const latest = data ?? [];
   const workIds = latest.map(work => work.id).sort();
   const { data: rankings, isError: rankingsError, isFetching: rankingsFetching, refetch: refetchRankings } = useQuery({
-    queryKey: ['work-rankings', user?.id, workIds],
+    queryKey: ['work-count-rankings', user?.id, workIds],
     queryFn: ({ signal }) => fetchWorkRankings(workIds, signal),
     enabled: selected === 'works' && sort !== 'latest' && !!user && workIds.length > 0,
     staleTime: 60_000,
@@ -82,7 +84,7 @@ export default function WorksPage() {
       <div className="catalog-heading sticky top-0 z-10 flex items-center border-b border-surface2 bg-bg px-4 py-3">
         <h1 className="font-bold text-white">{labels[selected]}</h1>
         {selected === 'works' && <WorkSortDropdown value={sort}
-          onChange={value => { setParams(current => {
+          onChange={value => { setSavedSort(value); saveWorkSort(value); setParams(current => {
             const next = new URLSearchParams(current); if (value === 'latest') next.delete('sort'); else next.set('sort', value); return next;
           }, { replace: true }); }}
         />}

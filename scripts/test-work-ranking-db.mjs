@@ -41,18 +41,20 @@ try {
  await db.query("insert into works(id,creator_id,title,visibility,main_prompt) values($1,$3,'Public','public',''),($2,$3,'Empty','public','')",[publicWork,emptyWork,a]);
  await db.query('update sessions set work_id=$1,total_cost=2 where id=$2',[publicWork,room]);
  await db.query('insert into sessions(id,user_id,work_id,total_cost,is_archived) values($1,$2,$3,3,true)',[otherRoom,b,publicWork]);
- const rank=async(ids)=>query('select * from work_catalog_rankings($1) order by work_id',[ids]);
+ await db.query("insert into messages(session_id,role,content,turn_index) select $1,'user','fixture',n from generate_series(0,1200)n",[room]);
+ await db.query("insert into messages(session_id,role,content,turn_index,is_active_variant,is_hidden) values($1,'assistant','',1,true,false),($1,'user','',1201,false,false),($1,'user','',1202,true,true),($2,'user','',1,true,false)",[room,otherRoom]);
+ const rank=async(ids)=>query('select * from work_catalog_counts($1) order by work_id',[ids]);
  await login(a);
  assert.deepEqual(await rank([publicWork,publicWork,emptyWork,work]),[
-  {work_id:work,session_count:0,total_cost_usd:'0'},
-  {work_id:publicWork,session_count:2,total_cost_usd:'5'},
-  {work_id:emptyWork,session_count:0,total_cost_usd:'0'},
+  {work_id:work,session_count:0,message_count:0},
+  {work_id:publicWork,session_count:2,message_count:1202},
+  {work_id:emptyWork,session_count:0,message_count:0},
  ],'one row per accessible work; zero-play works and all users/archived sessions included');
  assert.equal((await query('select count(*)::int n from sessions where id=$1',[otherRoom]))[0].n,0,'aggregate does not expose other sessions');
  await login(b);
  assert.equal((await rank([publicWork,work])).length,1,'private work excluded');
- assert.equal((await query('select * from private.work_catalog_rankings($1)',[[work]])).length,0,'private helper checks access too');
+ assert.equal((await query('select * from private.work_catalog_counts($1)',[[work]])).length,0,'private helper checks access too');
  assert.deepEqual(await rank([]),[]);assert.deepEqual(await rank(null),[]);
  await login(null);await assert.rejects(rank([publicWork]),/permission denied/);
- console.log('Work ranking DB: all-user/archived totals, zero-play works, duplicate/null/empty IDs, private/anon and session privacy passed');
+ console.log('Work ranking DB: distinct room counts versus user-turn counts, legacy/hidden/inactive, all-user/archived totals, zero-play works, duplicate/null/empty IDs, private/anon and session privacy passed');
 } finally { await db.close(); }

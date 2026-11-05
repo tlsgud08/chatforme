@@ -3,7 +3,7 @@ import type { WorkSort } from '@/lib/workRanking';
 import InterfaceIcon from './InterfaceIcon';
 
 const choices: { value: WorkSort; label: string }[] = [
-  { value: 'latest', label: '최신순' }, { value: 'sessions', label: '세션' }, { value: 'cost', label: '크레딧' },
+  { value: 'latest', label: '최신순' }, { value: 'messages', label: '메시지' }, { value: 'sessions', label: '세션' },
 ];
 export default function WorkSortDropdown({ value, onChange }: { value: WorkSort; onChange: (value: WorkSort) => void }) {
   const [open, setOpen] = useState(false);
