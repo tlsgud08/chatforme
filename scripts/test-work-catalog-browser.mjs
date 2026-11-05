@@ -51,7 +51,8 @@ try {
  await page.reload();await trigger.waitFor();assert((await trigger.textContent()).includes('메시지'));
  await trigger.click();await page.screenshot({path:'/tmp/inuchat-sort-dropdown.png'});
  await page.goto(origin+'/works/'+workId);
- await page.getByText('12세션 / 1,956턴',{exact:true}).waitFor();
+ await page.getByText('12세션',{exact:true}).waitFor();
+ await page.getByText('1,956턴',{exact:true}).waitFor();
  assert.equal(await page.getByLabel('작품 총 사용 금액').count(),0);
  await page.evaluate(()=>localStorage.setItem('inuchat.workCreditsEnabled','1'));await page.reload();
  await page.getByText('$1.250000',{exact:true}).waitFor();

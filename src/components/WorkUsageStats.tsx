@@ -37,8 +37,11 @@ export default function WorkUsageStats({ workId }: { workId: string }) {
     retry: 1,
   });
   return <>
-    <span className="inline-flex items-center gap-1" title="채팅방 수 / 활성 사용자 턴 합계" aria-label={data ? `총 ${data.sessions.toLocaleString('ko-KR')}세션 / ${data.messages.toLocaleString('ko-KR')}턴` : '세션과 턴 집계'}>
-      <InterfaceIcon name="chat" />{data ? `${data.sessions.toLocaleString('ko-KR')}세션 / ${data.messages.toLocaleString('ko-KR')}턴` : isError ? '—' : '…'}
+    <span className="inline-flex items-center gap-1" title="이 작품의 채팅방 수" aria-label="작품 총 세션 수">
+      <InterfaceIcon name="sessions" />{data ? `${data.sessions.toLocaleString('ko-KR')}세션` : isError ? '—' : '…'}
+    </span>
+    <span className="inline-flex items-center gap-1" title="이 작품의 활성 사용자 턴 합계" aria-label="작품 총 턴 수">
+      <InterfaceIcon name="chat" />{data ? `${data.messages.toLocaleString('ko-KR')}턴` : isError ? '—' : '…'}
     </span>
     {creditsEnabled && <span className="inline-flex items-center gap-1" title="이 작품의 모든 채팅방에 기록된 누적 API 비용" aria-label="작품 총 사용 금액">
       <InterfaceIcon name="cost" />{data?.dollars !== undefined ? krw ? <WonCost dollars={data.dollars} /> : `$${data.dollars.toFixed(6)}` : isError ? '—' : '…'}
