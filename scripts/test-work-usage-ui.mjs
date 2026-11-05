@@ -11,12 +11,18 @@ try {
   const { default: Stats } = await server.ssrLoadModule('/src/components/WorkUsageStats.tsx');
   const { AuthProvider } = await server.ssrLoadModule('/src/hooks/useAuth.tsx');
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const key = ['work-usage', undefined, 'fixture'];
+  const key = ['work-display-stats', undefined, 'fixture', true];
   const render = () => renderToStaticMarkup(React.createElement(QueryClientProvider, { client },
     React.createElement(AuthProvider, null, React.createElement(Stats, { workId: 'fixture' }))));
-  client.setQueryData(key, { turns: 1234, dollars: 1.25 });
+  client.setQueryData(['work-display-stats',undefined,'fixture',false],{sessions:12,messages:1234});
+  let hidden = render();
+  assert(hidden.includes('12세션 / 1,234턴'),'counts remain visible with credits disabled');
+  assert(!hidden.includes('작품 총 사용 금액'),'credit display defaults off');
+  values.set('inuchat.workCreditsEnabled', '1');
+  client.setQueryData(key, { sessions: 12, messages: 1234, dollars: 1.25 });
   let html = render();
   assert(html.includes('1,234턴') && html.includes('$1.250000'));
+  assert(html.includes('12세션 / 1,234턴'),'detail distinguishes rooms from user turns');
   assert.equal((html.match(/<svg/g) ?? []).length, 2, 'chat and coin use SVG icons');
   values.set('inuchat.showCostKrw', '1');
   values.set('inuchat.exchange.usd-krw', JSON.stringify({ rate: 1400, fallback: false, updatedAt: Date.now() }));

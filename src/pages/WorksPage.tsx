@@ -8,16 +8,23 @@ import WorkSortDropdown from '@/components/WorkSortDropdown';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchWorkList, fetchWorkCreators } from '@/lib/works';
-import { fetchWorkRankings, rankWorks, workSort } from '@/lib/workRanking';
+import { fetchWorkRankings, rankWorks, workSort, loadWorkSort, saveWorkSort } from '@/lib/workRanking';
+import { useWorkCredits } from '@/lib/workCredits';
 import { measureOperation } from '@/lib/operationTiming';
 import { showToast } from '@/lib/toast';
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export default function WorksPage() {
   const { user, isAdmin } = useAuth();
   const [params, setParams] = useSearchParams();
   const category = params.get('category');
-  const sort = workSort(params.get('sort'));
+  const creditsEnabled = useWorkCredits();
+  const [savedSort, setSavedSort] = useState(() => loadWorkSort(creditsEnabled));
+  const sort = workSort(params.has('sort') ? params.get('sort') : savedSort, creditsEnabled);
+  useEffect(() => { saveWorkSort(sort); setSavedSort(sort); }, [sort]);
+  useEffect(() => {
+    if (!creditsEnabled && params.get('sort') === 'cost') setParams(current => { const next = new URLSearchParams(current); next.delete('sort'); return next; }, { replace: true });
+  }, [creditsEnabled, params, setParams]);
   const selected = category === 'commands' || category === 'plugins' || category === 'themes' ? category : 'works';
   const labels = { works: '작품', commands: '명령어', plugins: '플러그인', themes: '테마' };
   const queryClient = useQueryClient();
@@ -31,8 +38,8 @@ export default function WorksPage() {
   const latest = data ?? [];
   const workIds = latest.map(work => work.id).sort();
   const { data: rankings, isError: rankingsError, isFetching: rankingsFetching, refetch: refetchRankings } = useQuery({
-    queryKey: ['work-rankings', user?.id, workIds],
-    queryFn: ({ signal }) => fetchWorkRankings(workIds, signal),
+    queryKey: ['work-stat-rankings', user?.id, workIds, creditsEnabled],
+    queryFn: ({ signal }) => fetchWorkRankings(workIds, signal, creditsEnabled),
     enabled: selected === 'works' && sort !== 'latest' && !!user && workIds.length > 0,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
@@ -81,8 +88,8 @@ export default function WorksPage() {
     <div className="catalog-page flex flex-col pb-4">
       <div className="catalog-heading sticky top-0 z-10 flex items-center border-b border-surface2 bg-bg px-4 py-3">
         <h1 className="font-bold text-white">{labels[selected]}</h1>
-        {selected === 'works' && <WorkSortDropdown value={sort}
-          onChange={value => { setParams(current => {
+        {selected === 'works' && <WorkSortDropdown value={sort} creditsEnabled={creditsEnabled}
+          onChange={value => { setSavedSort(value); saveWorkSort(value); setParams(current => {
             const next = new URLSearchParams(current); if (value === 'latest') next.delete('sort'); else next.set('sort', value); return next;
           }, { replace: true }); }}
         />}

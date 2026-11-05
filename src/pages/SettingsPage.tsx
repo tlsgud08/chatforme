@@ -18,6 +18,7 @@ import OutputSettingsEditor, { type OutputSettingsValue } from '@/components/Out
 import { useUsdKrwRate } from '@/lib/exchangeRate';
 import { loadTurnPriceWarning, saveTurnPriceWarning, type TurnPriceWarningCurrency } from '@/lib/turnPriceWarning';
 import Toggle from '@/components/Toggle';
+import { useWorkCredits, saveWorkCredits } from '@/lib/workCredits';
 
 export default function SettingsPage() {
   const { user, signOut, isAdmin, canManageSettings } = useAuth();
@@ -35,6 +36,7 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
   const [turnPriceWarning, setTurnPriceWarning] = useState(loadTurnPriceWarning);
+  const workCredits = useWorkCredits();
   const exchange = useUsdKrwRate();
 
   const [settingsLoadError, setSettingsLoadError] = useState('');
@@ -188,7 +190,7 @@ export default function SettingsPage() {
       <ModernPageHeading title="설정" description="화면, 모델과 대화 기본값을 관리합니다." />
       {settingsLoadError && <div role="alert" className="rounded-lg bg-surface p-3 text-sm text-amber-400"><p>{settingsLoadError}</p><button type="button" onClick={() => setSettingsLoadAttempt(value => value + 1)} className="mt-2 underline">설정 다시 불러오기</button></div>}
       <nav className="settings-navigation modern-only" aria-label="설정 분류">
-        {([['appearance', '화면 · 테마', 'palette'], ['api', 'API · 모델', 'key'], ['output', '출력 설정', 'output'], ['summary', '요약 설정', 'summary'], ['cost', '가격 경고', 'cost'], ['account', '계정', 'my'], ...(canManageSettings ? [['admin', '운영자', 'admin']] : [])] as [string, string, InterfaceIconName][]).map(([id, label, icon]) => <button type="button" key={id} aria-current={activeSection === id ? 'page' : undefined} onClick={() => setActiveSection(id)}><InterfaceIcon name={icon} />{label}</button>)}
+        {([['appearance', '화면 · 테마', 'palette'], ['api', 'API · 모델', 'key'], ['output', '출력 설정', 'output'], ['summary', '요약 설정', 'summary'], ['cost', '크레딧', 'cost'], ['account', '계정', 'my'], ...(canManageSettings ? [['admin', '운영자', 'admin']] : [])] as [string, string, InterfaceIconName][]).map(([id, label, icon]) => <button type="button" key={id} aria-current={activeSection === id ? 'page' : undefined} onClick={() => setActiveSection(id)}><InterfaceIcon name={icon} />{label}</button>)}
       </nav>
       <div data-settings-section="appearance">
         <InterfacePreferences />
@@ -198,6 +200,11 @@ export default function SettingsPage() {
 
       {/* 턴 가격 경고 */}
       <section data-settings-section="cost">
+        <h2 className="mb-3 font-semibold text-white">크레딧</h2>
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <div><h3 className="text-sm text-white">작품 크레딧 표시</h3><p className="mt-1 text-xs text-slate-500">작품 상세의 사용 금액과 랭킹의 크레딧 정렬을 표시합니다. 이 브라우저에 저장됩니다.</p></div>
+          <Toggle aria-label="작품 크레딧 표시" checked={workCredits} onChange={saveWorkCredits} />
+        </div>
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-semibold text-white">턴 가격 경고</h2>
