@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import remarkSpoiler from '@/lib/remarkSpoiler';
 import Spoiler from './Spoiler';
 import MarkdownImage from './MarkdownImage';
-import MarkdownCodeBlock from './MarkdownCodeBlock';
+import StatusCodeBlock from './StatusCodeBlock';
 import { stripThemeDirectives } from '@/lib/themeDirectives';
 import { stripSyncDateTags } from '@/lib/syncDate';
 import type { Message } from '@/types/db';
@@ -32,7 +32,7 @@ const MessageContent = memo(function MessageContent({ content, role, status, sho
         ol: ({ children }) => <ol className="mb-2 list-outside list-decimal pl-5">{children}</ol>,
         li: ({ children }) => <li className="mb-0.5">{children}</li>,
         code: ({ children }) => <code className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded bg-surface2 px-1 py-0.5 text-xs font-mono">{children}</code>,
-        pre: ({ children }) => <MarkdownCodeBlock mutedTextClassName={mutedTextClassName}>{children}</MarkdownCodeBlock>,
+        pre: ({ children }) => <StatusCodeBlock mutedTextClassName={mutedTextClassName}>{children}</StatusCodeBlock>,
         blockquote: ({ children }) => <blockquote className="mb-2 border-l-2 border-slate-500 pl-3 text-slate-300">{children}</blockquote>,
         h1: ({ children }) => <h1 className="mb-2 text-xl font-bold">{children}</h1>,
         h2: ({ children }) => <h2 className="mb-2 text-lg font-bold">{children}</h2>,

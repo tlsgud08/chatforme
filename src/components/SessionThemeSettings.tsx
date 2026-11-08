@@ -8,6 +8,8 @@ import ThemeMenu from './ThemeMenu';
 import Toggle from './Toggle';
 import { SessionMenuPage } from './SessionMenuFrame';
 import { activeThemeWorkIds } from '@/lib/workCombination';
+import { appliedCodeBlockStyle, normalizeCodeBlockStyle, type CodeBlockStyle } from '@/lib/codeBlockStyles';
+import CodeBlockStyleSelect from './CodeBlockStyleSelect';
 
 type Props={session:Session;userId:string;onUpdate:(patch:Partial<Session>)=>void;busy?:boolean;compact?:boolean};
 type SavedChoice={id:string;variant:ThemeVariant;theme:SavedTheme|null};
@@ -20,6 +22,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
   const [siteMode,setSiteMode]=useState<'light'|'dark'|'custom'|null>(null);
   const [siteVariant,setSiteVariant]=useState<ThemeVariant>('light');
   const [siteSaving,setSiteSaving]=useState(false);
+  const [legacyStatus,setLegacyStatus]=useState(false);
   const appliedVariant=useSyncExternalStore(subscribeAppliedTheme,appliedThemeVariant,()=> 'light' as const);
   const appliedSingle=useSyncExternalStore(subscribeAppliedTheme,appliedThemeIsSingle,()=>false);
   const appliedLabel=useSyncExternalStore(subscribeAppliedTheme,appliedThemeLabel,()=> '기본 테마 · 라이트');
@@ -35,10 +38,11 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     const refresh=async()=>{
       if(writePending.current)return;
       const run=++generation,revision=mutationRevision.current;
-      const {data,error}=await supabase.from('profiles').select('preferred_theme_mode,preferred_theme_variant').eq('id',userId).maybeSingle();
+      const {data,error}=await supabase.from('profiles').select('preferred_theme_mode,preferred_theme_variant,use_legacy_status').eq('id',userId).maybeSingle();
       if(!active||error||run!==generation||revision!==mutationRevision.current)return;
       setSiteMode(data?.preferred_theme_mode??(loadTheme()==='dark'?'dark':'light'));
       setSiteVariant(preferredThemeVariant(data,loadTheme()==='dark'?'dark':'light'));
+      setLegacyStatus(data?.use_legacy_status===true);
     };
     const listener=()=>{void refresh();};
     void refresh();
@@ -69,11 +73,12 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
       if(writePending.current)return;
       const run=++generation,revision=mutationRevision.current;
       const columns=session.work_combination_enabled!==undefined
-        ?'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids'
-        :'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period';
+        ?'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids,use_theme_code_block,code_block_style'
+        :'theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,use_theme_code_block,code_block_style';
       const {data}=await supabase.from('sessions').select(columns).eq('id',session.id).eq('user_id',session.multichat_room_id?session.user_id:userId).returns<Partial<Session>[]>().maybeSingle();
       if(!active||!data||run!==generation||revision!==mutationRevision.current)return;
       if(data.theme_override!==session.theme_override||data.theme_id!==session.theme_id||data.theme_variant!==session.theme_variant||data.theme_day_night_enabled!==session.theme_day_night_enabled||data.theme_period!==session.theme_period
+        ||data.use_theme_code_block!==session.use_theme_code_block||data.code_block_style!==session.code_block_style
         ||data.work_combination_enabled!==session.work_combination_enabled||JSON.stringify(data.combined_work_ids??[])!==JSON.stringify(session.combined_work_ids??[])){
         onUpdate(data);
       }
@@ -86,7 +91,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     window.addEventListener('inuchat:theme-changed',listener);
     window.addEventListener('focus',listener);
     return ()=>{active=false;window.removeEventListener('inuchat:theme-changed',listener);window.removeEventListener('focus',listener);};
-  },[session.id,session.theme_override,session.theme_id,session.theme_variant,session.theme_day_night_enabled,session.theme_period,themeWorkScopeKey,session.work_combination_enabled,userId,onUpdate]);
+  },[session.id,session.theme_override,session.theme_id,session.theme_variant,session.theme_day_night_enabled,session.theme_period,session.use_theme_code_block,session.code_block_style,themeWorkScopeKey,session.work_combination_enabled,userId,onUpdate]);
 
   async function save(override:'builtin'|'custom'|null,id:string|null,variant:ThemeVariant|null,selected?:SavedTheme):Promise<boolean>{
     if(busy||writePending.current)return false;
@@ -130,6 +135,30 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
     finally{writePending.current=false;setSaving(false);}
     requestThemeRefresh();
   }
+  async function chooseCodeBlocks(patch:{use_theme_code_block?:boolean;code_block_style?:CodeBlockStyle}){
+    if(busy||writePending.current)return;
+    writePending.current=true;mutationRevision.current++;setSaving(true);
+    try{
+      const {data,error}=await supabase.from('sessions').update(patch)
+        .eq('id',session.id).eq('user_id',session.multichat_room_id?session.user_id:userId).select('*').single();
+      if(error||!data)throw error??new Error('저장한 설정을 불러오지 못했습니다.');
+      onUpdate(data as Session);
+      requestThemeRefresh();
+    }catch(error){showToast('상태창 설정 저장 실패: '+((error as {message?:string})?.message??String(error)));}
+    finally{writePending.current=false;setSaving(false);}
+  }
+  const codeBlockControls=<div className={compact?'':'mt-3 rounded-lg bg-surface p-3'}>
+    <label className={compact?'inu-switch-row':'flex items-center justify-between gap-3 text-xs text-slate-200'}><span>테마 코드블록 사용</span>
+      <Toggle aria-label="테마 코드블록 사용" checked={session.use_theme_code_block!==false}
+        disabled={busy||saving||siteSaving||legacyStatus} onChange={checked=>void chooseCodeBlocks(checked
+          ?{use_theme_code_block:true}
+          :{use_theme_code_block:false,code_block_style:session.code_block_style??appliedCodeBlockStyle()})}/>
+    </label>
+    {session.use_theme_code_block===false&&<CodeBlockStyleSelect label="채팅방 상태창 유형"
+      value={normalizeCodeBlockStyle(session.code_block_style)} disabled={busy||saving||siteSaving||legacyStatus}
+      onChange={style=>void chooseCodeBlocks({use_theme_code_block:false,code_block_style:style})}/>}
+    {legacyStatus&&<p className="inu-help">전역 설정의 레거시 상태창 사용이 켜져 있어요.</p>}
+  </div>;
   async function chooseSiteTheme(next:ThemeVariant){
     if(busy||writePending.current)return;
     writePending.current=true;
@@ -188,6 +217,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
         <label className="inu-switch-row"><span>다크 버전을 밤 테마로 사용</span><Toggle aria-label="다크 버전을 밤 테마로 사용" checked={session.theme_day_night_enabled??false} disabled={busy||saving||siteSaving||siteMode===null||siteVariant!=='light'} onChange={checked=>void chooseDayNight(checked)}/></label>
         <p className="inu-help">라이트 선호의 유동적 모드에서만 사용할 수 있어요.</p>
       </>}
+      {codeBlockControls}
       {mode==='custom'&&<button type="button" className="inu-button inu-full" disabled={busy||saving} onClick={()=>{setPickerScope(theme?.work_id?'work':'global');setOpen(true);}}><InterfaceIcon name="palette" />{theme?.name??'테마를 다시 선택해 주세요'} · 변경<InterfaceIcon name="next" /></button>}
       {(mode==='inherit'||mode==='builtin'||mode==='custom'&&theme&&bothVariants(theme))&&<>
         <p className="inu-field-label">{mode==='inherit'?'사이트 라이트·다크 선호':'이 테마의 라이트·다크'}</p>
@@ -221,6 +251,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
       </label>
       <p className="mt-1 text-xs text-slate-500">라이트 선호의 유동적 모드에서만 작동합니다. 낮·밤 전환을 허용한 복수 테마는 낮에 라이트, 밤에 다크 버전을 사용합니다. 허용하지 않은 복수 테마는 전역 선호를 따르고 단일 테마는 같은 색상을 유지합니다. 끄면 시간 전환 전용 테마는 자동 선택 목록에서 제외되고, 기존 낮·밤 태그는 전송 시 일반 이름으로 정리됩니다.</p>
       </>}
+      {codeBlockControls}
       <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label="사이트 기본 테마">
         {(['light','dark']as const).map(v=><button key={v} type="button" disabled={busy||saving||siteSaving}
           aria-pressed={shownVariant===v} onClick={()=>void chooseSiteTheme(v)}
@@ -231,6 +262,7 @@ export default function SessionThemeSettings({session,userId,onUpdate,busy=false
       <p className="mt-2 text-xs text-slate-500">{appliedSingle?'현재 화면은 단일 테마입니다. 라이트·다크는 이후 두 버전이 있는 테마에 사용할 사이트 전역 설정이며, 단일 테마의 색상은 바뀌지 않습니다.':'선택 표시는 현재 화면에 적용된 라이트·다크를 따릅니다. 버튼을 누르면 사이트 전역 설정도 함께 변경됩니다.'} 유동적 선택 자체는 현재 화면을 바꾸지 않으며, AI가 테마를 바꾸어도 유동적 모드는 유지됩니다.</p>
       {siteMode==='custom'&&<p className="mt-1 text-xs text-slate-500">전역 커스텀 테마는 유지되며, 라이트·다크 선호값만 함께 저장됩니다.</p>}
     </>}
+    {mode!=='inherit'&&!open&&codeBlockControls}
     {mode==='custom'&&!open&&<div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-surface p-2">
       <span className="truncate text-xs text-white">{theme?.name??'테마를 다시 선택해 주세요'}</span>
       <button disabled={busy||saving} onClick={()=>{setPickerScope(theme?.work_id?'work':'global');setOpen(true);}} className="text-xs text-brand">변경</button>

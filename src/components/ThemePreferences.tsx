@@ -8,6 +8,7 @@ import InterfaceIcon from './InterfaceIcon';
 type Mode = 'dark' | 'light' | 'custom';
 type Pref = {
   prefer_work_theme: boolean;
+  use_legacy_status: boolean;
   preferred_theme_mode: Mode | null;
   preferred_theme_id: string | null;
   preferred_theme_variant: ThemeVariant;
@@ -16,6 +17,7 @@ type Pref = {
 export default function ThemePreferences({ userId }: { userId: string }) {
   const [pref, setPref] = useState<Pref>({
     prefer_work_theme: true,
+    use_legacy_status: false,
     preferred_theme_mode: null,
     preferred_theme_id: null,
     preferred_theme_variant: 'light',
@@ -33,7 +35,7 @@ export default function ThemePreferences({ userId }: { userId: string }) {
       // Ignore background fetches started before a newer local preference edit.
       const startUpdate = latestUpdate.current;
       const { data, error } = await supabase.from('profiles')
-        .select('prefer_work_theme,preferred_theme_mode,preferred_theme_id,preferred_theme_variant')
+        .select('prefer_work_theme,preferred_theme_mode,preferred_theme_id,preferred_theme_variant,use_legacy_status')
         .eq('id', userId).single();
       if (!live) return;
       if (error) {
@@ -184,6 +186,14 @@ export default function ThemePreferences({ userId }: { userId: string }) {
           onChange={event => void update({ prefer_work_theme: event.target.checked })}
           className="mt-1"
         />
+      </label>}
+      {userId && <label className="flex items-start justify-between gap-3 rounded-xl bg-surface p-3">
+        <span className="flex flex-col gap-1">
+          <strong className="text-sm text-white">레거시 상태창 사용</strong>
+          <span className="text-xs text-slate-400">테마와 채팅방 설정에 관계없이 기존 상태창의 모양과 색상을 그대로 사용합니다.</span>
+        </span>
+        <input type="checkbox" aria-label="레거시 상태창 사용" checked={pref.use_legacy_status??false}
+          onChange={event=>void update({use_legacy_status:event.currentTarget.checked})} className="mt-1"/>
       </label>}
     </>}
   </section>;

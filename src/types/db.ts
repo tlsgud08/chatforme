@@ -18,6 +18,7 @@ export interface Profile {
   default_provider: Provider;
   default_model: string;
   prefer_work_theme?: boolean;
+  use_legacy_status?: boolean;
   preferred_theme_mode?: 'dark' | 'light' | 'custom' | null;
   preferred_theme_id?: string | null;
   preferred_theme_variant?: 'dark' | 'light';
@@ -134,6 +135,8 @@ export interface ActivePlugin {
 export type Plugin = Command;
 
 export interface Session {
+  use_theme_code_block?: boolean;
+  code_block_style?: import('@/lib/codeBlockStyles').CodeBlockStyle | null;
   knowledge_enabled?: boolean;
   knowledge_revision?: number;
   multichat_room_id?: string | null;

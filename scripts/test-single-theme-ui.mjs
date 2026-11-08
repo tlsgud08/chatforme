@@ -49,6 +49,7 @@ globalThis.__themeTestDb={from(table){
 const baseImports={
   react:hooksUri,
   '@/lib/theme':themeUri,
+  '@/lib/codeBlockStyles':uri(compile('src/lib/codeBlockStyles.ts')),
   '@/lib/themeDirectives':directivesUri,
   '@/lib/workCombination':combinationUri,
   '@/lib/workThemeData':workThemeDataUri,
@@ -69,6 +70,7 @@ baseImports['./SessionMenuFrame']=componentUri('SessionMenuFrame',{react:import.
 const buttonLabel = element => renderToStaticMarkup(element).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 const toggleUri=componentUri('Toggle');
 baseImports['./Toggle']=toggleUri;
+baseImports['./CodeBlockStyleSelect']=componentUri('CodeBlockStyleSelect');
 const Toggle=(await import(toggleUri)).default;
 const editorUri=componentUri('ThemePaletteEditor');
 const ThemeMenu=(await import(componentUri('ThemeMenu',{'./ThemePaletteEditor':editorUri}))).default;
@@ -570,3 +572,76 @@ for(const [combined,accessible,preferWork,visible] of [[true,true,true,true],[fa
 }
 delete globalThis.__capturedEffects;delete globalThis.__themeById;delete globalThis.__workById;
 console.log('Combined ThemeManager: accessible private scene, removed scope, revoked work, invisible palette, main/account fallback and stale night-state reset OK');
+
+// Exercise the actual status-window controls and their persisted payloads.
+{
+const CodeBlockStyleSelect=(await import(baseImports['./CodeBlockStyleSelect'])).default;
+const codeStyles=await import(baseImports['@/lib/codeBlockStyles']);
+const choices=renderToStaticMarkup(CodeBlockStyleSelect({value:'basic',onChange:()=>{}}));
+assert.ok(choices.indexOf('value="basic"')<choices.indexOf('value="legacy"'));
+assert.ok(!choices.includes('우주선'));
+for(const compact of [false,true]){
+  let room={id:'status-room',user_id:'owner',work_id:'work',theme_override:null,theme_day_night_enabled:false};
+  const values=[];values[5]='light';values[6]='light';
+  const props=()=>({session:room,userId:'owner',compact,onUpdate:patch=>{room={...room,...patch};globalThis.__sessionResponse=room;}});
+  globalThis.__sessionResponse=room;
+  root.dataset.codeBlockStyle='neon';
+  let view=tree(SessionThemeSettings,props(),values);
+  const switchFor=element=>elements(element).find(el=>el.type===Toggle&&el.props['aria-label']==='테마 코드블록 사용');
+  assert.ok(switchFor(view).props.checked);
+  assert.equal(elements(view).filter(el=>el.type===CodeBlockStyleSelect).length,0);
+  switchFor(view).props.onChange(false);await flush();
+  assert.deepEqual(writes.at(-1).patch,{use_theme_code_block:false,code_block_style:'neon'});
+  view=tree(SessionThemeSettings,props(),values);
+  let select=elements(view).find(el=>el.type===CodeBlockStyleSelect);
+  assert.equal(select.props.value,'neon');
+  select.props.onChange('noir');await flush();
+  assert.deepEqual(writes.at(-1).patch,{use_theme_code_block:false,code_block_style:'noir'});
+  view=tree(SessionThemeSettings,props(),values);
+  switchFor(view).props.onChange(true);await flush();
+  assert.deepEqual(writes.at(-1).patch,{use_theme_code_block:true});
+  assert.equal(room.code_block_style,'noir','inheritance retains the fixed choice');
+  view=tree(SessionThemeSettings,props(),values);
+  root.dataset.codeBlockStyle='hanji';
+  switchFor(view).props.onChange(false);await flush();
+  assert.equal(room.code_block_style,'noir','returning to manual mode restores the prior choice');
+  const reopened=tree(SessionThemeSettings,props(),[]);
+  assert.equal(elements(reopened).find(el=>el.type===CodeBlockStyleSelect).props.value,'noir');
+}
+const savedPref={prefer_work_theme:true,preferred_theme_mode:'custom',preferred_theme_id:single.id,preferred_theme_variant:'light',use_legacy_status:false};
+let prefValues=[savedPref,single,false,false];
+let prefView=tree(ThemePreferences,{userId:'owner'},prefValues);
+const forceLegacy=elements(prefView).find(el=>el.type==='input'&&el.props['aria-label']==='레거시 상태창 사용');
+forceLegacy.props.onChange({currentTarget:{checked:true}});await flush();
+assert.deepEqual(writes.at(-1).patch,{use_legacy_status:true});
+assert.equal(prefValues[0].preferred_theme_id,single.id,'legacy preference never changes the color theme');
+
+const draftWithStyle={name:'상태창 테마',description:'',ai_prompt:'',day_night_enabled:false,use_day_night_variants:true,code_block_style:'hanji',...theme.createPaletteDraft(single,'light')};
+const editorValues=['light',[],new Set(),{},'mine','',single,draftWithStyle,false,null];
+let editor=tree(ThemeMenu,{userId:'owner'},editorValues);
+elements(editor).find(el=>el.type===CodeBlockStyleSelect).props.onChange('noir');
+editor=tree(ThemeMenu,{userId:'owner'},editorValues);
+elements(editor).find(el=>el.type==='button'&&el.props.children==='테마 저장').props.onClick();await flush();
+assert.equal(writes.at(-1).patch.code_block_style,'noir');
+const styleTheme={...single,code_block_style:'corporate'};
+const catalog=tree(ThemeMenu,{userId:'owner'},['light',[styleTheme],new Set(),{},'mine','',null,undefined,false,styleTheme.id]);
+elements(catalog).find(el=>el.type==='button'&&el.props.children==='내 테마로 복사').props.onClick();await flush();
+assert.equal(writes.findLast(write=>write.table==='themes').patch.code_block_style,'corporate');
+
+for(const [legacy,inherit,fixedStyle,themeStyle,expected] of [
+  [false,true,'noir','hanji','hanji'],[false,false,'noir','hanji','noir'],
+  [true,false,'noir','hanji','legacy'],[true,true,'neon','corporate','legacy'],
+  [false,true,'noir','neon','neon'],
+]){
+  globalThis.__capturedEffects=[];
+  globalThis.__profileResponse={...savedPref,use_legacy_status:legacy,prefer_work_theme:false};
+  globalThis.__themeResponse={...single,code_block_style:themeStyle};
+  globalThis.__themeLocation={pathname:'/chat/30000000-0000-0000-0000-000000000001'};
+  globalThis.__sessionResponse={work_id:'work',theme_override:'custom',theme_id:single.id,theme_variant:'light',use_theme_code_block:inherit,code_block_style:fixedStyle};
+  tree(ThemeManager,{},[]);const cleanup=globalThis.__capturedEffects[0]();await flush();
+  assert.equal(codeStyles.appliedCodeBlockStyle(),expected,'real theme application follows status precedence');
+  cleanup();
+}
+delete globalThis.__capturedEffects;
+console.log('Status UI: editor/save/copy, first-choice order, room OFF/manual/reopen/ON restoration, global Legacy and actual ThemeManager priority passed.');
+}
