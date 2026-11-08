@@ -190,6 +190,8 @@ export interface Session {
 }
 
 export interface SummaryVersion {
+  finish_reason?: string | null;
+  native_finish_reason?: string | null;
   id: string;
   session_id: string;
   content: string;

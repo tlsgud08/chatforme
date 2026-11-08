@@ -1,3 +1,4 @@
+import { summaryCompletionWarning, summaryResultMetadata } from '@/lib/summaryCompletion';
 import { prepareKnowledge, queueKnowledge, cancelKnowledge } from '@/lib/knowledge/runtime';
 import { applyKnowledge } from '@/lib/knowledge/core';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -737,25 +738,30 @@ export default function ChatPage() {
         reasoning: normalizeReasoning(sourceSession.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', sourceSession.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
         systemParts: { core: summaryCore, persona: shareTarget ? `# Source Persona\nName: ${shareTicket?.persona?.name ?? '페르소나 미선택'}\nDescription: ${shareTicket?.persona?.description ?? ''}` : '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user' as const, content: input }],
-        maxOutputTokens: 4096,
+        maxOutputTokens: null,
       };
       const connected = shareTarget || await loadSemiContext(sourceSession.id, summaryController.signal);
       const result = await generate('openrouter', connected ? summaryRequest : withoutSyncDateTags(summaryRequest));
       if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
       if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
+      const completionMetadata = summaryResultMetadata(result);
+      const completionWarning = summaryCompletionWarning(completionMetadata.generation_finish_reason);
       if (shareTarget && shareTicket) {
         const accounting = await semiAction('publish', sourceSession.id, shareTarget, {
           token: shareTicket.token, content: result.text, through_turn: throughTurn,
+          ...completionMetadata,
           source_notes: sourceNote ? [{ id: sourceNote.id, content: sourceNote.content, through_turn: sourceNote.summarized_through_turn }] : [],
           input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
         });
         shareTicket = null;
+        if (completionWarning) addError(completionWarning);
         setSession(current => current?.id === sourceSession.id ? { ...current, ...accounting } : current);
         return true;
       }
       const ids = candidates.map((message) => message.id);
       const { data: updated, error } = await supabase.rpc('save_generated_summary', {
         target_session: session.id, summary_text: result.text, through_turn: throughTurn,
+        ...completionMetadata,
         source_versions: [
           ...candidates.map(message => ({ id: message.id, version: message.content_version ?? 0 })),
           ...archivesToMerge.map(version => ({ kind: 'summary', id: version.id, content: version.content,
@@ -765,6 +771,7 @@ export default function ChatPage() {
         in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost,
       });
       if (error || !updated) throw error ?? new Error('요약을 저장하지 못했습니다.');
+      if (completionWarning) addError(completionWarning);
       setMessages(current => current.map(message => ids.includes(message.id) ? { ...message, is_summarized: true } : message));
       setSession(current => current?.id === session.id ? { ...current, ...updated } : current);
       return true;

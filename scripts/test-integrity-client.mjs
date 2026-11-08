@@ -4,6 +4,7 @@ import ts from 'typescript';
 import vm from 'node:vm';
 const uri=source=>'data:text/javascript;base64,'+Buffer.from(source).toString('base64');
 const compile=source=>ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const {summaryCompletionWarning,summaryResultMetadata}=await import(uri(compile(readFileSync(new URL('../src/lib/summaryCompletion.ts',import.meta.url),'utf8'))));
 const {withoutSyncDateTags}=await import(uri(compile(readFileSync(new URL('../src/lib/syncDate.ts',import.meta.url),'utf8'))));
 const themeURL=uri(compile(readFileSync(new URL('../src/lib/theme.ts',import.meta.url),'utf8')));
 const {automaticThemeEnabled,normalizeThemePeriods,stripThemeDirectives}=await import(uri(compile(
@@ -59,7 +60,7 @@ let summaryConnected=false;
 const summaryTasks=new Map();
 const sharedActions=[];let summaryMessageWrites=0;
 const merging=vm.runInNewContext(fn('messagesThroughTurn')+'\n'+fn('generateSummary')+'\ngenerateSummary',{
-  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'IGNORED PRIVATE',summary_level:0,summary_allow_omission:false,summary_extra_note:'EXTRA MEMORY NOTE'},summaryPromptWithParameters,withoutSyncDateTags,loadSemiContext:async()=>summaryConnected?{}:null,loadGlobalSummaryPrompt:async()=> 'global summary core',loadSemiSyncSummaryPrompt:async()=> 'sync summary core',
+  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'IGNORED PRIVATE',summary_level:0,summary_allow_omission:false,summary_extra_note:'EXTRA MEMORY NOTE'},summaryPromptWithParameters,summaryCompletionWarning,summaryResultMetadata,withoutSyncDateTags,loadSemiContext:async()=>summaryConnected?{}:null,loadGlobalSummaryPrompt:async()=> 'global summary core',loadSemiSyncSummaryPrompt:async()=> 'sync summary core',
   messages:complete.slice(-5),sendInFlightRef:{current:false},summaryGenerating:false,
   activeGenerations:new Map(),activeSummaryGenerations:summaryTasks,workCombinationSavingRef:{current:false},AbortController,
   getApiKey:()=> 'mock-key',registerAccountTask:()=>()=>{},
@@ -68,7 +69,7 @@ const merging=vm.runInNewContext(fn('messagesThroughTurn')+'\n'+fn('generateSumm
   readLiveThemeContext:async()=>summaryThemeContext, recoverExpiredResponses:async()=>0,
   fetchAllSessionMessages:async()=>complete,automaticThemeEnabled,normalizeThemePeriods,stripThemeDirectives,
   modelsFor:()=>['mock-model'],normalizeReasoning:()=>({send:false}),
-  generate:async(_provider,args)=>{summaryRequests.push(args);return {text:'merged memory',usage:{inputTokens:1,outputTokens:2,cost:0}};},
+  generate:async(_provider,args)=>{summaryRequests.push(args);return {text:'merged memory',finishReason:'stop',nativeFinishReason:'STOP',usage:{inputTokens:1,outputTokens:2,cost:0}};},
   supabase:{rpc:async(name,args)=>{commits.push({name,args});return {data:{id:'s'},error:null};}},
   addError:message=>summaryErrors.push(message),describeUnknownError:error=>error.message,
 });

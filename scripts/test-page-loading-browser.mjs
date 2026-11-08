@@ -605,26 +605,25 @@ try {
         const adminContext = await browser.newContext({serviceWorkers:'block'});
         await setup(adminContext);
         let adminLoadFailed=true, adminSaves=0, adminSaveBody;
-        const adminConfig={system_prompt:'ORIGINAL GLOBAL',theme_prompt:'ORIGINAL THEME',multichat_system_prompt:'ORIGINAL MULTI',work_combination_prompt:''};
+        const adminConfig={system_prompt:'ORIGINAL GLOBAL',theme_prompt:'ORIGINAL THEME',multichat_system_prompt:'ORIGINAL MULTI',work_combination_prompt:'',summary_prompt:'ORIGINAL SUMMARY',semi_multichat_prompt:'ORIGINAL SEMI',semi_sync_summary_prompt:'ORIGINAL SYNC',knowledge_config:{}};
         await adminContext.route('https://loading-check.test/rest/v1/platform_config*',route=>route.fulfill({status:adminLoadFailed?503:200,contentType:'application/json',body:JSON.stringify(adminLoadFailed?{message:'configuration unavailable'}:adminConfig)}));
-        await adminContext.route('https://loading-check.test/rest/v1/rpc/save_platform_prompts',route=>{
+        await adminContext.route('https://loading-check.test/rest/v1/rpc/save_admin_settings',route=>{
             adminSaves++;adminSaveBody=route.request().postDataJSON();
             assert(route.request().url().length<200,'long prompts must not be put in URL filters');
             return route.fulfill({status:200,contentType:'application/json',body:'true'});
         });
         const adminPage=await adminContext.newPage();
         await adminPage.goto(origin+'/settings');
-        await adminPage.getByText('전역 프롬프트를 불러오지 못했습니다. 기존 내용은 변경하지 않았습니다.',{exact:true}).waitFor();
-        assert.equal(await adminPage.getByRole('heading',{name:'관리자 — 전역 시스템 프롬프트',exact:true,includeHidden:true}).count(),0);
+        await adminPage.getByRole('button',{name:'운영자',exact:true}).click();
+        await adminPage.getByText('configuration unavailable 입력은 유지했습니다. 다시 불러와 주세요.',{exact:true}).waitFor();
+        assert.equal(await adminPage.getByLabel('전역 시스템 프롬프트',{exact:true}).isDisabled(),true);
+        assert.equal(await adminPage.getByRole('button',{name:'전체 설정 저장',exact:true}).isDisabled(),true);
         assert.equal(adminSaves,0);
         adminLoadFailed=false;
-        await adminPage.getByRole('button',{name:'설정 다시 불러오기',exact:true}).click();
-        await adminPage.getByRole('button',{name:'운영자',exact:true}).click();
-        await adminPage.getByRole('heading',{name:'관리자 — 전역 시스템 프롬프트',exact:true}).waitFor();
-        const globalPromptSection=adminPage.getByRole('heading',{name:'관리자 — 전역 시스템 프롬프트',exact:true}).locator('..');
-        await globalPromptSection.locator('textarea').first().fill('LONG PROMPT '.repeat(1000));
-        await globalPromptSection.getByRole('button',{name:'저장',exact:true}).click();
-        await adminPage.getByText('전역 시스템 프롬프트를 저장했습니다.',{exact:true}).waitFor();
+        await adminPage.locator('[data-settings-section="admin"]').getByRole('button',{name:'다시 불러오기',exact:true}).click();
+        await adminPage.getByLabel('전역 시스템 프롬프트',{exact:true}).fill('LONG PROMPT '.repeat(1000));
+        await adminPage.getByRole('button',{name:'전체 설정 저장',exact:true}).click();
+        await adminPage.getByText('전체 관리자 설정을 저장했습니다. 다음 요청부터 적용됩니다.',{exact:true}).waitFor();
         assert.equal(adminSaves,1);assert.equal(adminSaveBody.previous.system_prompt,'ORIGINAL GLOBAL');
         assert.equal(adminSaveBody.desired.theme_prompt,'ORIGINAL THEME');assert.equal(adminSaveBody.desired.multichat_system_prompt,'ORIGINAL MULTI');
         console.log(JSON.stringify({failedAdminReadCannotErasePrompts:true,longPromptBodySave:true,otherPromptsPreserved:true}));

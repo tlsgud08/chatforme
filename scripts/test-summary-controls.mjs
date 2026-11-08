@@ -34,7 +34,7 @@ const children = Object.fromEntries(['InterfaceIcon', 'SessionMenuFrame', 'Sessi
   'SessionInformationSettings', 'SemiSessionSettings', 'MultichatApiSettings', 'MultichatProgressSettings',
   'ModernPageHeading', 'InterfacePreferences', 'ThemePreferences', 'AdminSettings', 'SettingsAccessManager'].map(name => [name, name]));
 let auth = { user: { id: 'owner' } };
-const shared = { ...hooks, ...children, supabase, useAuth: () => auth,
+const shared = { ...hooks, ...children, supabase, summaryCompletionWarning: () => null, useAuth: () => auth,
   getApiKey: () => '', formatKrw: () => '', normalizeOutputTokens: value => value ?? null, setTimeout: () => 0,
 };
 const Menu = loadComponent('src/components/SessionMenu.tsx', 'SessionMenu', shared);
@@ -75,7 +75,7 @@ state.length = 0; state[1] = profile;
 const Settings = loadComponent('src/pages/SettingsPage.tsx', 'SettingsPage', { ...shared,
   ADMIN_EMAIL: '', loadApiKeys: () => ({ openrouter: '' }), modelsFor: () => ['fixture/model'], loadDefaultReasoning: () => ({}),
   loadTurnPriceWarning: () => ({ enabled: false, currency: 'KRW', threshold: 80 }), useUsdKrwRate: () => ({ rate: 1400 }),
-  saveDefaultReasoning() {},
+  saveDefaultReasoning() {}, useWorkCredits: () => false, saveWorkCredits() {},
 });
 function renderSettings() { cursor = 0; return Settings(); }
 tree = renderSettings();
@@ -102,6 +102,7 @@ for (const [isAdmin, canManageSettings] of [[true,true],[false,true],[false,fals
 }
 console.log('Settings page: founder sees role management, delegates see settings only, members see neither.');
 
+const { summaryCompletionWarning, summaryResultMetadata } = vm.runInNewContext(compile(read('src/lib/summaryCompletion.ts').replace(/^import .*$/gm, '').replace(/\bexport /g, '')) + '\n({summaryCompletionWarning, summaryResultMetadata})');
 const summaryPromptWithParameters = vm.runInNewContext(compile(read('src/lib/summaryPrompt.ts')
   .replace(/^import .*$/gm, '').replace(/\bexport /g, '')) + '\nsummaryPromptWithParameters');
 const page = ts.createSourceFile('multi.tsx', read('src/pages/MultichatPage.tsx'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -112,6 +113,7 @@ function visit(node) {
 }
 visit(page);assert.ok(processSource);
 const requests = [], errors = [], completed = [];
+let mockFinishReason = "stop";
 const room = { id: 'room', summary: '', summary_last_turn: 0, summary_level_override: 0, summary_allow_omission_override: false };
 const transcript = [{ id: 'u', role: 'user', content: 'ACTION', turn_index: 1 }, { id: 'a', role: 'assistant', content: 'STORY', turn_index: 1 }]
   .map(message => ({ ...message, is_active_variant: true, generation_status: 'complete' }));
@@ -120,9 +122,9 @@ const runSummary = vm.runInNewContext(compile(processSource) + '\nprocessSummary
   summaryLock: { current: false }, lock: { current: false }, controller: { current: null },
   getApiKey: () => 'fixture', setSummaryGenerating() {}, AbortController, setTimeout, clearTimeout,
   registerAccountTask: () => () => {}, multichatTranscript: async () => transcript,
-  loadGlobalSummaryPrompt: async () => 'ADMIN CORE', summaryPromptWithParameters,
+  loadGlobalSummaryPrompt: async () => 'ADMIN CORE', summaryPromptWithParameters, summaryCompletionWarning, summaryResultMetadata,
   normalizeReasoning: () => ({}), stripThemeDirectives: text => text,
-  generate: async (_provider, request) => { requests.push(request); return { text: 'MEMORY', usage: { inputTokens: 1, outputTokens: 1, cost: 0 } }; },
+  generate: async (_provider, request) => { requests.push(request); return { text: 'MEMORY', finishReason: mockFinishReason, nativeFinishReason: 'NATIVE', usage: { inputTokens: 1, outputTokens: 1, cost: 0 } }; },
   supabase: { from: () => ({ select() { return this; }, eq() { return this; }, in() { return this; }, single: async () => ({ data: room }) }),
     rpc: async (name, args) => { completed.push({ name, args }); return { data: room }; } },
   setSummaryPending() {}, patchSession() {}, refresh: async () => {}, report: error => errors.push(error), errorText: error => error.message,
@@ -136,3 +138,14 @@ await runSummary({ id: 'ticket2', token: 'token', through: 1, mergeIds: [] });
 assert.deepEqual(errors, []);assert.equal(requests[1].systemParts.core, 'ADMIN CORE\n\n[ADDITIONAL NOTE]\nEXTRA');
 assert.equal(requests[0].messages[0].content, requests[1].messages[0].content, 'controls do not alter the transcript');
 console.log('Real multichat summary handler: PC2 payer path, room overrides, parameters OFF, extra note and unchanged source messages passed.');
+
+assert.equal(requests[0].maxOutputTokens,null);
+assert.equal(completed[0].args.generation_finish_reason,'stop');
+
+mockFinishReason='length';errors.length=0;
+await runSummary({id:'partial-ticket',token:'token',through:1,mergeIds:[]});
+assert.equal(completed.at(-1).name,'finish_multichat_summary');
+assert.equal(completed.at(-1).args.summary_text,'MEMORY');
+assert.equal(completed.at(-1).args.generation_finish_reason,'length');
+assert.match(errors[0],/제공자 출력 제한.*저장/);
+assert.equal(errors.length,1,'a saved partial summary reports once and does not enter the failed-request path');

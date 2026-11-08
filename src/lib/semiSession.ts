@@ -3,6 +3,8 @@ import type { Persona, Session } from '@/types/db';
 import type { AssembledPrompt } from './prompt/assemble';
 
 export interface SemiSnapshot {
+  finish_reason?: string | null;
+  native_finish_reason?: string | null;
   edited_at?: string;
   persona_override?: boolean;
   content: string;

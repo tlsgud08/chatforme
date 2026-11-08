@@ -332,9 +332,9 @@ export default function SettingsPage() {
               </select>
             </label>
             <label className="text-xs text-slate-400">Summary level (0~10)
-              <input type="number" min={0} max={10} value={profile.summary_level ?? 5} onChange={(e) => setProfile({ ...profile, summary_level: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
+              <input type="number" min={0} max={10} value={profile.summary_level ?? 0} onChange={(e) => setProfile({ ...profile, summary_level: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
             </label>
-            <label className="flex items-center justify-between text-xs text-slate-300"><span>Allow omission</span><input type="checkbox" checked={profile.summary_allow_omission ?? true} onChange={(e) => setProfile({ ...profile, summary_allow_omission: e.target.checked })} /></label>
+            <label className="flex items-center justify-between text-xs text-slate-300"><span>Allow omission</span><input type="checkbox" checked={profile.summary_allow_omission ?? false} onChange={(e) => setProfile({ ...profile, summary_allow_omission: e.target.checked })} /></label>
             <label className="text-xs text-slate-400">[핵심 서사 및 맥락] 목표 토큰 수
               <input aria-label="[핵심 서사 및 맥락] 목표 토큰 수" type="text" value={profile.summary_narrative_target_tokens ?? '3000'} onChange={event => setProfile({ ...profile, summary_narrative_target_tokens: event.target.value })} placeholder="3000" className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
               <span className="mt-1 block text-[11px] text-slate-500">이 파트의 분량 목표로 전달해요. 숫자나 범위를 텍스트로 입력할 수 있어요.</span>

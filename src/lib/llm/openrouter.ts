@@ -58,15 +58,16 @@ export const openrouterAdapter: LLMAdapter = {
 
     if (streaming) {
       if (!res.body) throw new Error('OpenRouter 스트리밍 응답 본문이 없습니다.');
-      const { text, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost, generationId, upstreamProvider } =
+      const { text, finishReason, nativeFinishReason, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost, generationId, upstreamProvider } =
         await readOpenAIStream(res.body, text => { phase('first-content'); opts.onChunk!(text); }, () => phase('model-event'), () => phase('model-reasoning'));
       phase('model-complete');
       const usage = { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost };
-      return { text, usage, cacheDiagnostic: await createCacheDiagnostic({ sessionId: opts.sessionId, model: opts.model, sources, usage, requestId: res.headers.get('x-request-id') ?? requestId, generationId, upstreamProvider }) };
+      return { text, finishReason, nativeFinishReason, usage, cacheDiagnostic: await createCacheDiagnostic({ sessionId: opts.sessionId, model: opts.model, sources, usage, requestId: res.headers.get('x-request-id') ?? requestId, generationId, upstreamProvider }) };
     }
 
     const data = await res.json();
     const text: string = data.choices?.[0]?.message?.content ?? '';
+    if (data.error && !text.trim()) throw new Error(`OpenRouter API 오류: ${data.error.message ?? data.error.code ?? '알 수 없는 오류'}`);
 
     const usage = {
         inputTokens: data.usage?.prompt_tokens ?? 0,
@@ -82,6 +83,8 @@ export const openrouterAdapter: LLMAdapter = {
       };
     return {
       text,
+      finishReason: data.error ? 'error' : typeof data.choices?.[0]?.finish_reason === 'string' ? data.choices[0].finish_reason : null,
+      nativeFinishReason: typeof data.choices?.[0]?.native_finish_reason === 'string' ? data.choices[0].native_finish_reason : null,
       usage,
       cacheDiagnostic: await createCacheDiagnostic({ sessionId: opts.sessionId, model: opts.model, sources, usage, requestId: res.headers.get('x-request-id') ?? requestId, generationId: typeof data.id === 'string' ? data.id : null, upstreamProvider: typeof data.provider === 'string' ? data.provider : null }),
     };
