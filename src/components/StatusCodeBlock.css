@@ -1,0 +1,138 @@
+.status-code-frame {
+  --cf-bg: rgb(var(--color-bg));
+  --cf-fg: var(--page-text);
+  --cf-accent: var(--secondary-text, rgb(var(--color-brand)));
+  --cf-secondary: var(--page-text);
+  --cf-surface: color-mix(in srgb, var(--cf-bg) 94%, var(--cf-fg) 6%);
+  --cf-surface-raised: color-mix(in srgb, var(--cf-bg) 88%, var(--cf-fg) 12%);
+  --cf-muted: color-mix(in srgb, var(--cf-fg) 68%, var(--cf-bg) 32%);
+  --cf-line: color-mix(in srgb, var(--cf-fg) 18%, var(--cf-bg) 82%);
+  --cf-accent-soft: color-mix(in srgb, var(--cf-bg) 89%, var(--cf-accent) 11%);
+  max-width: 100%;
+  min-width: 0;
+  margin-bottom: 12px;
+  color: var(--cf-fg);
+  font: 400 14px/1.7 -apple-system, BlinkMacSystemFont, "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+.status-code-frame .cf-raw code { display: block; max-width: 100%; padding: 0; color: inherit; background: transparent; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.status-code-frame .cf-terminal-cap,
+.status-code-frame .cf-file-tab { font-size: 11px; }
+.status-code-frame .cf-head[hidden] { display: none; }
+/* The chosen Basic is the former Legacy mockup, with live palette colors. */
+.status-code-frame.cf-basic .cf-block { border-radius: 16px 16px 0 0; overflow: hidden; background: color-mix(in srgb, var(--cf-bg) 88%, var(--cf-fg) 12%); }
+.status-code-frame.cf-basic .cf-head { min-height: 56px; padding: 16px 20px; background: color-mix(in srgb, var(--cf-bg) 72%, var(--cf-fg) 28%); }
+.status-code-frame.cf-basic .cf-title { color: color-mix(in srgb, var(--cf-fg) 62%, color-mix(in srgb, var(--cf-bg) 72%, var(--cf-fg) 28%) 38%); font-size: 15px; letter-spacing: 0; }
+.status-code-frame.cf-basic .cf-raw { padding: 21px 20px 23px; font-family: -apple-system, BlinkMacSystemFont, "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; font-size: 14px; line-height: 1.9; }
+.status-code-frame .cf-block { position: relative; margin: 0; background: var(--cf-surface); color: var(--cf-fg); }
+    .status-code-frame .cf-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 18px; min-height: 57px; }
+    .status-code-frame .cf-title-wrap { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .status-code-frame .cf-title { font-size: 14px; font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; letter-spacing: .04em; }
+    .status-code-frame .cf-title-wrap { flex: 1; }
+    .status-code-frame .cf-head-tag { font-size: 11px; font-weight: 400; color: var(--cf-muted); letter-spacing: .08em; }
+    .status-code-frame .cf-title-wrap > svg { width: 16px; height: 16px; flex: 0 0 auto; color: var(--cf-accent); }
+    .status-code-frame .cf-head-right { display: flex; align-items: center; gap: 14px; }
+    .status-code-frame .cf-fold { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex: 0 0 auto; min-width: 44px; min-height: 32px; padding: 3px 0 3px 4px; border: 0; background: transparent; color: var(--cf-muted); font-size: 11px; line-height: 1.5; }
+    .status-code-frame .cf-fold svg { width: 13px; height: 13px; }
+    .status-code-frame .cf-fold[aria-expanded="false"] svg { transform: rotate(180deg); }
+    .status-code-frame .cf-fold:hover { color: var(--cf-accent); }
+    .status-code-frame .cf-pane[hidden] { display: none; }
+    .status-code-frame .cf-raw { display: block; margin: 0; padding: 19px 19px 16px; color: inherit; background: transparent; font: 400 13px/1.9 ui-monospace, "SFMono-Regular", "Noto Sans Mono CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", monospace; letter-spacing: 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; tab-size: 2; }
+    .status-code-frame .cf-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 19px; padding: 10px 0 12px; font-size: 11px; line-height: 1.5; color: var(--cf-muted); letter-spacing: .07em; }
+
+    .status-code-frame.cf-neon .cf-block { border: 1px solid color-mix(in srgb, var(--cf-accent) 45%, var(--cf-bg)); background: var(--cf-accent-soft); clip-path: polygon(0 0, calc(100% - 17px) 0, 100% 17px, 100% 100%, 17px 100%, 0 calc(100% - 17px)); }
+    .status-code-frame.cf-neon .cf-terminal-cap { display: flex; align-items: center; justify-content: space-between; padding: 8px 18px 5px; color: var(--cf-accent); font-size: 10px; line-height: 1.5; letter-spacing: .13em; }
+    .status-code-frame.cf-neon .cf-head { min-height: 45px; padding-top: 5px; padding-bottom: 9px; border-bottom: 1px solid color-mix(in srgb, var(--cf-accent) 26%, var(--cf-bg)); }
+    .status-code-frame.cf-neon .cf-title { color: var(--cf-secondary); letter-spacing: .16em; }
+    .status-code-frame.cf-neon .cf-head-tag { border-left: 1px solid var(--cf-line); padding-left: 9px; }
+    .status-code-frame.cf-neon .cf-raw { margin: 15px 0 0 17px; border-left: 2px solid color-mix(in srgb, var(--cf-accent) 52%, var(--cf-bg)); padding: 0 16px 5px 12px; }
+    .status-code-frame.cf-neon .cf-foot { margin-left: 30px; color: var(--cf-accent); }
+
+    .status-code-frame.cf-corporate .cf-block { margin-top: 34px; border: 1px solid var(--cf-line); border-left: 4px solid var(--cf-accent); background: var(--cf-surface); }
+    .status-code-frame.cf-corporate .cf-file-tab { position: absolute; bottom: 100%; left: -4px; padding: 5px 17px 4px; background: var(--cf-accent); color: var(--cf-bg); font-size: 10px; font-weight: 500; line-height: 1.5; letter-spacing: .13em; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 100%, 0 100%); }
+    .status-code-frame.cf-corporate .cf-head { background: var(--cf-surface-raised); border-bottom: 1px solid var(--cf-line); }
+    .status-code-frame.cf-corporate .cf-company-mark { color: var(--cf-accent); font-size: 25px; font-weight: 500; line-height: 1; letter-spacing: -.18em; margin-right: 6px; }
+    .status-code-frame.cf-corporate .cf-title { letter-spacing: .19em; }
+    .status-code-frame.cf-corporate .cf-classification { color: var(--cf-accent); font-size: 12px; letter-spacing: .2em; border: 1px solid color-mix(in srgb, var(--cf-accent) 45%, var(--cf-bg)); padding: 1px 5px; }
+    .status-code-frame.cf-corporate .cf-raw { font-family: -apple-system, BlinkMacSystemFont, "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+    .status-code-frame.cf-corporate .cf-foot { border-top: 1px solid var(--cf-line); }
+
+    .status-code-frame.cf-hanji .cf-block { padding: 7px; border: 1px solid color-mix(in srgb, var(--cf-secondary) 40%, var(--cf-bg)); background-color: var(--cf-surface); background-image: repeating-linear-gradient(1deg, transparent 0 5px, color-mix(in srgb, var(--cf-fg) 2%, transparent) 5px 6px), repeating-linear-gradient(89deg, transparent 0 9px, color-mix(in srgb, var(--cf-fg) 2%, transparent) 9px 10px); border-radius: 2px; }
+    .status-code-frame.cf-hanji .cf-head { position: relative; justify-content: center; min-height: 65px; border: 1px solid var(--cf-line); border-bottom: 0; padding-left: 54px; padding-right: 54px; }
+    .status-code-frame.cf-hanji .cf-title-wrap { flex-direction: column; gap: 0; width: 100%; }
+    .status-code-frame.cf-hanji .cf-title { font-family: "Noto Serif CJK KR", "Nanum Myeongjo", "AppleMyungjo", "Batang", serif; font-size: 18px; letter-spacing: .18em; }
+    .status-code-frame.cf-hanji .cf-head-tag { font-size: 10px; letter-spacing: .25em; }
+    .status-code-frame.cf-hanji .cf-seal { position: absolute; left: 15px; width: 26px; height: 28px; display: grid; place-items: center; color: var(--cf-accent); border: 2px solid var(--cf-accent); font-family: "Noto Serif CJK KR", serif; font-size: 17px; line-height: 1; transform: rotate(-4deg); opacity: .85; }
+    .status-code-frame.cf-hanji .cf-fold { position: absolute; right: 10px; }
+    .status-code-frame.cf-hanji .cf-pane { border: 1px solid var(--cf-line); border-top: 0; }
+    .status-code-frame.cf-hanji .cf-raw { padding: 13px 17px 7px; font-family: "Noto Serif CJK KR", "Nanum Myeongjo", "AppleMyungjo", "Batang", serif; line-height: 1.95; }
+    .status-code-frame.cf-hanji .cf-paper-end { padding-bottom: 12px; color: var(--cf-secondary); text-align: center; font-size: 12px; }
+
+    .status-code-frame.cf-scroll .cf-block { margin: 15px 6px 0; background: linear-gradient(90deg, color-mix(in srgb, var(--cf-fg) 8%, var(--cf-bg)), var(--cf-surface) 7%, var(--cf-surface) 93%, color-mix(in srgb, var(--cf-fg) 8%, var(--cf-bg))); border-left: 1px solid var(--cf-line); border-right: 1px solid var(--cf-line); }
+    .status-code-frame.cf-scroll .cf-scroll-rod { position: relative; left: -7px; width: calc(100% + 14px); height: 12px; border-radius: 3px; background: linear-gradient(var(--cf-line), var(--cf-surface-raised), var(--cf-line)); box-shadow: inset 5px 0 0 var(--cf-secondary), inset -5px 0 0 var(--cf-secondary); }
+    .status-code-frame.cf-scroll .cf-head { margin: 0 15px; padding: 16px 0 11px; border-bottom: 1px solid color-mix(in srgb, var(--cf-accent) 35%, var(--cf-bg)); }
+    .status-code-frame.cf-scroll .cf-title { font-family: "Noto Serif CJK KR", "Nanum Myeongjo", "AppleMyungjo", serif; font-size: 16px; }
+    .status-code-frame.cf-scroll .cf-title-wrap { align-items: baseline; gap: 7px; }
+    .status-code-frame.cf-scroll .cf-scroll-content { display: flex; align-items: stretch; padding: 17px 14px 0; }
+    .status-code-frame.cf-scroll .cf-scroll-inscription { writing-mode: vertical-rl; text-orientation: upright; flex: 0 0 24px; padding-right: 4px; margin-right: 10px; border-right: 1px solid color-mix(in srgb, var(--cf-accent) 25%, var(--cf-bg)); color: var(--cf-accent); font-family: "Noto Serif CJK KR", serif; font-size: 15px; letter-spacing: .3em; }
+    .status-code-frame.cf-scroll .cf-raw { padding: 0; min-width: 0; flex: 1; font-family: "Noto Serif CJK KR", "AppleMyungjo", "Batang", serif; }
+    .status-code-frame.cf-scroll .cf-scroll-sign { margin: 15px 20px 16px auto; display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid var(--cf-accent); color: var(--cf-accent); font-family: "Noto Serif CJK KR", serif; font-size: 15px; }
+
+    .status-code-frame.cf-grimoire .cf-block { margin-left: 4px; padding: 8px 8px 9px 16px; border: 1px solid color-mix(in srgb, var(--cf-secondary) 52%, var(--cf-bg)); border-radius: 3px 11px 11px 3px; background: linear-gradient(90deg, var(--cf-line) 0, var(--cf-surface) 9px, var(--cf-surface) 14px, color-mix(in srgb, var(--cf-secondary) 14%, var(--cf-bg)) 15px, var(--cf-surface) 16px); box-shadow: -4px 3px 0 var(--cf-surface-raised); }
+    .status-code-frame.cf-grimoire .cf-head { min-height: 66px; border: 1px solid color-mix(in srgb, var(--cf-secondary) 25%, var(--cf-bg)); border-bottom: 0; padding: 15px 14px; }
+    .status-code-frame.cf-grimoire .cf-title { color: var(--cf-secondary); font-family: "Noto Serif CJK KR", "AppleMyungjo", serif; font-size: 17px; letter-spacing: .12em; }
+    .status-code-frame.cf-grimoire .cf-title-wrap > svg { color: var(--cf-secondary); }
+    .status-code-frame.cf-grimoire .cf-pane { border: 1px solid color-mix(in srgb, var(--cf-secondary) 25%, var(--cf-bg)); border-top: 0; }
+    .status-code-frame.cf-grimoire .cf-raw { padding: 6px 14px 12px; font-family: "Noto Serif CJK KR", "AppleMyungjo", "Batang", serif; }
+    .status-code-frame.cf-grimoire .cf-book-corner { position: absolute; top: 4px; width: 14px; height: 14px; border-top: 2px solid var(--cf-secondary); opacity: .8; }
+    .status-code-frame.cf-grimoire .cf-book-corner-tl { left: 5px; border-left: 2px solid var(--cf-secondary); }
+    .status-code-frame.cf-grimoire .cf-book-corner-tr { right: 4px; border-right: 2px solid var(--cf-secondary); }
+    .status-code-frame.cf-grimoire .cf-book-end { display: flex; align-items: center; gap: 10px; margin: 0 20px; padding: 2px 0 19px; color: var(--cf-secondary); font-size: 12px; }
+    .status-code-frame.cf-grimoire .cf-book-end span { flex: 1; height: 1px; background: color-mix(in srgb, var(--cf-secondary) 28%, var(--cf-bg)); }
+    .status-code-frame.cf-grimoire .cf-bookmark { position: absolute; right: 29px; bottom: -11px; width: 14px; height: 20px; background: var(--cf-accent); clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%); }
+
+    .status-code-frame.cf-noir .cf-block { margin-top: 37px; padding: 0 6px; border: 1px solid var(--cf-line); border-radius: 0 3px 3px 3px; background: var(--cf-surface); box-shadow: 3px 4px 0 color-mix(in srgb, var(--cf-fg) 9%, var(--cf-bg)); }
+    .status-code-frame.cf-noir .cf-dossier-tab { position: absolute; bottom: 100%; left: -1px; padding: 5px 17px 4px; min-width: 132px; color: var(--cf-muted); background: var(--cf-surface); border: 1px solid var(--cf-line); border-bottom: 0; border-radius: 4px 9px 0 0; font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.5; letter-spacing: .12em; }
+    .status-code-frame.cf-noir .cf-head { position: relative; padding: 16px 12px; min-height: 71px; border-bottom: 3px double color-mix(in srgb, var(--cf-fg) 38%, var(--cf-bg)); }
+    .status-code-frame.cf-noir .cf-title { font-family: "Noto Serif CJK KR", "AppleMyungjo", serif; font-size: 21px; letter-spacing: .13em; }
+    .status-code-frame.cf-noir .cf-title-wrap { align-items: baseline; }
+    .status-code-frame.cf-noir .cf-confidential { padding: 1px 7px; color: var(--cf-accent); border: 2px solid var(--cf-accent); font-family: "Noto Serif CJK KR", serif; font-size: 14px; line-height: 1.5; letter-spacing: .15em; transform: rotate(-9deg); opacity: .85; white-space: nowrap; }
+    .status-code-frame.cf-noir .cf-raw { padding: 14px 12px 16px; }
+    .status-code-frame.cf-noir .cf-foot { margin: 0 12px; padding: 9px 0 12px; border-top: 1px solid var(--cf-line); font-family: ui-monospace, monospace; }
+
+    .status-code-frame.cf-notebook .cf-block { margin-left: 6px; border: 1px solid color-mix(in srgb, var(--cf-accent) 23%, var(--cf-bg)); border-radius: 14px 14px 14px 4px; background-color: var(--cf-surface); background-image: linear-gradient(90deg, transparent 23px, color-mix(in srgb, var(--cf-secondary) 23%, transparent) 23px, color-mix(in srgb, var(--cf-secondary) 23%, transparent) 24px, transparent 24px); }
+    .status-code-frame.cf-notebook .cf-head { margin-left: 25px; padding: 16px 14px 12px 12px; min-height: 66px; }
+    .status-code-frame.cf-notebook .cf-note-label { background: var(--cf-accent-soft); color: var(--cf-accent); border-radius: 5px; padding: 2px 6px; font-size: 11px; line-height: 1.5; font-weight: 500; letter-spacing: .02em; }
+    .status-code-frame.cf-notebook .cf-title { font-size: 14px; letter-spacing: 0; }
+    .status-code-frame.cf-notebook .cf-title-wrap { gap: 7px; }
+    .status-code-frame.cf-notebook .cf-title-wrap > svg { width: 14px; height: 14px; color: var(--cf-secondary); }
+    .status-code-frame.cf-notebook .cf-binding { position: absolute; top: 32px; bottom: 32px; left: -7px; width: 14px; display: flex; flex-direction: column; justify-content: space-between; }
+    .status-code-frame.cf-notebook .cf-binding span { height: 9px; width: 14px; border: 2px solid color-mix(in srgb, var(--cf-accent) 48%, var(--cf-bg)); background: var(--cf-bg); border-radius: 5px; }
+    .status-code-frame.cf-notebook .cf-raw { margin: 0 13px 0 37px; padding: 0 0 8px; background-image: repeating-linear-gradient(transparent 0 23px, color-mix(in srgb, var(--cf-accent) 9%, transparent) 23px 24px); font-family: -apple-system, BlinkMacSystemFont, "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; line-height: 24px; }
+    .status-code-frame.cf-notebook .cf-note-end { padding: 1px 0 12px; margin-left: 25px; color: var(--cf-secondary); text-align: center; font-size: 15px; }
+
+    @media (max-width: 440px) {
+      .status-code-frame .cf-head { gap: 7px; padding-left: 12px; padding-right: 12px; }
+      .status-code-frame .cf-raw { padding-left: 13px; padding-right: 13px; font-size: 12px; }
+      .status-code-frame .cf-fold { min-height: 38px; }
+      .status-code-frame.cf-corporate .cf-head-right { gap: 7px; }
+      .status-code-frame.cf-scroll .cf-head { margin-left: 12px; margin-right: 12px; }
+      .status-code-frame.cf-scroll .cf-head-tag { display: none; }
+      .status-code-frame.cf-scroll .cf-scroll-content { padding-left: 10px; padding-right: 10px; }
+      .status-code-frame.cf-scroll .cf-scroll-inscription { flex-basis: 18px; margin-right: 7px; font-size: 13px; }
+      .status-code-frame.cf-scroll .cf-raw { padding: 0; }
+      .status-code-frame.cf-grimoire .cf-head { padding-left: 10px; padding-right: 10px; }
+      .status-code-frame.cf-grimoire .cf-head-tag { display: none; }
+      .status-code-frame.cf-grimoire .cf-raw { padding-left: 10px; padding-right: 10px; }
+      .status-code-frame.cf-noir .cf-head-right { gap: 7px; }
+      .status-code-frame.cf-noir .cf-confidential { font-size: 12px; padding-left: 4px; padding-right: 4px; }
+      .status-code-frame.cf-noir .cf-title { font-size: 18px; }
+      .status-code-frame.cf-noir .cf-title-wrap { gap: 5px; }
+      .status-code-frame.cf-notebook .cf-head { margin-left: 24px; padding-left: 8px; padding-right: 9px; }
+      .status-code-frame.cf-notebook .cf-title-wrap > svg { display: none; }
+      .status-code-frame.cf-notebook .cf-title-wrap { gap: 5px; }
+      .status-code-frame.cf-notebook .cf-raw { margin-left: 32px; padding: 0 0 8px; }
+    }
+    .status-code-frame .cf-head[hidden] { display: none; }
+    .status-code-frame.cf-neon .cf-terminal-cap,
+    .status-code-frame.cf-corporate .cf-file-tab { font-size: 11px; }
+    @media (pointer: coarse) { .status-code-frame .cf-fold { min-height: 44px; } }

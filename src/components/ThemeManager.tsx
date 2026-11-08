@@ -6,10 +6,11 @@ import { invalidateInFlight, shareInFlight } from '@/lib/inFlight';
 import { activeThemeWorkIds, type WorkThemeScope } from '@/lib/workCombination';
 import { automaticThemeAvailable, dayNightDisplayVariant, dayNightModeEnabled } from '@/lib/themeDirectives';
 import { applyCustomTheme, applyTheme, bothVariants, loadTheme, paletteFor, preferredThemeVariant, resolveThemeSelection, type SavedTheme, type ThemeVariant } from '@/lib/theme';
+import { applyCodeBlockStyle, resolveCodeBlockStyle, type CodeBlockSession } from '@/lib/codeBlockStyles';
 
-type Preference = { prefer_work_theme: boolean; preferred_theme_mode: 'dark' | 'light' | 'custom' | null; preferred_theme_id: string | null; preferred_theme_variant: ThemeVariant | null };
+type Preference = { prefer_work_theme: boolean; use_legacy_status?: boolean; preferred_theme_mode: 'dark' | 'light' | 'custom' | null; preferred_theme_id: string | null; preferred_theme_variant: ThemeVariant | null };
 type WorkDefault = { default_theme_id: string | null; default_theme_variant: ThemeVariant | null };
-type SessionTheme = WorkThemeScope & { theme_override: 'builtin' | 'custom' | null; theme_id: string | null; theme_variant: ThemeVariant | null; theme_day_night_enabled?:boolean; theme_period?:'day'|'night'|null };
+type SessionTheme = WorkThemeScope & CodeBlockSession & { theme_override: 'builtin' | 'custom' | null; theme_id: string | null; theme_variant: ThemeVariant | null; theme_day_night_enabled?:boolean; theme_period?:'day'|'night'|null };
 
 /** Single owner of document-level theme application. Refetches on route changes,
  * explicit preference updates and browser focus (cross-device sync). */
@@ -23,10 +24,10 @@ export default function ThemeManager() {
       const run = ++generation;
       if (!user) {
         const base=loadTheme()==='dark'?'dark':'light';
-        applyTheme(base); return;
+        applyTheme(base); applyCodeBlockStyle('basic'); return;
       }
       const { data: profile, error: profileError } = await shareInFlight(`theme:profile:${user.id}`, () => supabase.from('profiles')
-        .select('prefer_work_theme,preferred_theme_mode,preferred_theme_id,preferred_theme_variant')
+        .select('prefer_work_theme,preferred_theme_mode,preferred_theme_id,preferred_theme_variant,use_legacy_status')
         .eq('id', user.id).maybeSingle());
       if (!current || generation!==run || profileError) return;
       const pref = profile as Preference | null;
@@ -36,7 +37,7 @@ export default function ThemeManager() {
       let workDefault: WorkDefault | null = null;
       const chatMatch = /^\/(?:chat|multichat)\/([0-9a-f-]+)$/i.exec(location.pathname);
       if (chatMatch) {
-        const { data, error: sessionError } = await shareInFlight(`theme:session:${user.id}:${chatMatch[1]}`, () => supabase.from('sessions').select('work_id,theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids').eq('id',chatMatch[1]).maybeSingle());
+        const { data, error: sessionError } = await shareInFlight(`theme:session:${user.id}:${chatMatch[1]}`, () => supabase.from('sessions').select('work_id,theme_override,theme_id,theme_variant,theme_day_night_enabled,theme_period,work_combination_enabled,combined_work_ids,use_theme_code_block,code_block_style').eq('id',chatMatch[1]).maybeSingle());
         if (!current || run!==generation || sessionError) return;
         session = data as SessionTheme | null;
         if (!session?.theme_override && !session?.theme_id && !session?.theme_variant && session?.work_id && pref?.prefer_work_theme !== false) {
@@ -82,9 +83,14 @@ export default function ThemeManager() {
           }else theme=null;
         }
         const selected=theme ? paletteFor(theme as SavedTheme,dayNightDisplayVariant(theme as SavedTheme,session,preferredVariant,variant)):null;
-        if (selected) { applyCustomTheme(selected.palette,selected.variant,bothVariants(theme as SavedTheme)?'dual':'single',(theme as SavedTheme).name,preferredVariant); return; }
+        if (selected) {
+          applyCustomTheme(selected.palette,selected.variant,bothVariants(theme as SavedTheme)?'dual':'single',(theme as SavedTheme).name,preferredVariant);
+          applyCodeBlockStyle(resolveCodeBlockStyle(pref,session,theme as SavedTheme));
+          return;
+        }
       }
       applyTheme(variant,preferredVariant);
+      applyCodeBlockStyle(resolveCodeBlockStyle(pref,session,null));
     }
     // A failed read must preserve the applied theme until a later refresh.
     const refreshSafely = () => { void refresh().catch(() => {}); };

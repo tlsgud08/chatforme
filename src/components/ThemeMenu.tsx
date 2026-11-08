@@ -5,6 +5,8 @@ import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 import ThemePaletteEditor from './ThemePaletteEditor';
+import CodeBlockStyleSelect from './CodeBlockStyleSelect';
+import { normalizeCodeBlockStyle, type CodeBlockStyle } from '@/lib/codeBlockStyles';
 import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import './ThemeMenu.css';
 import { bothVariants, changePaletteMode, createPaletteDraft, DEFAULT_DARK, DEFAULT_LIGHT, paletteDraftColors, paletteFor, previewThemeVariant, secondaryTextStyles, validPalette, type SavedTheme, type ThemePaletteDraft, type ThemeVariant } from '@/lib/theme';
@@ -24,8 +26,8 @@ type Props = {
   onClose?: () => void;
 };
 const labels: Record<Tab,string>={all:'전체',work:'작품',mine:'내 테마',hub:'테마 허브',favorites:'즐겨찾기'};
-type Draft = ThemePaletteDraft & {name:string;description:string;ai_prompt:string;day_night_enabled:boolean;use_day_night_variants:boolean};
-function defaultDraft():Draft {return {name:'',description:'',ai_prompt:'',day_night_enabled:false,use_day_night_variants:true,...createPaletteDraft(null,currentVariant())};}
+type Draft = ThemePaletteDraft & {name:string;description:string;ai_prompt:string;day_night_enabled:boolean;use_day_night_variants:boolean;code_block_style:CodeBlockStyle};
+function defaultDraft():Draft {return {name:'',description:'',ai_prompt:'',day_night_enabled:false,use_day_night_variants:true,code_block_style:'basic',...createPaletteDraft(null,currentVariant())};}
 function currentVariant(): ThemeVariant {
   return previewThemeVariant();
 }
@@ -118,7 +120,7 @@ export default function ThemeMenu({userId,workId,workIds,multichatRoomId,allowWo
       :favorites.has(t.id);
     return active&&(!search.trim()||[t.name,t.description,combinedScope?workNames[t.work_id??'']:''].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
   }).sort((a,b)=>combinedScope?scopeWorkIds.indexOf(a.work_id!)-scopeWorkIds.indexOf(b.work_id!):0),[themes,tab,scopeWorkIds,userId,favorites,search,catalogScope,combinedScope,workNames]);
-  function edit(theme?:SavedTheme,preferred=variant){setEditing(theme??'new');setDraft(theme?{name:theme.name,description:theme.description,ai_prompt:theme.ai_prompt??'',day_night_enabled:theme.day_night_enabled??false,use_day_night_variants:theme.use_day_night_variants!==false,...createPaletteDraft(theme,preferred)}:defaultDraft());}
+  function edit(theme?:SavedTheme,preferred=variant){setEditing(theme??'new');setDraft(theme?{name:theme.name,description:theme.description,ai_prompt:theme.ai_prompt??'',day_night_enabled:theme.day_night_enabled??false,use_day_night_variants:theme.use_day_night_variants!==false,code_block_style:normalizeCodeBlockStyle(theme.code_block_style),...createPaletteDraft(theme,preferred)}:defaultDraft());}
   function changeDayNight(enabled:boolean){
     setDraft(d=>({...d,day_night_enabled:enabled}));
   }
@@ -133,7 +135,7 @@ export default function ThemeMenu({userId,workId,workIds,multichatRoomId,allowWo
     if(targetWork&&/:(낮|밤)$/.test(name)){showToast('작품 테마 이름의 :낮·:밤은 시간 전환 태그에 사용됩니다. 다른 이름을 지정해 주세요.');return;}
     if(targetWork&&themes.some(t=>t.work_id===targetWork&&t.name.trim()===name&&t.id!==(editing==='new'?null:editing?.id))){showToast('사용 가능한 작품 테마에 같은 이름이 있습니다. 다른 이름을 사용해 주세요.');return;}
     setBusy(true);
-    const payload={name:draft.name.trim(),description:draft.description.trim(),ai_prompt:draft.ai_prompt.trim(),day_night_enabled:!!targetWork&&!!draft.day_night_enabled,use_day_night_variants:draft.use_day_night_variants!==false,...colors};
+    const payload={name:draft.name.trim(),description:draft.description.trim(),ai_prompt:draft.ai_prompt.trim(),day_night_enabled:!!targetWork&&!!draft.day_night_enabled,use_day_night_variants:draft.use_day_night_variants!==false,code_block_style:normalizeCodeBlockStyle(draft.code_block_style),...colors};
     const result=editing==='new'
       ?await supabase.from('themes').insert({...payload,owner_id:userId,work_id:workId&&(scope==='work'||allowWorkCreate)?workId:null,work_shared:allowWorkCreate,is_published:false}).select('*').single()
       :await supabase.from('themes').update(payload).eq('id',(editing as SavedTheme).id).select('*').single();
@@ -158,7 +160,7 @@ export default function ThemeMenu({userId,workId,workIds,multichatRoomId,allowWo
   }
   async function copy(t:SavedTheme){
     if(t.work_id){showToast('작품 전용 테마는 다른 작품으로 복사할 수 없습니다.');return;}
-    const {error}=await supabase.from('themes').insert({owner_id:userId,work_id:null,name:t.name.slice(0,74)+' (복사본)',description:t.description,dark_colors:t.dark_colors,light_colors:t.light_colors,is_published:false,copied_from_id:t.id});
+    const {error}=await supabase.from('themes').insert({owner_id:userId,work_id:null,name:t.name.slice(0,74)+' (복사본)',description:t.description,dark_colors:t.dark_colors,light_colors:t.light_colors,code_block_style:normalizeCodeBlockStyle(t.code_block_style),is_published:false,copied_from_id:t.id});
     if(error)showToast(error.message);else{setTab('mine');await load();}
   }
   async function remove(t:SavedTheme){
@@ -170,6 +172,7 @@ export default function ThemeMenu({userId,workId,workIds,multichatRoomId,allowWo
     <div className="flex items-center justify-between"><h3 className="font-semibold text-white">{editing==='new'?'테마 제작':'테마 편집'}</h3><button disabled={busy} onClick={()=>setEditing(null)} className="text-sm text-slate-400">취소</button></div>
     <label className="text-xs text-slate-400">테마 이름<input maxLength={80} value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
     <label className="text-xs text-slate-400">설명<textarea maxLength={500} rows={2} value={draft.description} onChange={e=>setDraft(d=>({...d,description:e.target.value}))} className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>
+    <CodeBlockStyleSelect value={normalizeCodeBlockStyle(draft.code_block_style)} disabled={busy} onChange={style=>setDraft(d=>({...d,code_block_style:style}))}/>
     {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="text-xs text-slate-400">AI 적용 조건<textarea maxLength={4000} rows={drawer?3:4} value={draft.ai_prompt} onChange={e=>setDraft(d=>({...d,ai_prompt:e.target.value}))} placeholder="이 테마를 언제 사용해야 하는지 설명하세요." className="mt-1 w-full rounded-lg bg-surface p-3 text-sm text-white"/></label>}
     {(scope==='work'||allowWorkCreate||!!(editing!=='new'&&editing?.work_id))&&<label className="flex items-start gap-2 text-xs text-slate-400">
       <input type="checkbox" aria-label="시간 전환을 켰을 때만 사용" disabled={busy}
