@@ -15,6 +15,7 @@
   font: 400 14px/1.7 -apple-system, BlinkMacSystemFont, "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 }
 .status-code-frame .cf-raw code { display: block; max-width: 100%; padding: 0; color: inherit; background: transparent; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.status-code-frame .cf-user-muted-text { color: var(--cf-fg); font-style: normal; opacity: .65; }
 .status-code-frame .cf-terminal-cap,
 .status-code-frame .cf-file-tab { font-size: 11px; }
 .status-code-frame .cf-head[hidden] { display: none; }

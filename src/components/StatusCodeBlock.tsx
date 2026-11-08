@@ -36,7 +36,9 @@ export default function StatusCodeBlock({ children, mutedTextClassName = 'chat-m
   const meta = code?.props.node?.data?.meta;
   const title = [language, typeof meta === 'string' ? meta : ''].filter(Boolean).join(' ').trim();
   const content = code?.props.children ?? children;
-  const body = <pre className="cf-raw"><code>{formatEmphasis(content, mutedTextClassName)}</code></pre>;
+  // A user bubble's on-accent color does not apply to a page-colored block.
+  const blockMutedTextClassName = mutedTextClassName === 'chat-user-muted-text' ? 'cf-user-muted-text' : mutedTextClassName;
+  const body = <pre className="cf-raw"><code>{formatEmphasis(content, blockMutedTextClassName)}</code></pre>;
   const foldable = style !== 'basic';
   const fold = foldable && title ? <button className="cf-fold" type="button" aria-expanded={!collapsed}
     aria-controls={paneId} onClick={() => setCollapsed(value => !value)}>

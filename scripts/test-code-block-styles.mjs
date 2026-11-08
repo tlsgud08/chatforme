@@ -41,12 +41,17 @@ const child = h('code', { className: 'language-기록', node: { data: { meta: '�
 const legacy = renderToStaticMarkup(h(Legacy, null, child));
 assert.equal(renderToStaticMarkup(h(Status, { style: 'legacy' }, child)), legacy, 'Legacy must be the exact existing rendered component');
 assert.ok(legacy.includes('bg-[#232220]') && legacy.includes('bg-[#45443f]') && legacy.includes('text-[#dedde7]'));
+assert.equal(renderToStaticMarkup(h(Status, {style:'legacy',mutedTextClassName:'chat-user-muted-text'}, child)),
+  renderToStaticMarkup(h(Legacy, {mutedTextClassName:'chat-user-muted-text'}, child)), 'Legacy user emphasis stays exactly unchanged');
 for (const { value } of styles.CODE_BLOCK_STYLES.filter(style => style.value !== 'legacy')) {
   const html = renderToStaticMarkup(h(Status, { style: value }, child));
   assert.ok(html.includes(`status-code-frame cf-${value}`));
   assert.ok(html.includes('기록 제목'), value + ': the original fence info becomes the title');
   assert.ok(html.includes('  첫 줄\n') && html.includes('<strong class="font-bold">위독</strong>'));
   assert.ok(html.includes('&lt;script&gt;') && !html.includes('<script>'));
+  const userHtml=renderToStaticMarkup(h(Status,{style:value,mutedTextClassName:'chat-user-muted-text'},child));
+  assert.ok(userHtml.includes('class="cf-user-muted-text"')&&!userHtml.includes('class="chat-user-muted-text"'),
+    'themed user emphasis follows its block foreground in both light and dark palettes');
   if (value === 'basic') assert.ok(!html.includes('cf-fold') && !html.includes('cf-foot'));
   if (value === 'hanji') assert.ok(!html.includes('cf-head-tag') && html.includes('記'));
   if (value === 'noir') assert.ok(html.includes('TOP SECRET') && !html.includes('극비'));
