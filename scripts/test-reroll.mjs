@@ -34,6 +34,7 @@ globalThis.fetch = async (_url, options) => {
 };
 try {
   const { generate } = await server.ssrLoadModule('/src/lib/llm/index.ts');
+  const { createGenerationProgress } = await server.ssrLoadModule('/src/lib/generationProgress.ts');
   const { assemblePrompt } = await server.ssrLoadModule('/src/lib/prompt/assemble.ts');
   const { applySemiContext } = await server.ssrLoadModule('/src/lib/semiSession.ts');
   const { withoutSyncDateTags } = await server.ssrLoadModule('/src/lib/syncDate.ts');
@@ -47,6 +48,7 @@ try {
   const registry = new Map();
   let semiContext = null;
   const env = {
+    generationProgress: createGenerationProgress(),
     AbortController, DOMException, crypto, performance, setTimeout, clearTimeout,
     GENERATION_TIMEOUT_MS: 60_000, DRAFT_SAVE_INTERVAL_MS: 1000,
     pendingSave: null, user: { id: 'owner' }, sessionId: 'room', session, work: { id: 'work', main_prompt: 'main prompt' },

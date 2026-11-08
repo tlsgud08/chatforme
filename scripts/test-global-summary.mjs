@@ -63,6 +63,21 @@ try{
  assert.equal((await q('select summary_level_override from sessions where id=$1',[created]))[0].summary_level_override,10,'reapplying does not reset saved values');
  assert.equal((await q('select summary_extra_note from profiles where id=$1',[b]))[0].summary_extra_note,'memory note');
  assert.equal((await q('select summary_narrative_target_tokens_override from sessions where id=$1',[created]))[0].summary_narrative_target_tokens_override,'약 8000');
+ // New profiles use 0/OFF; pre-existing saved choices remain untouched.
+ await db.exec('reset role');
+ await q("insert into auth.users(id,email) values('00000000-0000-0000-0000-000000000004','new@test')");
+ assert.deepEqual((await q("select summary_level,summary_allow_omission from profiles where id='00000000-0000-0000-0000-000000000004'"))[0],{summary_level:0,summary_allow_omission:false});
+ await login(b);const resultRoom=await rpc('create_session_with_start',[work,null,null]);
+ await rpc('save_generated_summary',[resultRoom,'PARTIAL',0,'[]','',0,1,2,0.01,'length','MAX_TOKENS']);
+ let note=(await q('select * from summary_versions where session_id=$1',[resultRoom]))[0];
+ assert.equal(note.content,'PARTIAL');assert.equal(note.finish_reason,'length');assert.equal(note.native_finish_reason,'MAX_TOKENS');
+ await rpc('save_generated_summary',[resultRoom,'COMPLETE',0,'[]','PARTIAL',0,1,2,0.01,'stop','STOP']);
+ note=(await q('select * from summary_versions where session_id=$1',[resultRoom]))[0];assert.equal(note.finish_reason,'stop');
+ await login(a);await assert.rejects(()=>rpc('save_generated_summary',[resultRoom,'ATTACK',0,'[]','COMPLETE',0,1,2,0,'length',null]),/inaccessible/);
+ await db.exec("reset role;create function reject_summary_metadata() returns trigger language plpgsql as $$begin if new.finish_reason='fixture-fail' then raise exception 'metadata failure';end if;return new;end$$;create trigger reject_summary_metadata before update on summary_versions for each row execute function reject_summary_metadata();");
+ await login(b);await assert.rejects(()=>rpc('save_generated_summary',[resultRoom,'MUST ROLLBACK',0,'[]','COMPLETE',0,1,2,0.01,'fixture-fail',null]),/metadata failure/);
+ assert.equal((await q('select summary from sessions where id=$1',[resultRoom]))[0].summary,'COMPLETE');
+ assert.equal((await q('select finish_reason from summary_versions where session_id=$1',[resultRoom]))[0].finish_reason,'stop');
  await login(null);await assert.rejects(()=>rpc('save_global_summary_prompt',['NEW GLOBAL','anon']));
  console.log('Global summary DB: shared admin prompt, restored personal/room parameters, persistence, snapshot defaults, bounds, RLS, non-destructive migration replay and atomic admin save passed');
 }finally{await db.close();}
@@ -74,7 +89,7 @@ try{
  assert.equal(await loadGlobalSummaryPrompt(),'GLOBAL CURRENT');value='GLOBAL CHANGED';assert.equal(await loadGlobalSummaryPrompt(),'GLOBAL CHANGED','subsequent summaries read live global state');
  value='';await assert.rejects(()=>loadGlobalSummaryPrompt(),/전역/);error=true;await assert.rejects(()=>loadGlobalSummaryPrompt());
  const base='GLOBAL EXACT\nPROMPT',profile={summary_level:3,summary_allow_omission:true,summary_parameters_enabled:true,summary_extra_note:'  EXTRA NOTE  '};
- assert.equal(summaryPromptWithParameters(base,{},{}),base+'\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 5\nALLOW_OMISSION = ON\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.');
+ assert.equal(summaryPromptWithParameters(base,{},{}),base+'\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.');
  assert.equal(summaryPromptWithParameters(base,profile,{summary_level_override:0,summary_allow_omission_override:false}),base+'\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.\n\n[ADDITIONAL NOTE]\nEXTRA NOTE');
  assert.equal(summaryPromptWithParameters(base,profile,{summary_parameters_enabled_override:false}),base+'\n\n[ADDITIONAL NOTE]\nEXTRA NOTE','disabling parameters keeps the original independent extra-note behavior');
  assert.equal(summaryPromptWithParameters(base,{...profile,summary_extra_note:' ',summary_parameters_enabled:false},{}),base,'OFF with no note preserves the exact shared instruction');

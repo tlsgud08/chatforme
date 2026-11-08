@@ -1,3 +1,4 @@
+import { summaryCompletionWarning } from '@/lib/summaryCompletion';
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { loadFriendSnapshot, type FriendRelationship } from '@/lib/friends';
@@ -125,14 +126,14 @@ export default function SemiSessionSettings({ sessionId, userId, busy, onPublish
         {status && <p role="status" className="inu-help">{status}</p>}
         {link?.status === 'active' ? <>
           <section className="inu-section"><h3>받은 PC2 페르소나</h3><p>{peerPersona?.name || '페르소나 미선택'}</p><pre>{peerPersona?.description || '등록된 설명이 없어요.'}</pre><p className="inu-help">{peer?.persona_override ? '상대가 전송용으로 직접 편집한 페르소나예요.' : '상대가 현재 선택한 페르소나예요. 요약 전송 전에도 다음 AI 요청에 전달돼요.'}</p></section>
-          <section className="inu-section"><h3>받은 PC2 세션 요약</h3>{peer ? <><p className="inu-help">요약 당시 인물: {peer.persona?.name || '페르소나 없음'} · {new Date(peer.sent_at).toLocaleString('ko-KR')}</p><pre>{peer.content}</pre></> : <p className="inu-help">상대가 아직 전달용 요약을 보내지 않았어요.</p>}</section>
+          <section className="inu-section"><h3>받은 PC2 세션 요약</h3>{peer ? <><p className="inu-help">요약 당시 인물: {peer.persona?.name || '페르소나 없음'} · {new Date(peer.sent_at).toLocaleString('ko-KR')}</p>{summaryCompletionWarning(peer.finish_reason) && <p role="alert" className="inu-help text-amber-300">{summaryCompletionWarning(peer.finish_reason)}</p>}<pre>{peer.content}</pre></> : <p className="inu-help">상대가 아직 전달용 요약을 보내지 않았어요.</p>}</section>
           <section className="inu-section"><h3>내가 보낸 페르소나·요약</h3>{sent ? draft ? <>
             <label className="inu-field-label" htmlFor="semi-export-name">전송한 페르소나 이름</label><input id="semi-export-name" disabled={saving} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} />
             <label className="inu-field-label" htmlFor="semi-export-persona">전송한 페르소나 설명</label><textarea id="semi-export-persona" rows={5} disabled={saving} value={draft.description} onChange={event => setDraft({ ...draft, description: event.target.value })} />
             <label className="inu-field-label" htmlFor="semi-export-summary">전송한 요약</label><textarea id="semi-export-summary" rows={14} disabled={saving} value={draft.content} onChange={event => setDraft({ ...draft, content: event.target.value })} />
             <p className="inu-help">상대에게 전달되는 내용만 수정해요. 원본 페르소나와 내 요약 노트는 유지돼요. 다시 요약을 생성하면 새 생성본으로 교체돼요.</p>
             <div className="inu-two-fields"><button type="button" className="inu-button inu-primary" disabled={disabled || !draft.content.trim()} onClick={() => void saveExport()}>{saving ? '저장 중…' : '전송 내용 저장'}</button><button type="button" className="inu-button" disabled={saving} onClick={() => setDraft(null)}>편집 취소</button></div>
-          </> : <><p className="inu-help">{sent.persona?.name || '페르소나 없음'} · {new Date(sent.sent_at).toLocaleString('ko-KR')}{sent.edited_at ? ` · 수정 ${new Date(sent.edited_at).toLocaleString('ko-KR')}` : ''}</p><pre>{sent.persona?.description || '등록된 설명이 없어요.'}</pre><pre>{sent.content}</pre><button type="button" className="inu-button" disabled={disabled} onClick={() => setDraft({ linkId: link.id, baseline: sent, content: sent.content, name: sent.persona?.name ?? '', description: sent.persona?.description ?? '' })}>내 전송 내용 편집</button></> : <p className="inu-help">아직 전달용 요약을 보내지 않았어요.</p>}</section>
+          </> : <><p className="inu-help">{sent.persona?.name || '페르소나 없음'} · {new Date(sent.sent_at).toLocaleString('ko-KR')}{sent.edited_at ? ` · 수정 ${new Date(sent.edited_at).toLocaleString('ko-KR')}` : ''}</p><pre>{sent.persona?.description || '등록된 설명이 없어요.'}</pre>{summaryCompletionWarning(sent.finish_reason) && <p role="alert" className="inu-help text-amber-300">{summaryCompletionWarning(sent.finish_reason)}</p>}<pre>{sent.content}</pre><button type="button" className="inu-button" disabled={disabled} onClick={() => setDraft({ linkId: link.id, baseline: sent, content: sent.content, name: sent.persona?.name ?? '', description: sent.persona?.description ?? '' })}>내 전송 내용 편집</button></> : <p className="inu-help">아직 전달용 요약을 보내지 않았어요.</p>}</section>
         </> : <p className="inu-help">연결이 해제되었어요. 상대 정보는 AI에게 전달되지 않아요.</p>}
       </div>
     </SessionMenuPage>}

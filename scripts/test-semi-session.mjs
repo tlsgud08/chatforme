@@ -96,7 +96,7 @@ try{
  assert.equal(ticket.session.summary,'LOCAL A');assert.equal(ticket.persona.name,'엘리');assert.equal(ticket.persona.description,'JOURNALIST');
  await assert.rejects(()=>invoke('prepare',sa,link.id),/이미/);
  await assert.rejects(()=>invoke('publish',sa,link.id,{token:'wrong',content:'X'}),/변경/);
- const publish={token:ticket.token,content:'EXPORTED A',through_turn:1,input_tokens:10,output_tokens:20,cost:0.01};
+ const publish={generation_finish_reason:'length',generation_native_finish_reason:'MAX_TOKENS',token:ticket.token,content:'EXPORTED A',through_turn:1,input_tokens:10,output_tokens:20,cost:0.01};
  await invoke('publish',sa,link.id,publish);
  await invoke('publish',sa,link.id,publish);
  assert.deepEqual((await q('select summary,summary_last_turn from sessions where id=$1',[sa]))[0],beforeSession);
@@ -104,7 +104,7 @@ try{
  assert.deepEqual(await q('select * from summary_versions where session_id=$1',[sa]),beforeVersions);
  assert.equal(Number((await q('select total_cost from sessions where id=$1',[sa]))[0].total_cost),0.01,'lost acknowledgement does not double-account');
  await login(b);let saved=(await q('select * from semi_session_links where id=$1',[link.id]))[0];
- assert.equal(saved.snapshot_a.content,'EXPORTED A');assert.equal(saved.snapshot_a.persona.name,'엘리');
+ assert.equal(saved.snapshot_a.finish_reason,'length');assert.equal(saved.snapshot_a.native_finish_reason,'MAX_TOKENS');assert.equal(saved.snapshot_a.content,'EXPORTED A');assert.equal(saved.snapshot_a.persona.name,'엘리');
  context=await rpc('semi_session_context',[sb]);assert.equal(context.peer_persona.name,'엘리');assert.equal(context.peer.content,'EXPORTED A');
  await login(a);await q("update personas set description='UPDATED PERSONA' where id=$1",[pa]);
  await login(b);context=await rpc('semi_session_context',[sb]);assert.equal(context.peer_persona.description,'UPDATED PERSONA');assert.equal(context.peer.persona.description,'JOURNALIST','snapshot identity remains tied to its original source');

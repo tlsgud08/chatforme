@@ -3,8 +3,8 @@ import type { Profile, Session } from '@/types/db';
 
 /** Keep the shared prompt intact and append the original per-user/room controls. */
 export function summaryPromptWithParameters(prompt: string, profile: Partial<Profile>, session: Partial<Session>): string {
-  const level = session.summary_level_override ?? profile.summary_level ?? 5;
-  const omission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? true;
+  const level = session.summary_level_override ?? profile.summary_level ?? 0;
+  const omission = session.summary_allow_omission_override ?? profile.summary_allow_omission ?? false;
   const enabled = session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true;
   const target = session.summary_narrative_target_tokens_override?.trim() || profile.summary_narrative_target_tokens?.trim() || '3000';
   const parameters = enabled ? `[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = ${level}\nALLOW_OMISSION = ${omission ? 'ON' : 'OFF'}\nCORE_NARRATIVE_TARGET_TOKENS = ${target}\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.` : '';

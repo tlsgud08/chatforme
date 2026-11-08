@@ -87,6 +87,8 @@ export interface Usage {
 
 export interface GenerateResult {
   text: string;
+  finishReason: string | null;
+  nativeFinishReason: string | null;
   usage: Usage;
   cacheDiagnostic: CacheDiagnostic;
 }
