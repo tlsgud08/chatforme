@@ -19,6 +19,7 @@ import { useUsdKrwRate } from '@/lib/exchangeRate';
 import { loadTurnPriceWarning, saveTurnPriceWarning, type TurnPriceWarningCurrency } from '@/lib/turnPriceWarning';
 import Toggle from '@/components/Toggle';
 import { useWorkCredits, saveWorkCredits } from '@/lib/workCredits';
+import { clearImageCaches } from '@/lib/imageCache';
 
 export default function SettingsPage() {
   const { user, signOut, isAdmin, canManageSettings } = useAuth();
@@ -35,6 +36,8 @@ export default function SettingsPage() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
+  const [clearingImageCache, setClearingImageCache] = useState(false);
+  const [imageCacheMessage, setImageCacheMessage] = useState('');
   const [turnPriceWarning, setTurnPriceWarning] = useState(loadTurnPriceWarning);
   const workCredits = useWorkCredits();
   const exchange = useUsdKrwRate();
@@ -170,6 +173,20 @@ export default function SettingsPage() {
   function flash(msg: string) {
     setSavedMsg(msg);
     setTimeout(() => setSavedMsg(''), 2000);
+  }
+
+  async function handleClearImageCache() {
+    if (clearingImageCache) return;
+    setClearingImageCache(true);
+    setImageCacheMessage('');
+    try {
+      await clearImageCaches();
+      setImageCacheMessage('이미지 캐시를 삭제했습니다. 이미지는 다음에 볼 때 다시 불러옵니다.');
+    } catch {
+      setImageCacheMessage('이미지 캐시를 삭제하지 못했습니다. 브라우저의 저장소 접근을 확인한 뒤 다시 시도해 주세요.');
+    } finally {
+      setClearingImageCache(false);
+    }
   }
 
   function updateTurnPriceWarning(next: typeof turnPriceWarning) {
@@ -311,6 +328,21 @@ export default function SettingsPage() {
           </div>
         </section>
       )}
+
+      <section data-settings-section="output" aria-labelledby="image-cache-heading">
+        <h2 id="image-cache-heading" className="mb-3 font-semibold text-white">이미지 캐시</h2>
+        <p className="mb-3 text-xs text-slate-500">이 기기·브라우저에 저장된 채팅 이미지와 작품 썸네일 캐시를 삭제합니다. 채팅 기록, 설정, 업로드한 원본 이미지는 유지됩니다.</p>
+        <button
+          type="button"
+          disabled={clearingImageCache}
+          aria-busy={clearingImageCache}
+          onClick={() => void handleClearImageCache()}
+          className="w-full rounded-lg bg-surface2 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {clearingImageCache ? '이미지 캐시 삭제 중…' : '이미지 캐시 삭제'}
+        </button>
+        <p role="status" className="mt-2 text-xs text-slate-400">{imageCacheMessage}</p>
+      </section>
 
       {profile && (
         <section data-settings-section="summary">
