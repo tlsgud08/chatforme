@@ -29,6 +29,7 @@ import { workThemeScopeKey } from '@/lib/workCombination';
 import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import { resolvePromptCache } from '@/lib/llm/promptCache';
 import { loadGlobalSummaryPrompt, loadSemiSyncSummaryPrompt, summaryPromptWithParameters } from '@/lib/summaryPrompt';
+import { summaryNarrativeConfig, summaryAchievementToast } from '@/lib/summaryNarrative';
 import { withoutSyncDateTags } from '@/lib/syncDate';
 import { applySemiContext, loadSemiContext, semiAction, type SemiPreparation } from '@/lib/semiSession';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
@@ -689,7 +690,8 @@ export default function ChatPage() {
       const liveTheme=await readLiveThemeContext(true,summaryController.signal);
       // Include the hidden initial context in the first archive so important
       // scenario setup is not lost after its short keep_turns window expires.
-      const sourceMode = sourceSession.summary_source_mode_override ?? profile.summary_source_mode ?? 'incremental';
+      const sourceMode = sourceSession.summary_source_mode_override ?? profile.summary_source_mode ?? 'full';
+      const narrativeConfig = summaryNarrativeConfig(profile, sourceSession);
       await recoverExpiredResponses(sourceSession.id);
       const completeSourceMessages = await fetchAllSessionMessages(sourceSession.id);
       const allActiveMessages = completeSourceMessages.filter((message) => message.is_active_variant !== false);
@@ -774,6 +776,8 @@ export default function ChatPage() {
       if (completionWarning) addError(completionWarning);
       setMessages(current => current.map(message => ids.includes(message.id) ? { ...message, is_summarized: true } : message));
       setSession(current => current?.id === session.id ? { ...current, ...updated } : current);
+      const achievement = summaryAchievementToast(result.text, narrativeConfig, result.finishReason);
+      showToast(achievement.message, achievement);
       return true;
     } catch (error) {
       addError(`${shareTarget ? '전달용 요약' : '요약'} 생성 실패: ${describeUnknownError(error)}`);

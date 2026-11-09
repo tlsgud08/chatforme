@@ -124,7 +124,7 @@ export default function SettingsPage() {
         summary_narrative_target_tokens: profile.summary_narrative_target_tokens ?? '3000',
         summary_parameters_enabled: profile.summary_parameters_enabled,
         summary_extra_note: profile.summary_extra_note,
-        summary_source_mode: profile.summary_source_mode,
+        summary_source_mode: profile.summary_source_mode ?? 'full',
       })
       .eq('id', profile.id);
     if (error) { flash('프로필 저장 실패: ' + error.message); return; }
@@ -358,9 +358,9 @@ export default function SettingsPage() {
               onReasoningChange={setSummaryReasoning}
             />
             <label className="text-xs text-slate-400">요약 입력 범위
-              <select value={profile.summary_source_mode ?? 'incremental'} onChange={(e) => setProfile({ ...profile, summary_source_mode: e.target.value as 'incremental' | 'full' })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none">
-                <option value="incremental">이전 요약 + 이후 메시지</option>
+              <select value={profile.summary_source_mode ?? 'full'} onChange={(e) => setProfile({ ...profile, summary_source_mode: e.target.value as 'incremental' | 'full' })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none">
                 <option value="full">이전 요약 제외 + 세션 전체 메시지</option>
+                <option value="incremental">이전 요약 + 이후 메시지</option>
               </select>
             </label>
             <label className="text-xs text-slate-400">Summary level (0~10)

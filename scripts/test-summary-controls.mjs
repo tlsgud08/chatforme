@@ -1,3 +1,4 @@
+import { approvedSummaryLengthDirective } from './fixtures/summary-length.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -102,6 +103,7 @@ for (const [isAdmin, canManageSettings] of [[true,true],[false,true],[false,fals
 }
 console.log('Settings page: founder sees role management, delegates see settings only, members see neither.');
 
+const { summaryNarrativeConfig, summaryAchievementToast } = await import('data:text/javascript;base64,' + Buffer.from(ts.transpileModule(read('src/lib/summaryNarrative.ts'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText).toString('base64'));
 const { summaryCompletionWarning, summaryResultMetadata } = vm.runInNewContext(compile(read('src/lib/summaryCompletion.ts').replace(/^import .*$/gm, '').replace(/\bexport /g, '')) + '\n({summaryCompletionWarning, summaryResultMetadata})');
 const summaryPromptWithParameters = vm.runInNewContext(compile(read('src/lib/summaryPrompt.ts')
   .replace(/^import .*$/gm, '').replace(/\bexport /g, '')) + '\nsummaryPromptWithParameters');
@@ -122,7 +124,7 @@ const runSummary = vm.runInNewContext(compile(processSource) + '\nprocessSummary
   summaryLock: { current: false }, lock: { current: false }, controller: { current: null },
   getApiKey: () => 'fixture', setSummaryGenerating() {}, AbortController, setTimeout, clearTimeout,
   registerAccountTask: () => () => {}, multichatTranscript: async () => transcript,
-  loadGlobalSummaryPrompt: async () => 'ADMIN CORE', summaryPromptWithParameters, summaryCompletionWarning, summaryResultMetadata,
+  loadGlobalSummaryPrompt: async () => 'ADMIN CORE', summaryNarrativeConfig, summaryAchievementToast, showToast() {}, summaryPromptWithParameters, summaryCompletionWarning, summaryResultMetadata,
   normalizeReasoning: () => ({}), stripThemeDirectives: text => text,
   generate: async (_provider, request) => { requests.push(request); return { text: 'MEMORY', finishReason: mockFinishReason, nativeFinishReason: 'NATIVE', usage: { inputTokens: 1, outputTokens: 1, cost: 0 } }; },
   supabase: { from: () => ({ select() { return this; }, eq() { return this; }, in() { return this; }, single: async () => ({ data: room }) }),
@@ -131,7 +133,7 @@ const runSummary = vm.runInNewContext(compile(processSource) + '\nprocessSummary
 });
 await runSummary({ id: 'ticket', token: 'token', through: 1, mergeIds: [] });
 assert.deepEqual(errors, []);
-assert.equal(requests[0].systemParts.core, 'ADMIN CORE\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.\n\n[ADDITIONAL NOTE]\nEXTRA');
+assert.equal(requests[0].systemParts.core, 'ADMIN CORE\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.\n\n[ADDITIONAL NOTE]\nEXTRA'+'\n\n'+approvedSummaryLengthDirective('3000'));
 assert.equal(completed[0].name, 'finish_multichat_summary');
 room.summary_parameters_enabled_override = false;
 await runSummary({ id: 'ticket2', token: 'token', through: 1, mergeIds: [] });

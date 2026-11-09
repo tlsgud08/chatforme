@@ -17,6 +17,7 @@ import { showConfirmDialog } from '@/lib/dialog';
 import { multichatTranscript, prepareMultichatContext } from '@/lib/multichatContext';
 import { registerAccountTask } from '@/lib/accountTasks';
 import { loadGlobalSummaryPrompt, summaryPromptWithParameters } from '@/lib/summaryPrompt';
+import { summaryNarrativeConfig, summaryAchievementToast } from '@/lib/summaryNarrative';
 import { normalizeReasoning } from '@/lib/modelPreferences';
 import { finalThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives } from '@/lib/themeDirectives';
 import { requestThemeRefresh, paletteFor } from '@/lib/theme';
@@ -197,9 +198,10 @@ export default function MultichatPage() {
       const end = Math.min(ticket.through, latestComplete);
       const source = transcript.filter(m => m.is_active_variant !== false && m.generation_status === 'complete' && m.turn_index <= end);
       if (transcript.some(m => m.generation_status === 'streaming') || !source.length) throw new Error('완료된 대화가 없습니다.');
-      const previous = merging.length ? merging.map(version => version.content).join('\n\n') : (s.summary_source_mode_override ?? profile.summary_source_mode) === 'full' ? '' : s.summary;
+      const previous = merging.length ? merging.map(version => version.content).join('\n\n') : (s.summary_source_mode_override ?? profile.summary_source_mode ?? 'full') === 'full' ? '' : s.summary;
       const body = merging.length ? '' : source.filter(m => !previous || m.turn_index > s.summary_last_turn || m.is_hidden).map(m => `[${m.role === 'user' ? 'PC' : 'AI'}]\n${stripThemeDirectives(m.content)}`).join('\n\n');
       const model = s.summary_model_override || profile.summary_model || profile.default_model;
+      const narrativeConfig = summaryNarrativeConfig(profile, s);
       const result = await generate('openrouter', { apiKey: key, model, sessionId: `${s.id}:summary`, signal: abort.signal, reasoning: normalizeReasoning(s.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', model), maxOutputTokens: null,
         systemParts: { core: summaryPromptWithParameters(await loadGlobalSummaryPrompt(abort.signal), profile, s), persona: '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user', content: [previous && `Previous Summary:\n${previous}`, body && `Dialogue:\n${body}`].filter(Boolean).join('\n\n') }],
@@ -207,13 +209,38 @@ export default function MultichatPage() {
       if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
       const completionMetadata = summaryResultMetadata(result);
       const completion = { ...completionMetadata, target_room: s.id, request_id: ticket.id, token: ticket.token, summary_text: result.text, through_turn: end, previous_summary: s.summary, in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost, source_versions: source.map(m => ({ id: m.id, version: m.content_version ?? 0 })) };
-      setSummaryPending(completion);
-      if (user && roomId) { try { localStorage.setItem(storedKey(user.id, roomId) + ':summary', JSON.stringify(completion)); } catch { /* retained in memory */ } }
+      const localCompletion = { ...completion, narrative_config: narrativeConfig };
+      setSummaryPending(localCompletion);
+      if (user && roomId) { try { localStorage.setItem(storedKey(user.id, roomId) + ':summary', JSON.stringify(localCompletion)); } catch { /* retained in memory */ } }
       const { data: saved, error } = await supabase.rpc('finish_multichat_summary', completion);
       if (error) throw error; setSummaryPending(null); if (user && roomId) { try { localStorage.removeItem(storedKey(user.id, roomId) + ':summary'); } catch { /* acknowledged */ } } patchSession(saved as Session);
       const warning = summaryCompletionWarning(completionMetadata.generation_finish_reason);
       if (warning) report(warning);
+      const achievement = summaryAchievementToast(result.text, narrativeConfig, result.finishReason);
+      showToast(achievement.message, achievement);
     } catch (error) { await supabase.rpc('fail_multichat_summary', { target_room: data.room.id, request_id: ticket.id, token: ticket.token, error_text: errorText(error) }); report(error); } finally { clearTimeout(timeout); unregister(); controller.current = null; summaryLock.current = false; setSummaryGenerating(false); await refresh().catch(report); }
+  }
+  async function retrySummarySave() {
+    if (!summaryPending || summaryLock.current) return;
+    summaryLock.current = true; setSummaryGenerating(true);
+    try {
+      // The target snapshot belongs to local notification metadata, not RPC arguments.
+      const { narrative_config, ...completion } = summaryPending;
+      const { data: saved, error } = await supabase.rpc('finish_multichat_summary', completion);
+      if (error) throw error;
+      setSummaryPending(null);
+      if (user && roomId) { try { localStorage.removeItem(storedKey(user.id, roomId) + ':summary'); } catch { /* acknowledged */ } }
+      patchSession(saved as Session);
+      const warning = summaryCompletionWarning(completion.generation_finish_reason as string | undefined);
+      if (warning) report(warning);
+      const config = narrative_config as ReturnType<typeof summaryNarrativeConfig> | undefined;
+      if (config && typeof config.target === 'string' && typeof config.enabled === 'boolean') {
+        const achievement = summaryAchievementToast(String(completion.summary_text), config, completion.generation_finish_reason as string | undefined);
+        showToast(achievement.message, achievement);
+      }
+      await refresh();
+    } catch (error) { report(error); }
+    finally { summaryLock.current = false; setSummaryGenerating(false); }
   }
   async function runGeneration(retry = false) {
     if (!data?.profile || !me || lock.current || pending || summaryLock.current) return;
@@ -365,7 +392,7 @@ export default function MultichatPage() {
         {isHost ? <button disabled={data.members.length !== 2 || busy} onClick={() => void supabase.rpc('start_multichat', { target_room: room.id }).then(({ error }) => error ? report(error) : refresh())} className="mt-4 w-full rounded-lg bg-brand py-3 font-semibold text-white disabled:opacity-40">함께 시작하기</button> : <p className="mt-5 text-center text-sm text-slate-400">방장이 시작하기를 기다리고 있어요.</p>}
       </> : <button disabled={data.members.length >= 2 || busy} className="w-full rounded-lg bg-brand py-3 text-white disabled:opacity-40" onClick={() => void join()}>{data.members.length < 2 ? '바로 참가하기' : '방이 가득 찼어요'}</button>}
     </div> : !me ? <p className="p-6 text-sm text-slate-400">진행 중인 방이에요. 두 참여자만 대화를 열 수 있어요.</p> : <>
-      {summaryPending && <div role="alert" className="border-b border-surface2 p-3 text-xs text-amber-300">요약 응답을 보관 중입니다. <button className="underline" onClick={async () => { const saved = await supabase.rpc('finish_multichat_summary', summaryPending); if (saved.error) report(saved.error); else { setSummaryPending(null); if (user && roomId) { try { localStorage.removeItem(storedKey(user.id, roomId) + ':summary'); } catch { /* acknowledged */ } } patchSession(saved.data as Session); const warning = summaryCompletionWarning(summaryPending.generation_finish_reason as string | undefined); if (warning) report(warning); await refresh(); } }}>요약 저장 재시도</button><button className="ml-3 underline" onClick={() => downloadConversationText(String(summaryPending.summary_text), conversationFilename(room.title + '_보관요약'))}>TXT 보관</button><button className="ml-3 underline" onClick={() => { setSummaryPending(null); if (user && roomId) { try { localStorage.removeItem(storedKey(user.id, roomId) + ':summary'); } catch { /* local copy only */ } } }}>기기 사본 닫기</button></div>}
+      {summaryPending && <div role="alert" className="border-b border-surface2 p-3 text-xs text-amber-300">요약 응답을 보관 중입니다. <button className="underline" disabled={summaryGenerating} onClick={() => void retrySummarySave()}>요약 저장 재시도</button><button className="ml-3 underline" onClick={() => downloadConversationText(String(summaryPending.summary_text), conversationFilename(room.title + '_보관요약'))}>TXT 보관</button><button className="ml-3 underline" onClick={() => { setSummaryPending(null); if (user && roomId) { try { localStorage.removeItem(storedKey(user.id, roomId) + ':summary'); } catch { /* local copy only */ } } }}>기기 사본 닫기</button></div>}
       {room.summary_request_id && <div className="border-b border-surface2 p-3 text-xs text-slate-400">{room.summary_error || (room.summary_claimed_by ? '공용 메모리 요약 생성 중…' : `${participantName(nextPayer)}의 API 키로 요약 대기 중…`)}{(room.summary_error || room.summary_claimed_at && Date.now() - Date.parse(room.summary_claimed_at) > 8 * 60_000) && !summaryPending && <button className="ml-3 underline" onClick={() => void summarize()}>요약 다시 시도</button>}</div>}
       {pending && <section className="border-b border-surface2 bg-surface p-3 text-xs text-amber-300" role="alert"><p>보관한 응답이 있어요. AI를 다시 호출하지 않고 저장만 재시도해요.</p><button disabled={busy} className="mt-2 underline" onClick={async () => { setBusy(true); try { await commit(pending); await refresh(); } catch (error) { report(error); } finally { setBusy(false); } }}>응답 저장 다시 시도</button><button className="ml-4 underline" onClick={() => downloadConversationText(pending.response_text, conversationFilename(room.title + '_보관응답'))}>TXT 보관</button></section>}
       <div ref={scrollRef} onScroll={rememberScroll} className="chat-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">

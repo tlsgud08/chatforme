@@ -9,7 +9,15 @@ export function summaryPromptWithParameters(prompt: string, profile: Partial<Pro
   const target = session.summary_narrative_target_tokens_override?.trim() || profile.summary_narrative_target_tokens?.trim() || '3000';
   const parameters = enabled ? `[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = ${level}\nALLOW_OMISSION = ${omission ? 'ON' : 'OFF'}\nCORE_NARRATIVE_TARGET_TOKENS = ${target}\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.` : '';
   const note = profile.summary_extra_note?.trim();
-  return [prompt, parameters, note ? `[ADDITIONAL NOTE]\n${note}` : ''].filter(Boolean).join('\n\n');
+  const lengthDirective = enabled ? `[CRITICAL: CORE NARRATIVE LENGTH TARGET]
+
+**Target length: approximately ${target} tokens.**
+
+**This target applies exclusively to the body of [핵심 서사 및 맥락].
+Tokens used in other sections, headings, or reasoning do not count toward this target.**
+
+When the source contains sufficient information, aim to approach the target length by preserving concrete details of each event, including actions, dialogue, communicated information, reactions, conditions, and outcomes.` : '';
+  return [prompt, parameters, note ? `[ADDITIONAL NOTE]\n${note}` : '', lengthDirective].filter(Boolean).join('\n\n');
 }
 
 /** Always fetch the administrator's global instruction; no personal/local fallback. */
