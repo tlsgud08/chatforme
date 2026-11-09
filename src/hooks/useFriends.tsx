@@ -124,6 +124,6 @@ export function FriendsProvider({ userId, children }: { userId: string; children
     finally { mutation.current = false; if (active.current) setPending(false); }
   }, [refresh]);
   const friends = useMemo(() => (snapshot?.relationships ?? []).filter(row => row.status === 'accepted').map(row => friendView(row, now + offset))
-    .sort((a, b) => ({ online: 0, away: 1, offline: 2, hidden: 3 }[a.presence] - { online: 0, away: 1, offline: 2, hidden: 3 }[b.presence]) || a.display_name.localeCompare(b.display_name)), [snapshot, now, offset]);
+    .sort((a, b) => ({ online: 0, away: 1, offline: 2 }[a.presence] - { online: 0, away: 1, offline: 2 }[b.presence]) || a.display_name.localeCompare(b.display_name)), [snapshot, now, offset]);
   return <PlayingActivityContext.Provider value={playing}><CreatingActivityContext.Provider value={creating}><FriendsContext.Provider value={{ userId, friends, relationships: snapshot?.relationships ?? [], works, sharing: snapshot?.sharing_enabled ?? true, loading, error, pending, refresh, change, setSharing, playing, profileId, openProfile, managerOpen, openManager }}>{children}</FriendsContext.Provider></CreatingActivityContext.Provider></PlayingActivityContext.Provider>;
 }
