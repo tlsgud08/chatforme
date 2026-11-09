@@ -40,18 +40,20 @@ try {
       socket.enqueue(frame({ choices: [{ delta: {}, finish_reason: 'stop' }] }));
       socket.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); socket.close();
     } else abort.abort(accountReset ? 'account reset' : SUMMARY_USER_STOP);
-    if (accountReset || broken) { await assert.rejects(task); return; }
+    if (accountReset || (broken && thinkingOnly)) { await assert.rejects(task); return; }
     const result = await task;
     assert(!result.text.includes('PRIVATE_THINKING'), 'reasoning never enters the note or preview');
     assert.equal(result.text, thinkingOnly ? '' : previews.at(-1));
-    assert.equal(result.finishReason, complete ? 'stop' : 'user_stop');
+    assert.equal(result.finishReason, complete ? 'stop' : broken ? 'stream_error' : 'user_stop');
+    if (broken) assert.match(result.nativeFinishReason, /^client_stream_interrupted/);
     if (usage) assert.equal(result.usage.cost, 0.012, 'reported usage survives user cancellation');
-    if (!usage && !complete) assert.equal(result.nativeFinishReason, 'client_abort_usage_unreported');
+    if (!usage && !complete) assert.equal(result.nativeFinishReason, broken ? 'client_stream_interrupted_usage_unreported' : 'client_abort_usage_unreported');
     return result;
   }
   await receive(); await receive({ usage: false }); await receive({ thinkingOnly: true });
   await receive({ accountReset: true }); await receive({ broken: true }); await receive({ complete: true });
-  assert.equal(calls, 6, 'exactly one generation per attempt; no paid retries');
+  await receive({ broken: true, usage: false }); await receive({ broken: true, thinkingOnly: true });
+  assert.equal(calls, 8, 'exactly one generation per attempt; no paid retries');
 
   const alreadyStopped = new AbortController(); alreadyStopped.abort(SUMMARY_USER_STOP);
   const beforeRequest = calls;

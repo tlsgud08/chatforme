@@ -9,18 +9,18 @@ export function isUserSummaryStop(signal?: AbortSignal): boolean {
 type Generate = (provider: Provider, options: GenerateOptions) => Promise<GenerateResult>;
 type SummaryResult = Pick<GenerateResult, 'text' | 'usage' | 'finishReason' | 'nativeFinishReason'>;
 
-/** Only an explicit summary stop may turn an aborted stream into a saved note. */
+/** Keep received summary bodies on user stops and stream failures, never on account resets. */
 export async function generateSummaryResponse(generate: Generate, options: GenerateOptions): Promise<SummaryResult> {
   let partial = '';
   let usageReported = false;
   let usage: Usage = { inputTokens: 0, outputTokens: 0, cost: 0, cacheCreationTokens: null, cacheReadTokens: null };
-  const stopped = (): SummaryResult => ({
-    text: partial, usage, finishReason: 'user_stop',
-    nativeFinishReason: usageReported ? 'client_abort' : 'client_abort_usage_unreported',
+  const interrupted = (reason: 'user_stop' | 'stream_error', native: string): SummaryResult => ({
+    text: partial, usage, finishReason: reason,
+    nativeFinishReason: native + (usageReported ? '' : '_usage_unreported'),
   });
   try {
     if (options.signal?.aborted) {
-      if (isUserSummaryStop(options.signal)) return stopped();
+      if (isUserSummaryStop(options.signal)) return interrupted('user_stop', 'client_abort');
       throw options.signal.reason ?? new DOMException('요약 생성을 중단했습니다.', 'AbortError');
     }
     const result = await generate('openrouter', {
@@ -33,11 +33,14 @@ export async function generateSummaryResponse(generate: Generate, options: Gener
       },
       onUsage: value => { usage = value; usageReported = true; },
     });
-    if (isUserSummaryStop(options.signal)) return stopped();
+    if (isUserSummaryStop(options.signal)) return interrupted('user_stop', 'client_abort');
     if (options.signal?.aborted) throw options.signal.reason ?? new DOMException('요약 생성을 중단했습니다.', 'AbortError');
     return result;
   } catch (error) {
-    if (isUserSummaryStop(options.signal)) return stopped();
-    throw error; // Account resets, outages and provider errors keep their existing failure semantics.
+    if (isUserSummaryStop(options.signal)) return interrupted('user_stop', 'client_abort');
+    // An account reset must never publish an old account's response. Other stream
+    // failures keep the paid body and its interruption metadata as a real note.
+    if (!options.signal?.aborted && partial.trim()) return interrupted('stream_error', 'client_stream_interrupted');
+    throw error;
   }
 }

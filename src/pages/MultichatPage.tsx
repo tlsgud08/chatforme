@@ -19,6 +19,7 @@ import { registerAccountTask } from '@/lib/accountTasks';
 import { loadGlobalSummaryPrompt, summaryPromptWithParameters } from '@/lib/summaryPrompt';
 import { summaryNarrativeConfig, summaryAchievementToast } from '@/lib/summaryNarrative';
 import { generateSummaryResponse, isUserSummaryStop, SUMMARY_USER_STOP } from '@/lib/summaryGeneration';
+import { saveSummaryWithFallback } from '@/lib/summaryPersistence';
 import { normalizeReasoning } from '@/lib/modelPreferences';
 import { finalThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives } from '@/lib/themeDirectives';
 import { requestThemeRefresh, paletteFor } from '@/lib/theme';
@@ -130,7 +131,7 @@ export default function MultichatPage() {
     const timer = window.setInterval(() => setClock(value => value + 1), 15_000);
     if (roomId && user) { try { const saved = JSON.parse(localStorage.getItem(storedKey(user.id, roomId)) ?? 'null'); if (saved?.target_message && saved?.token) setPending(saved);
       const summary = JSON.parse(localStorage.getItem(storedKey(user.id, roomId) + ':summary') ?? 'null');
-      if (summary?.target_room === roomId && summary?.request_id && typeof summary?.summary_text === 'string') setSummaryPending(summary); } catch { /* unavailable storage */ } }
+      if (summary?.target_room === roomId && summary?.request_id && typeof summary?.summary_text === 'string') { setSummaryPending(summary); setSummaryContent(summary.summary_text); } } catch { /* unavailable storage */ } }
     return () => { mounted.current = false; readSequence.current++; window.clearInterval(timer); controller.current?.abort(); };
   }, [refresh, roomId, user?.id]);
   useEffect(() => {
@@ -188,6 +189,15 @@ export default function MultichatPage() {
     setSummarySaving(true);
     active.abort(SUMMARY_USER_STOP);
   }
+  function changeSummaryDraft(text: string) {
+    setSummaryContent(text);
+    const next = text && summaryPending ? { ...summaryPending, summary_text: text } : null;
+    setSummaryPending(next);
+    if (user && roomId) { try {
+      const key = storedKey(user.id, roomId) + ':summary';
+      if (next) localStorage.setItem(key, JSON.stringify(next)); else localStorage.removeItem(key);
+    } catch { /* retained in memory */ } }
+  }
   async function processSummary(ticket: SummaryTicket) {
     if (!data?.session || !data.profile || !me || summaryLock.current || lock.current) return;
     const key = getApiKey('openrouter');
@@ -224,7 +234,7 @@ export default function MultichatPage() {
       const localCompletion = { ...completion, narrative_config: narrativeConfig };
       setSummaryPending(localCompletion);
       if (user && roomId) { try { localStorage.setItem(storedKey(user.id, roomId) + ':summary', JSON.stringify(localCompletion)); } catch { /* retained in memory */ } }
-      const { data: saved, error } = await supabase.rpc('finish_multichat_summary', completion);
+      const { data: saved, error } = await saveSummaryWithFallback(args => supabase.rpc('finish_multichat_summary', args), completion);
       if (error) throw error; setSummaryContent(''); setSummaryPending(null); if (user && roomId) { try { localStorage.removeItem(storedKey(user.id, roomId) + ':summary'); } catch { /* acknowledged */ } } patchSession(saved as Session);
       const warning = summaryCompletionWarning(completionMetadata.generation_finish_reason);
       if (warning) report(warning);
@@ -238,7 +248,7 @@ export default function MultichatPage() {
     try {
       // The target snapshot belongs to local notification metadata, not RPC arguments.
       const { narrative_config, ...completion } = summaryPending;
-      const { data: saved, error } = await supabase.rpc('finish_multichat_summary', completion);
+      const { data: saved, error } = await saveSummaryWithFallback(args => supabase.rpc('finish_multichat_summary', args), completion);
       if (error) throw error;
       setSummaryPending(null);
       setSummaryContent('');
@@ -431,6 +441,6 @@ export default function MultichatPage() {
     {menuOpen && menuSession && me && <SessionMenu key={`${room.id}:${me.slot}`} session={menuSession} profile={data.profile} onClose={() => setMenuOpen(false)} onUpdate={patchSession} onPersonaChange={() => { void refresh().catch(report); }} multichat={{ room, members: data.members, slot: me.slot, otherPresent: data.members.some(member => member.user_id !== user?.id && connectedUserIds.includes(member.user_id)), presenceReady, onRoomUpdate: patchRoom, onRefresh: refresh }}
       debugMode={display.debug} onDebugToggle={changeDisplay('debug')} showCost={display.cost} onShowCostToggle={changeDisplay('cost')} showCostKrw={display.krw} onShowCostKrwToggle={changeDisplay('krw')} showCacheTokens={display.cache} onShowCacheTokensToggle={changeDisplay('cache')} showImages={display.images} onShowImagesToggle={changeDisplay('images')} showOffMode={display.spoiler} onShowOffModeToggle={changeDisplay('spoiler')} exchange={exchange}
       sessionModel={session?.model_override || data.profile?.default_model || room.model} onModelChange={model => { void supabase.from('sessions').update({ model_override: model }).eq('id', room.id).then(({ error }) => error ? report(error) : patchSession({ model_override: model })); }} sessionReasoning={session?.reasoning_override ?? data.profile?.default_reasoning ?? {}} onReasoningChange={reasoning => { void supabase.from('sessions').update({ reasoning_override: reasoning }).eq('id', room.id).then(({ error }) => error ? report(error) : patchSession({ reasoning_override: reasoning })); }}
-      errorLog={errors} onClearErrors={() => setErrors([])} onExportConversation={exportConversation} exportingConversation={exporting} onGenerateSummary={summarize} onMergeSummaries={versions => summarize(undefined, versions)} summaryGenerating={summaryGenerating} summarySaving={summarySaving} summaryContent={summaryContent} onStopSummary={stopSummary} storyNotes={data.notes} onStoryNotesChange={notes => setData(old => old ? { ...old, notes } : old)} sessionTurnCount={Math.max(0, room.current_round - 1)} sending={writing} onWorkCombinationSavingChange={saving => { if (saving && (lock.current || submitLock.current || combinationLock.current)) return false; combinationLock.current = saving; return true; }} />}
+      errorLog={errors} onClearErrors={() => setErrors([])} onExportConversation={exportConversation} exportingConversation={exporting} onGenerateSummary={summarize} onMergeSummaries={versions => summarize(undefined, versions)} summaryGenerating={summaryGenerating} summarySaving={summarySaving} summaryContent={summaryContent} onStopSummary={stopSummary} onSummaryDraftChange={changeSummaryDraft} onRetrySummarySave={summaryPending ? retrySummarySave : undefined} storyNotes={data.notes} onStoryNotesChange={notes => setData(old => old ? { ...old, notes } : old)} sessionTurnCount={Math.max(0, room.current_round - 1)} sending={writing} onWorkCombinationSavingChange={saving => { if (saving && (lock.current || submitLock.current || combinationLock.current)) return false; combinationLock.current = saving; return true; }} />}
   </div>;
 }

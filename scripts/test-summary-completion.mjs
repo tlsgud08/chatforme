@@ -11,6 +11,7 @@ try {
   const { generate } = await server.ssrLoadModule('/src/lib/llm/index.ts');
   const { readOpenAIStream } = await server.ssrLoadModule('/src/lib/llm/stream.ts');
   const { summaryCompletionWarning, summaryResultMetadata } = await server.ssrLoadModule('/src/lib/summaryCompletion.ts');
+  const { saveSummaryWithFallback } = await server.ssrLoadModule('/src/lib/summaryPersistence.ts');
   const { generateSummaryResponse, isUserSummaryStop, SUMMARY_USER_STOP } = await server.ssrLoadModule('/src/lib/summaryGeneration.ts');
   const { summaryNarrativeConfig, summaryAchievementToast } = await server.ssrLoadModule('/src/lib/summaryNarrative.ts');
   const { summaryPromptWithParameters } = await server.ssrLoadModule('/src/lib/summaryPrompt.ts');
@@ -34,7 +35,7 @@ try {
   const messages = [{ id: 'h', role: 'assistant', is_hidden: true, content: 'HIDDEN START' }, { id: 'u', role: 'user', content: 'TURN ONE' }, { id: 'a', role: 'assistant', content: 'REPLY ONE' }, { id: 'old', role: 'assistant', content: 'INACTIVE REROLL', is_active_variant: false }, { id: 'u2', role: 'user', content: 'TURN TWO' }, { id: 'a2', role: 'assistant', content: 'REPLY TWO' }];
   const summaryTasks = new Map();
   const run = vm.runInNewContext(compiled + '\ngenerateSummary', {
-    contextReady: true, session, profile: {}, AbortController,
+    contextReady: true, session, profile: {}, AbortController, saveSummaryWithFallback, summarySaveRequestRef: { current: null },
     editInFlightRef: { current: false }, deleteInFlightRef: { current: false }, branchInFlightRef: { current: false },
     sendInFlightRef: { current: false }, workCombinationSavingRef: { current: false },
     activeGenerations: new Map(), activeSummaryGenerations: summaryTasks, summaryGenerating: false,

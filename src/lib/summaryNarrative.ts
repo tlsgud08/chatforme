@@ -69,6 +69,7 @@ export function countNarrativeCharacters(text: string): number {
 export function summaryAchievementToast(text: string, config: ReturnType<typeof summaryNarrativeConfig>, reason?: string | null) {
   const status = reason === 'stop' ? '요약 저장 완료'
     : reason === 'user_stop' ? '사용자 중지 · 수신한 내용 저장'
+    : reason === 'stream_error' ? '수신 중단 · 받은 내용 저장'
     : reason === 'length' ? '출력 제한으로 중단 · 받은 내용 저장'
     : reason === 'content_filter' ? '제공자 필터로 중단 · 받은 내용 저장'
     : reason === 'error' ? '제공자 오류로 중단 · 받은 내용 저장' : '종료 상태 미확인 · 받은 내용 저장';
