@@ -4,6 +4,7 @@ import type { GenerateResult } from './llm/types';
 export function summaryCompletionWarning(reason?: string | null): string | null {
   if (!reason || reason === 'stop') return null;
   if (reason === 'user_stop') return '사용자가 요약 생성을 중지했어요. 수신한 내용까지만 저장했어요.';
+  if (reason === 'stream_error') return '요약 수신이 중단됐어요. 받은 내용까지 저장했어요.';
   if (reason === 'length') return '제공자 출력 제한으로 요약이 중단됐어요. 받은 내용까지 저장했어요.';
   if (reason === 'content_filter') return '제공자 필터로 요약이 중단됐어요. 받은 내용까지 저장했어요.';
   if (reason === 'error') return '제공자 오류로 요약이 중단됐어요. 받은 내용까지 저장했어요.';

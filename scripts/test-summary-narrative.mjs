@@ -11,6 +11,7 @@ const compile = source => ts.transpileModule(source, { compilerOptions: {
   jsx: ts.JsxEmit.React, jsxFactory: 'jsx',
 } }).outputText;
 const importSource = async source => import('data:text/javascript;base64,' + Buffer.from(compile(source)).toString('base64'));
+const { saveSummaryWithFallback } = await importSource(read('src/lib/summaryPersistence.ts'));
 const { parseSummaryTarget, extractCoreNarrative, countNarrativeCharacters, summaryNarrativeConfig, summaryAchievementToast } =
   await importSource(read('src/lib/summaryNarrative.ts'));
 const prompt = vm.runInNewContext(compile(read('src/lib/summaryPrompt.ts').replace(/^import .*$/gm, '').replace(/\bexport /g, '')) + '\nsummaryPromptWithParameters');
@@ -66,7 +67,7 @@ const savedCalls = [], notifications = [], retryErrors = [];
 let rejectSave = false;
 const retry = vm.runInNewContext(compile(retrySource) + '\nretrySummarySave', {
   summaryPending: { target_room: 'room', summary_text: archive('x'.repeat(12480)), generation_finish_reason: 'stop', narrative_config: config },
-  summaryLock: { current: false }, setSummaryGenerating() {}, setSummarySaving() {}, setSummaryContent() {}, user: null,
+  saveSummaryWithFallback, summaryLock: { current: false }, setSummaryGenerating() {}, setSummarySaving() {}, setSummaryContent() {}, user: null,
   supabase: { rpc: async (name, args) => { savedCalls.push({ name, args }); return { data: {}, error: rejectSave ? Error('save denied') : null }; } },
   setSummaryPending() {}, patchSession() {}, refresh: async () => {}, report: error => retryErrors.push(error),
   summaryCompletionWarning: () => null, summaryAchievementToast, showToast: (text, options) => notifications.push({ text, options }),

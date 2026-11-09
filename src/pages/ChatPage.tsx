@@ -31,6 +31,7 @@ import { resolvePromptCache } from '@/lib/llm/promptCache';
 import { loadGlobalSummaryPrompt, loadSemiSyncSummaryPrompt, summaryPromptWithParameters } from '@/lib/summaryPrompt';
 import { summaryNarrativeConfig, summaryAchievementToast } from '@/lib/summaryNarrative';
 import { generateSummaryResponse, isUserSummaryStop, SUMMARY_USER_STOP } from '@/lib/summaryGeneration';
+import { saveSummaryWithFallback } from '@/lib/summaryPersistence';
 import { withoutSyncDateTags } from '@/lib/syncDate';
 import { applySemiContext, loadSemiContext, semiAction, type SemiPreparation } from '@/lib/semiSession';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
@@ -286,6 +287,7 @@ export default function ChatPage() {
   const [summaryGenerating, setSummaryGenerating] = useState(false);
   const [summarySaving, setSummarySaving] = useState(false);
   const [summaryContent, setSummaryContent] = useState('');
+  const summarySaveRequestRef = useRef<Record<string, unknown> | null>(null);
   const [storyNotes, setStoryNotes] = useState<StoryNote[]>([]);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [selectingVariantId, setSelectingVariantId] = useState<string | null>(null);
@@ -708,6 +710,27 @@ export default function ChatPage() {
     setSummarySaving(true);
   }
 
+  function changeSummaryDraft(text: string) {
+    setSummaryContent(text);
+    if (summarySaveRequestRef.current) summarySaveRequestRef.current = text ? { ...summarySaveRequestRef.current, summary_text: text } : null;
+  }
+
+  async function retrySummarySave() {
+    const request = summarySaveRequestRef.current;
+    if (!request || summaryGenerating || !summaryContent.trim()) return;
+    setSummaryGenerating(true); setSummarySaving(true);
+    try {
+      const { data, error } = await saveSummaryWithFallback(args => supabase.rpc('save_generated_summary', args), request);
+      if (error || !data) throw error ?? new Error('요약을 저장하지 못했습니다.');
+      summarySaveRequestRef.current = null;
+      setSummaryContent('');
+      setSession(current => current?.id === request.target_session ? { ...current, ...data } : current);
+      await loadLatestMessages().catch(error => addError('메시지 새로고침 실패: ' + describeUnknownError(error)));
+      showToast('수신한 요약을 저장했습니다.');
+    } catch (error) { addError('요약 저장 실패: ' + describeUnknownError(error)); }
+    finally { setSummaryGenerating(false); setSummarySaving(false); }
+  }
+
   async function generateSummary(archivesToMerge: SummaryVersion[] = [], requestedThroughTurn?: number, shareTarget?: string): Promise<boolean> {
     if (!contextReady || !session || !profile || editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current || sendInFlightRef.current || activeGenerations.has(session.id) || summaryGenerating || activeSummaryGenerations.has(session.id) || workCombinationSavingRef.current) return false;
     const apiKey = getApiKey('openrouter');
@@ -718,6 +741,7 @@ export default function ChatPage() {
     activeSummaryGenerations.set(summarySessionId, { controller: summaryController, saving: false, content: '', listeners: new Set() });
     setSummarySaving(false);
     setSummaryContent('');
+    summarySaveRequestRef.current = null;
     setSummaryGenerating(true);
     let shareTicket: SemiPreparation | null = null;
     let savingSummary = false;
@@ -809,7 +833,7 @@ export default function ChatPage() {
         return true;
       }
       const ids = candidates.map((message) => message.id);
-      const { data: updated, error } = await supabase.rpc('save_generated_summary', {
+      const saveRequest = {
         target_session: session.id, summary_text: result.text, through_turn: throughTurn,
         generation_narrative_config: narrativeConfig,
         ...completionMetadata,
@@ -820,8 +844,11 @@ export default function ChatPage() {
         ],
         previous_summary: session.summary, previous_summary_turn: session.summary_last_turn,
         in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost,
-      });
+      };
+      summarySaveRequestRef.current = saveRequest;
+      const { data: updated, error } = await saveSummaryWithFallback(args => supabase.rpc('save_generated_summary', args), saveRequest);
       if (error || !updated) throw error ?? new Error('요약을 저장하지 못했습니다.');
+      summarySaveRequestRef.current = null;
       setSummaryContent('');
       publishSummaryContent(summarySessionId, '');
       if (completionWarning) addError(completionWarning);
@@ -1531,6 +1558,8 @@ export default function ChatPage() {
           summarySaving={summarySaving}
           summaryContent={summaryContent}
           onStopSummary={stopSummary}
+          onSummaryDraftChange={changeSummaryDraft}
+          onRetrySummarySave={summarySaveRequestRef.current ? retrySummarySave : undefined}
           storyNotes={storyNotes}
           onStoryNotesChange={setStoryNotes}
           sessionTurnCount={sessionTurnCount}
