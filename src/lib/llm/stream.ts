@@ -1,4 +1,5 @@
 // SSE 스트림 공통 리더 유틸리티
+import type { Usage } from './types';
 
 async function readLines(
   body: ReadableStream<Uint8Array>,
@@ -53,6 +54,7 @@ export async function readOpenAIStream(
   onChunk: (fullText: string) => void,
   onEvent?: () => void,
   onReasoning?: () => void,
+  onUsage?: (usage: Usage) => void,
 ): Promise<StreamResult> {
   let fullText = '';
   let inputTokens = 0;
@@ -112,6 +114,10 @@ export async function readOpenAIStream(
           ?? usage.cache_creation_tokens
           ?? null;
         cost = usage.cost ?? 0;
+        if (typeof usage.prompt_tokens === 'number' || typeof usage.completion_tokens === 'number' || typeof usage.cost === 'number') {
+          try { onUsage?.({ inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost }); }
+          catch { /* Local accounting observers must not interrupt a paid response. */ }
+        }
       }
       const reason = parsed.choices?.[0]?.finish_reason;
       if (typeof reason === 'string' && reason) finishReason = reason;

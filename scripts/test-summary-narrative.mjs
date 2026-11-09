@@ -66,7 +66,7 @@ const savedCalls = [], notifications = [], retryErrors = [];
 let rejectSave = false;
 const retry = vm.runInNewContext(compile(retrySource) + '\nretrySummarySave', {
   summaryPending: { target_room: 'room', summary_text: archive('x'.repeat(12480)), generation_finish_reason: 'stop', narrative_config: config },
-  summaryLock: { current: false }, setSummaryGenerating() {}, user: null,
+  summaryLock: { current: false }, setSummaryGenerating() {}, setSummarySaving() {}, setSummaryContent() {}, user: null,
   supabase: { rpc: async (name, args) => { savedCalls.push({ name, args }); return { data: {}, error: rejectSave ? Error('save denied') : null }; } },
   setSummaryPending() {}, patchSession() {}, refresh: async () => {}, report: error => retryErrors.push(error),
   summaryCompletionWarning: () => null, summaryAchievementToast, showToast: (text, options) => notifications.push({ text, options }),

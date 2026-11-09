@@ -72,6 +72,8 @@ export interface GenerateOptions {
   /** Explicit Gemini caching only; false/absent preserves implicit caching behavior. */
   cacheSystemOnly?: boolean;
   onChunk?: (text: string) => void;
+  /** Last provider-reported usage; allows an explicitly stopped summary to retain known billing. */
+  onUsage?: (usage: Usage) => void;
   /** Local observer; never serialized into the provider request. */
   onPhase?: (phase: ModelPhase) => void;
   signal?: AbortSignal;

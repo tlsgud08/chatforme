@@ -30,6 +30,7 @@ import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import { resolvePromptCache } from '@/lib/llm/promptCache';
 import { loadGlobalSummaryPrompt, loadSemiSyncSummaryPrompt, summaryPromptWithParameters } from '@/lib/summaryPrompt';
 import { summaryNarrativeConfig, summaryAchievementToast } from '@/lib/summaryNarrative';
+import { generateSummaryResponse, isUserSummaryStop, SUMMARY_USER_STOP } from '@/lib/summaryGeneration';
 import { withoutSyncDateTags } from '@/lib/syncDate';
 import { applySemiContext, loadSemiContext, semiAction, type SemiPreparation } from '@/lib/semiSession';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
@@ -116,6 +117,8 @@ const activeGenerations = new Map<string, ActiveGeneration>();
 
 interface ActiveSummaryGeneration {
   controller: AbortController;
+  saving: boolean;
+  content: string;
   listeners: Set<() => void>;
 }
 const activeSummaryGenerations = new Map<string, ActiveSummaryGeneration>();
@@ -126,6 +129,20 @@ function publishGeneration(id: string, content: string | null) {
   if (content !== null) active.content = content;
   active.listeners.forEach((listener) => listener(content));
   if (content === null) activeGenerations.delete(id);
+}
+
+function publishSummaryContent(id: string, content: string) {
+  const active = activeSummaryGenerations.get(id);
+  if (!active) return;
+  active.content = content;
+  active.listeners.forEach(listener => listener());
+}
+
+function markSummarySaving(id: string) {
+  const active = activeSummaryGenerations.get(id);
+  if (!active) return;
+  active.saving = true;
+  active.listeners.forEach(listener => listener());
 }
 
 function finishSummaryGeneration(id: string) {
@@ -267,6 +284,8 @@ export default function ChatPage() {
   const [sessionModel, setSessionModel] = useState('');
   const [sessionReasoning, setSessionReasoning] = useState<ReasoningSelection>(() => defaultReasoningFor('openrouter', modelsFor('openrouter')[0]));
   const [summaryGenerating, setSummaryGenerating] = useState(false);
+  const [summarySaving, setSummarySaving] = useState(false);
+  const [summaryContent, setSummaryContent] = useState('');
   const [storyNotes, setStoryNotes] = useState<StoryNote[]>([]);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [selectingVariantId, setSelectingVariantId] = useState<string | null>(null);
@@ -390,9 +409,15 @@ export default function ChatPage() {
     if (!sessionId) return;
     const active = activeSummaryGenerations.get(sessionId);
     setSummaryGenerating(!!active);
+    setSummarySaving(active?.saving ?? false);
+    setSummaryContent(active?.content ?? '');
     if (!active) return;
     const listener = () => {
-      setSummaryGenerating(false);
+      const current = activeSummaryGenerations.get(sessionId);
+      setSummaryGenerating(!!current);
+      setSummarySaving(current?.saving ?? false);
+      if (current) setSummaryContent(current.content);
+      if (current) return;
       void supabase.from('sessions').select('*').eq('id', sessionId).single().then(({ data }) => {
         if (data) setSession(data as Session);
       });
@@ -674,6 +699,15 @@ export default function ChatPage() {
     });
   }
 
+  function stopSummary() {
+    if (!sessionId) return;
+    const active = activeSummaryGenerations.get(sessionId);
+    if (!active || active.saving || active.controller.signal.aborted) return;
+    active.controller.abort(SUMMARY_USER_STOP);
+    markSummarySaving(sessionId);
+    setSummarySaving(true);
+  }
+
   async function generateSummary(archivesToMerge: SummaryVersion[] = [], requestedThroughTurn?: number, shareTarget?: string): Promise<boolean> {
     if (!contextReady || !session || !profile || editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current || sendInFlightRef.current || activeGenerations.has(session.id) || summaryGenerating || activeSummaryGenerations.has(session.id) || workCombinationSavingRef.current) return false;
     const apiKey = getApiKey('openrouter');
@@ -681,9 +715,12 @@ export default function ChatPage() {
     const summarySessionId = session.id;
     const summaryController = new AbortController();
     const unregisterTask = registerAccountTask(summaryController);
-    activeSummaryGenerations.set(summarySessionId, { controller: summaryController, listeners: new Set() });
+    activeSummaryGenerations.set(summarySessionId, { controller: summaryController, saving: false, content: '', listeners: new Set() });
+    setSummarySaving(false);
+    setSummaryContent('');
     setSummaryGenerating(true);
     let shareTicket: SemiPreparation | null = null;
+    let savingSummary = false;
     try {
       if (shareTarget) shareTicket = await semiAction('prepare', session.id, shareTarget) as SemiPreparation;
       const sourceSession = shareTicket?.session ?? session;
@@ -741,11 +778,20 @@ export default function ChatPage() {
         systemParts: { core: summaryCore, persona: shareTarget ? `# Source Persona\nName: ${shareTicket?.persona?.name ?? '페르소나 미선택'}\nDescription: ${shareTicket?.persona?.description ?? ''}` : '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user' as const, content: input }],
         maxOutputTokens: null,
+        onChunk: (text: string) => { setSummaryContent(text); publishSummaryContent(summarySessionId, text); },
       };
       const connected = shareTarget || await loadSemiContext(sourceSession.id, summaryController.signal);
-      const result = await generate('openrouter', connected ? summaryRequest : withoutSyncDateTags(summaryRequest));
-      if (summaryController.signal.aborted) throw new Error('요약 생성을 중단했습니다.');
-      if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
+      const result = await generateSummaryResponse(generate, connected ? summaryRequest : withoutSyncDateTags(summaryRequest));
+      if (summaryController.signal.aborted && !isUserSummaryStop(summaryController.signal)) throw new Error('요약 생성을 중단했습니다.');
+      if (!result.text.trim()) {
+        if (result.finishReason === 'user_stop') { showToast('요약 생성을 중지했습니다. 수신한 본문이 없어 새 노트를 만들지 않았습니다.'); return false; }
+        throw new Error('요약 모델이 빈 응답을 반환했습니다.');
+      }
+      setSummaryContent(result.text);
+      publishSummaryContent(summarySessionId, result.text);
+      savingSummary = true;
+      markSummarySaving(summarySessionId);
+      setSummarySaving(true);
       const completionMetadata = summaryResultMetadata(result);
       const completionWarning = summaryCompletionWarning(completionMetadata.generation_finish_reason);
       if (shareTarget && shareTicket) {
@@ -756,6 +802,8 @@ export default function ChatPage() {
           input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, cost: result.usage.cost,
         });
         shareTicket = null;
+        setSummaryContent('');
+        publishSummaryContent(summarySessionId, '');
         if (completionWarning) addError(completionWarning);
         setSession(current => current?.id === sourceSession.id ? { ...current, ...accounting } : current);
         return true;
@@ -774,6 +822,8 @@ export default function ChatPage() {
         in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost,
       });
       if (error || !updated) throw error ?? new Error('요약을 저장하지 못했습니다.');
+      setSummaryContent('');
+      publishSummaryContent(summarySessionId, '');
       if (completionWarning) addError(completionWarning);
       setMessages(current => current.map(message => ids.includes(message.id) ? { ...message, is_summarized: true } : message));
       setSession(current => current?.id === session.id ? { ...current, ...updated } : current);
@@ -781,12 +831,14 @@ export default function ChatPage() {
       showToast(achievement.message, achievement);
       return true;
     } catch (error) {
+      if (isUserSummaryStop(summaryController.signal) && !savingSummary) { showToast('요약 생성을 중지했습니다.'); return false; }
       addError(`${shareTarget ? '전달용 요약' : '요약'} 생성 실패: ${describeUnknownError(error)}`);
       return false;
     } finally {
       if (shareTarget && shareTicket) void semiAction('release', session.id, shareTarget, { token: shareTicket.token }).catch(() => {});
       unregisterTask();
       setSummaryGenerating(false);
+      setSummarySaving(false);
       finishSummaryGeneration(summarySessionId);
     }
   }
@@ -1476,6 +1528,9 @@ export default function ChatPage() {
           onGenerateSummary={async (throughTurn) => { await generateSummary([], throughTurn); }}
           onMergeSummaries={async (versions) => { await generateSummary(versions, Math.max(0, ...versions.map(version => version.summarized_through_turn))); }}
           summaryGenerating={summaryGenerating}
+          summarySaving={summarySaving}
+          summaryContent={summaryContent}
+          onStopSummary={stopSummary}
           storyNotes={storyNotes}
           onStoryNotesChange={setStoryNotes}
           sessionTurnCount={sessionTurnCount}
