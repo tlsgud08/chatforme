@@ -6,7 +6,7 @@ import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 import ThemePaletteEditor from './ThemePaletteEditor';
 import CodeBlockStyleSelect from './CodeBlockStyleSelect';
-import { normalizeCodeBlockStyle, type CodeBlockStyle } from '@/lib/codeBlockStyles';
+import { CODE_BLOCK_STYLES, normalizeCodeBlockStyle, type CodeBlockStyle } from '@/lib/codeBlockStyles';
 import { loadWorkThemeCatalog } from '@/lib/workThemeData';
 import './ThemeMenu.css';
 import { bothVariants, changePaletteMode, createPaletteDraft, DEFAULT_DARK, DEFAULT_LIGHT, paletteDraftColors, paletteFor, previewThemeVariant, secondaryTextStyles, validPalette, type SavedTheme, type ThemePaletteDraft, type ThemeVariant } from '@/lib/theme';
@@ -57,6 +57,8 @@ export default function ThemeMenu({userId,workId,workIds,multichatRoomId,allowWo
   const [draft,setDraft]=useState<Draft>(defaultDraft);
   const [busy,setBusy]=useState(false);
   const [opened,setOpened]=useState<string|null>(null);
+  const [bulkStyle,setBulkStyle]=useState<CodeBlockStyle>('basic');
+  const bulkSaving=useRef(false);
   const loadGeneration=useRef(0);
   const load=useCallback(async()=>{
     const run=++loadGeneration.current;
@@ -120,6 +122,33 @@ export default function ThemeMenu({userId,workId,workIds,multichatRoomId,allowWo
       :favorites.has(t.id);
     return active&&(!search.trim()||[t.name,t.description,combinedScope?workNames[t.work_id??'']:''].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
   }).sort((a,b)=>combinedScope?scopeWorkIds.indexOf(a.work_id!)-scopeWorkIds.indexOf(b.work_id!):0),[themes,tab,scopeWorkIds,userId,favorites,search,catalogScope,combinedScope,workNames]);
+  // Bulk changes belong to the current work, independently of search results.
+  const bulkTargets=themes.filter(t=>t.work_id===workId&&(
+    t.work_shared!==false?allowWorkCreate:t.owner_id===userId
+  ));
+  async function applyBulkStyle(){
+    if(!workId||busy||bulkSaving.current||!bulkTargets.length)return;
+    bulkSaving.current=true;
+    setBusy(true);
+    try{
+      let query=supabase.from('themes').update({code_block_style:bulkStyle},{count:'exact'}).eq('work_id',workId);
+      query=allowWorkCreate
+        ?query.or(`work_shared.eq.true,owner_id.eq.${userId}`)
+        :query.eq('work_shared',false).eq('owner_id',userId);
+      const {error,count}=await query;
+      if(error)throw error;
+      if(!count){showToast('변경할 수 있는 작품 테마가 없습니다.');await load();return;}
+      // Invalidate selected themes as well as the catalog so existing rooms update.
+      window.dispatchEvent(new Event('inuchat:theme-changed'));
+      await load();
+      showToast(`${count}개 작품 테마의 상태창 유형을 ${CODE_BLOCK_STYLES.find(style=>style.value===bulkStyle)!.label}(으)로 변경했습니다.`);
+    }catch(error){
+      showToast('상태창 유형 일괄 변경 실패: '+(error instanceof Error?error.message:(error as {message?:string})?.message??String(error)));
+    }finally{
+      bulkSaving.current=false;
+      setBusy(false);
+    }
+  }
   function edit(theme?:SavedTheme,preferred=variant){setEditing(theme??'new');setDraft(theme?{name:theme.name,description:theme.description,ai_prompt:theme.ai_prompt??'',day_night_enabled:theme.day_night_enabled??false,use_day_night_variants:theme.use_day_night_variants!==false,code_block_style:normalizeCodeBlockStyle(theme.code_block_style),...createPaletteDraft(theme,preferred)}:defaultDraft());}
   function changeDayNight(enabled:boolean){
     setDraft(d=>({...d,day_night_enabled:enabled}));
@@ -215,6 +244,11 @@ export default function ThemeMenu({userId,workId,workIds,multichatRoomId,allowWo
       {(['all','work','mine','hub','favorites']as const).filter(t=>catalogScope==='work'?t==='work':catalogScope==='global'?t!=='work':true).map(t=><button key={t} aria-pressed={tab===t} onClick={()=>setTab(t)} className={`shrink-0 rounded-full px-3 py-2 text-xs ${tab===t?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>{drawer&&t==='hub'?'허브':labels[t]}</button>)}
     </nav>}
     <div className="px-3 pb-3"><input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="테마 이름·설명 검색" className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-white"/></div>
+    {workId&&(catalogScope==='work'||tab==='work')&&<fieldset disabled={busy||bulkTargets.length===0} className="mx-3 mb-3 rounded-lg border border-surface2 p-3">
+      <CodeBlockStyleSelect label="상태창 유형 일괄 변경" value={bulkStyle} onChange={setBulkStyle} disabled={busy||bulkTargets.length===0}/>
+      <p className="mt-2 text-xs text-slate-400">검색과 관계없이 {combinedScope?'메인 작품':'이 작품'}의 수정 가능한 테마 전체 {bulkTargets.length}개에 적용합니다.</p>
+      <button type="button" onClick={()=>void applyBulkStyle()} disabled={busy||bulkTargets.length===0} className="mt-2 w-full rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy?'적용 중…':'일괄 적용'}</button>
+    </fieldset>}
     {visible.length===0&&<p className="p-5 text-center text-sm text-slate-500">테마가 없습니다.</p>}
     <div className={embedded?'':'max-h-[45vh] overflow-y-auto'}>
       {visible.map((t,index)=>{
