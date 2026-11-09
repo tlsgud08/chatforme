@@ -48,6 +48,7 @@
     .status-code-frame.cf-neon .cf-raw { margin: 15px 0 0 17px; border-left: 2px solid color-mix(in srgb, var(--cf-accent) 52%, var(--cf-bg)); padding: 0 16px 5px 12px; }
     .status-code-frame.cf-neon .cf-foot { margin-left: 30px; color: var(--cf-accent); }
 
+    .status-code-frame.cf-corporate { --cf-accent: rgb(var(--color-brand)); }
     .status-code-frame.cf-corporate .cf-block { margin-top: 34px; border: 1px solid var(--cf-line); border-left: 4px solid var(--cf-accent); background: var(--cf-surface); }
     .status-code-frame.cf-corporate .cf-file-tab { position: absolute; bottom: 100%; left: -4px; padding: 5px 17px 4px; background: var(--cf-accent); color: var(--cf-bg); font-size: 10px; font-weight: 500; line-height: 1.5; letter-spacing: .13em; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 100%, 0 100%); }
     .status-code-frame.cf-corporate .cf-head { background: var(--cf-surface-raised); border-bottom: 1px solid var(--cf-line); }
@@ -55,7 +56,7 @@
     .status-code-frame.cf-corporate .cf-title { letter-spacing: .19em; }
     .status-code-frame.cf-corporate .cf-classification { color: var(--cf-accent); font-size: 12px; letter-spacing: .2em; border: 1px solid color-mix(in srgb, var(--cf-accent) 45%, var(--cf-bg)); padding: 1px 5px; }
     .status-code-frame.cf-corporate .cf-raw { font-family: -apple-system, BlinkMacSystemFont, "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
-    .status-code-frame.cf-corporate .cf-foot { border-top: 1px solid var(--cf-line); }
+    .status-code-frame.cf-corporate .cf-foot { border-top: 1px solid var(--cf-line); color: var(--cf-accent); }
 
     .status-code-frame.cf-hanji .cf-block { padding: 7px; border: 1px solid color-mix(in srgb, var(--cf-secondary) 40%, var(--cf-bg)); background-color: var(--cf-surface); background-image: repeating-linear-gradient(1deg, transparent 0 5px, color-mix(in srgb, var(--cf-fg) 2%, transparent) 5px 6px), repeating-linear-gradient(89deg, transparent 0 9px, color-mix(in srgb, var(--cf-fg) 2%, transparent) 9px 10px); border-radius: 2px; }
     .status-code-frame.cf-hanji .cf-head { position: relative; justify-content: center; min-height: 65px; border: 1px solid var(--cf-line); border-bottom: 0; padding-left: 54px; padding-right: 54px; }

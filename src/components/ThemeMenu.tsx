@@ -127,7 +127,7 @@ export default function ThemeMenu({userId,workId,workIds,multichatRoomId,allowWo
     t.work_shared!==false?allowWorkCreate:t.owner_id===userId
   ));
   async function applyBulkStyle(){
-    if(!workId||busy||bulkSaving.current||!bulkTargets.length)return;
+    if(!allowWorkCreate||!workId||busy||bulkSaving.current||!bulkTargets.length)return;
     bulkSaving.current=true;
     setBusy(true);
     try{
@@ -244,7 +244,7 @@ export default function ThemeMenu({userId,workId,workIds,multichatRoomId,allowWo
       {(['all','work','mine','hub','favorites']as const).filter(t=>catalogScope==='work'?t==='work':catalogScope==='global'?t!=='work':true).map(t=><button key={t} aria-pressed={tab===t} onClick={()=>setTab(t)} className={`shrink-0 rounded-full px-3 py-2 text-xs ${tab===t?'bg-brand text-white':'bg-surface2 text-slate-400'}`}>{drawer&&t==='hub'?'허브':labels[t]}</button>)}
     </nav>}
     <div className="px-3 pb-3"><input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="테마 이름·설명 검색" className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-white"/></div>
-    {workId&&(catalogScope==='work'||tab==='work')&&<fieldset disabled={busy||bulkTargets.length===0} className="mx-3 mb-3 rounded-lg border border-surface2 p-3">
+    {allowWorkCreate&&workId&&(catalogScope==='work'||tab==='work')&&<fieldset disabled={busy||bulkTargets.length===0} className="mx-3 mb-3 rounded-lg border border-surface2 p-3">
       <CodeBlockStyleSelect label="상태창 유형 일괄 변경" value={bulkStyle} onChange={setBulkStyle} disabled={busy||bulkTargets.length===0}/>
       <p className="mt-2 text-xs text-slate-400">검색과 관계없이 {combinedScope?'메인 작품':'이 작품'}의 수정 가능한 테마 전체 {bulkTargets.length}개에 적용합니다.</p>
       <button type="button" onClick={()=>void applyBulkStyle()} disabled={busy||bulkTargets.length===0} className="mt-2 w-full rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy?'적용 중…':'일괄 적용'}</button>

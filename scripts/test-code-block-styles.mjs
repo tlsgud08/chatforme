@@ -4,6 +4,7 @@ import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
 import ts from 'typescript';
+import postcss from 'postcss';
 
 const uri = source => 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
 const compile = file => ts.transpileModule(readFileSync(new URL('../' + file, import.meta.url), 'utf8'), {
@@ -67,6 +68,21 @@ const html = renderToStaticMarkup(h(ReactMarkdown, {
 }, markdown));
 assert.ok(html.includes('인물 정보'), 'the actual Markdown pipeline retains a multiword title');
 assert.ok(html.includes('  [상태] <strong class="font-bold">평온</strong>'));
+
+// The corporate decoration follows live theme accents; body text and every
+// other status style retain the common foreground/secondary-color variables.
+const css=postcss.parse(readFileSync(new URL('../src/components/StatusCodeBlock.css',import.meta.url),'utf8'));
+const accentOverrides=[];
+css.walkDecls('--cf-accent',declaration=>accentOverrides.push([declaration.parent.selector,declaration.value]));
+assert.deepEqual(accentOverrides,[
+  ['.status-code-frame','var(--secondary-text, rgb(var(--color-brand)))'],
+  ['.status-code-frame.cf-corporate','rgb(var(--color-brand))'],
+]);
+const footer=[];css.walkRules('.status-code-frame.cf-corporate .cf-foot',rule=>rule.walkDecls('color',declaration=>footer.push(declaration.value)));
+assert.deepEqual(footer,['var(--cf-accent)'],'both footer spans, including the barcode, inherit the corporate theme accent');
+css.walkRules(rule=>{if(rule.selector.includes('.cf-corporate'))rule.walkDecls(declaration=>{
+  assert(!['--cf-fg','--cf-secondary'].includes(declaration.prop),'corporate decoration never replaces body text colors');
+});});
 
 globalThis.document = { documentElement: { dataset: {} } };
 let notifications = 0;
