@@ -71,9 +71,9 @@ try {
       if (kind === 'sync') assert.deepEqual(operations, ['prepare', 'publish']);
     }
   }
-  session.summary_narrative_target_tokens_override = '20000';
-  content = '[핵심 서사 및 맥락]\n' + 'x'.repeat(49920) + '\n[주요 갈등]\nignored'; finishReason = 'stop'; toasts.length = 0;
-  assert.equal(await run([], 1), true); assert.match(toasts[0][0], /62% \(12,480토큰 추정\)/);
+  session.summary_narrative_target_chars_override = '20000';
+  content = '[핵심 서사 및 맥락]\n' + 'x'.repeat(12480) + '\n[주요 갈등]\nignored'; finishReason = 'stop'; toasts.length = 0;
+  assert.equal(await run([], 1), true); assert.match(toasts[0][0], /62% \(12,480 \/ 20,000자\)/);
   toasts.length = 0;
   content = ''; saved.length = 0; warnings.length = 0;
   assert.equal(await run(), false); assert.equal(saved.length, 0); assert.match(warnings[0], /빈 응답/);

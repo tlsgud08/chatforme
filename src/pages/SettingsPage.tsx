@@ -121,7 +121,7 @@ export default function SettingsPage() {
         summary_reasoning: summaryReasoning,
         summary_level: profile.summary_level,
         summary_allow_omission: profile.summary_allow_omission,
-        summary_narrative_target_tokens: profile.summary_narrative_target_tokens ?? '3000',
+        summary_narrative_target_chars: profile.summary_narrative_target_chars ?? '10000',
         summary_parameters_enabled: profile.summary_parameters_enabled,
         summary_extra_note: profile.summary_extra_note,
         summary_source_mode: profile.summary_source_mode ?? 'full',
@@ -367,9 +367,9 @@ export default function SettingsPage() {
               <input type="number" min={0} max={10} value={profile.summary_level ?? 0} onChange={(e) => setProfile({ ...profile, summary_level: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
             </label>
             <label className="flex items-center justify-between text-xs text-slate-300"><span>Allow omission</span><input type="checkbox" checked={profile.summary_allow_omission ?? false} onChange={(e) => setProfile({ ...profile, summary_allow_omission: e.target.checked })} /></label>
-            <label className="text-xs text-slate-400">[핵심 서사 및 맥락] 목표 토큰 수
-              <input aria-label="[핵심 서사 및 맥락] 목표 토큰 수" type="text" value={profile.summary_narrative_target_tokens ?? '3000'} onChange={event => setProfile({ ...profile, summary_narrative_target_tokens: event.target.value })} placeholder="3000" className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
-              <span className="mt-1 block text-[11px] text-slate-500">이 파트의 분량 목표로 전달해요. 숫자나 범위를 텍스트로 입력할 수 있어요.</span>
+            <label className="text-xs text-slate-400">[핵심 서사 및 맥락] 목표 글자 수
+              <input aria-label="[핵심 서사 및 맥락] 목표 글자 수" type="text" value={profile.summary_narrative_target_chars ?? '10000'} onChange={event => setProfile({ ...profile, summary_narrative_target_chars: event.target.value })} placeholder="10000" className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
+              <span className="mt-1 block text-[11px] text-slate-500">핵심 서사 본문의 목표 글자 수예요. 공백 포함·줄바꿈 제외. 숫자나 범위를 입력할 수 있어요.</span>
             </label>
             <label className="flex items-center justify-between text-xs text-slate-300"><span>요약 파라미터 함께 전송</span><input type="checkbox" checked={profile.summary_parameters_enabled ?? true} onChange={(e) => setProfile({ ...profile, summary_parameters_enabled: e.target.checked })} /></label>
             <label className="text-xs text-slate-400">요약 생성 시 함께 전송할 추가 메모

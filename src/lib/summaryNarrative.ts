@@ -2,15 +2,16 @@ import type { Profile, Session } from '@/types/db';
 
 export function summaryNarrativeConfig(profile: Partial<Profile>, session: Partial<Session>) {
   return {
+    unit: 'characters' as const,
     enabled: session.summary_parameters_enabled_override ?? profile.summary_parameters_enabled ?? true,
-    target: session.summary_narrative_target_tokens_override?.trim() || profile.summary_narrative_target_tokens?.trim() || '3000',
+    target: session.summary_narrative_target_chars_override?.trim() || profile.summary_narrative_target_chars?.trim() || '10000',
   };
 }
 
 /** Parse supported numeric targets without guessing a number out of arbitrary instructions. */
 export function parseSummaryTarget(raw: string): { minimum: number; maximum: number } | null {
   const value = raw.normalize('NFKC').trim().replace(/^(?:약|about|approximately)\s*/i, '')
-    .replace(/\s*(?:토큰|tokens?)$/i, '').trim();
+    .replace(/\s*(?:자|글자|characters?)$/i, '').trim();
   const number = '(?:\\d{1,3}(?:,\\d{3})+|\\d+)';
   const match = new RegExp(`^(${number})(?:\\s*(?:~|～|–|—|-)\\s*(${number}))?$`).exec(value);
   if (!match) return null;
@@ -56,9 +57,13 @@ export function extractCoreNarrative(text: string): string | null {
   return found ? body.join('\n').trim() : null;
 }
 
-/** Local UTF-8 heuristic, not the provider's tokenizer. Always label it as an estimate. */
-export function estimateNarrativeTokens(text: string): number {
-  return Math.ceil(new TextEncoder().encode(text).length / 4);
+/** Count visible Unicode graphemes; spaces count, line breaks do not. */
+export function countNarrativeCharacters(text: string): number {
+  const normalized = text.normalize('NFC').replace(/[\r\n\u2028\u2029]/g, '');
+  const segmenter = new Intl.Segmenter('ko', { granularity: 'grapheme' });
+  let count = 0;
+  for (const _segment of segmenter.segment(normalized)) count += 1;
+  return count;
 }
 
 export function summaryAchievementToast(text: string, config: ReturnType<typeof summaryNarrativeConfig>, reason?: string | null) {
@@ -76,8 +81,8 @@ export function summaryAchievementToast(text: string, config: ReturnType<typeof 
   if (!target) return result('목표 분량 해석 불가', true);
   const narrative = extractCoreNarrative(text);
   if (narrative === null) return result('핵심 서사 분량 확인 불가', true);
-  const tokens = estimateNarrativeTokens(narrative);
-  const percent = Math.round(tokens / target.minimum * 100);
+  const characters = countNarrativeCharacters(narrative);
+  const percent = Math.round(characters / target.minimum * 100);
   const rangeLabel = target.minimum !== target.maximum ? ' · 범위 하한 대비' : '';
-  return result(`핵심 서사 약 ${percent.toLocaleString('ko-KR')}% (${tokens.toLocaleString('ko-KR')}토큰 추정) 달성${rangeLabel}`, tokens < target.minimum);
+  return result(`핵심 서사 ${percent.toLocaleString('ko-KR')}% (${characters.toLocaleString('ko-KR')} / ${target.minimum.toLocaleString('ko-KR')}자) 달성${rangeLabel}`, characters < target.minimum);
 }

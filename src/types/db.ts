@@ -28,6 +28,7 @@ export interface Profile {
   summary_level: number;
   summary_allow_omission: boolean;
   summary_narrative_target_tokens: string;
+  summary_narrative_target_chars: string;
   summary_parameters_enabled: boolean;
   summary_extra_note: string;
   summary_source_mode: 'incremental' | 'full';
@@ -182,6 +183,7 @@ export interface Session {
   summary_level_override: number | null;
   summary_allow_omission_override: boolean | null;
   summary_narrative_target_tokens_override: string | null;
+  summary_narrative_target_chars_override: string | null;
   summary_parameters_enabled_override: boolean | null;
   summary_source_mode_override: 'incremental' | 'full' | null;
   summary_cost_enabled_override: boolean | null;
@@ -193,6 +195,8 @@ export interface Session {
 }
 
 export interface SummaryVersion {
+  narrative_target_chars?: string | null;
+  narrative_target_enabled?: boolean | null;
   finish_reason?: string | null;
   native_finish_reason?: string | null;
   id: string;
