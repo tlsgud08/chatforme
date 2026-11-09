@@ -11,15 +11,15 @@ const compile = source => ts.transpileModule(source, { compilerOptions: {
   jsx: ts.JsxEmit.React, jsxFactory: 'jsx',
 } }).outputText;
 const importSource = async source => import('data:text/javascript;base64,' + Buffer.from(compile(source)).toString('base64'));
-const { parseSummaryTarget, extractCoreNarrative, estimateNarrativeTokens, summaryNarrativeConfig, summaryAchievementToast } =
+const { parseSummaryTarget, extractCoreNarrative, countNarrativeCharacters, summaryNarrativeConfig, summaryAchievementToast } =
   await importSource(read('src/lib/summaryNarrative.ts'));
 const prompt = vm.runInNewContext(compile(read('src/lib/summaryPrompt.ts').replace(/^import .*$/gm, '').replace(/\bexport /g, '')) + '\nsummaryPromptWithParameters');
-const configured = prompt('SHARED', { summary_extra_note: 'USER NOTE' }, { summary_narrative_target_tokens_override: '20000' });
+const configured = prompt('SHARED', { summary_extra_note: 'USER NOTE' }, { summary_narrative_target_chars_override: '20000' });
 assert(configured.endsWith(approvedSummaryLengthDirective('20000')), 'approved English is verbatim, dynamic and the final system block');
 assert.equal(prompt('SHARED', {}, { summary_parameters_enabled_override: false }), 'SHARED');
-assert.deepEqual(summaryNarrativeConfig({ summary_narrative_target_tokens: '8000' }, {}), { enabled: true, target: '8000' });
-assert.deepEqual(summaryNarrativeConfig({ summary_narrative_target_tokens: '8000' }, { summary_narrative_target_tokens_override: '20000', summary_parameters_enabled_override: false }), { enabled: false, target: '20000' });
-for (const value of ['20000', '20,000', '약 20000', 'approximately 20000 tokens', '２００００ 토큰']) {
+assert.deepEqual(summaryNarrativeConfig({ summary_narrative_target_chars: '8000' }, {}), { unit: 'characters', enabled: true, target: '8000' });
+assert.deepEqual(summaryNarrativeConfig({ summary_narrative_target_chars: '8000' }, { summary_narrative_target_chars_override: '20000', summary_parameters_enabled_override: false }), { unit: 'characters', enabled: false, target: '20000' });
+for (const value of ['20000', '20,000', '약 20000', 'approximately 20000 characters', '２００００ 자']) {
   assert.deepEqual(parseSummaryTarget(value), { minimum: 20000, maximum: 20000 });
 }
 assert.deepEqual(parseSummaryTarget('4,000 ~ 6,000'), { minimum: 4000, maximum: 6000 });
@@ -37,17 +37,22 @@ assert.equal(extractCoreNarrative('```text\n[핵심 서사 및 맥락]\n예시\n
 assert.equal(extractCoreNarrative('[핵심 서사 및 맥락]\n하나\n[주요인물]\n인물\n[핵심 서사 및 맥락]\n둘'), null, 'ambiguous duplicates report unknown');
 assert.equal(extractCoreNarrative('[주요인물]\n인물만 있음'), null);
 assert.equal(extractCoreNarrative('[핵심 서사 및 맥락]\n\n[주요 갈등]\n없음'), '');
-const config = { enabled: true, target: '20000' };
-const toast = summaryAchievementToast(archive('x'.repeat(49920)), config, 'stop');
-assert.match(toast.message, /약 62% \(12,480토큰 추정\) 달성/);
+const config = { unit: 'characters', enabled: true, target: '20000' };
+const toast = summaryAchievementToast(archive('x'.repeat(12480)), config, 'stop');
+assert.match(toast.message, /62% \(12,480 \/ 20,000자\) 달성/);
 assert.equal(toast.tone, 'warning'); assert.equal(toast.durationMs, 6500);
-assert.match(summaryAchievementToast(archive('x'.repeat(88000)), config, 'stop').message, /110%/, 'percentages above 100 are not capped');
+assert.match(summaryAchievementToast(archive('x'.repeat(22000)), config, 'stop').message, /110%/, 'percentages above 100 are not capped');
 assert.match(summaryAchievementToast(archive(body), config, 'length').message, /출력 제한으로 중단/);
-assert.match(summaryAchievementToast(archive(body), { enabled: false, target: '20000' }, 'stop').message, /목표 미적용/);
+assert.match(summaryAchievementToast(archive(body), { unit: 'characters', enabled: false, target: '20000' }, 'stop').message, /목표 미적용/);
 assert.match(summaryAchievementToast('missing', config, 'stop').message, /분량 확인 불가/);
-assert.match(summaryAchievementToast(archive(body), { enabled: true, target: 'not numeric' }, 'stop').message, /목표 분량 해석 불가/);
-assert.match(summaryAchievementToast(archive(body), { enabled: true, target: '4000~6000' }, 'stop').message, /범위 하한 대비/);
-assert.equal(estimateNarrativeTokens(''), 0);
+assert.match(summaryAchievementToast(archive(body), { unit: 'characters', enabled: true, target: 'not numeric' }, 'stop').message, /목표 분량 해석 불가/);
+assert.match(summaryAchievementToast(archive(body), { unit: 'characters', enabled: true, target: '4000~6000' }, 'stop').message, /범위 하한 대비/);
+assert.equal(countNarrativeCharacters(''), 0);
+assert.equal(countNarrativeCharacters('가 나\r\n다\n'), 4, 'spaces count and CR/LF do not');
+assert.equal(countNarrativeCharacters('가'), 1, 'decomposed Hangul is one visible character');
+assert.equal(countNarrativeCharacters('👩‍💻🇰🇷'), 2, 'combined emoji are counted as graphemes');
+assert.deepEqual(summaryNarrativeConfig({ summary_narrative_target_tokens: '20000' }, {}), { unit: 'characters', enabled: true, target: '10000' }, 'legacy tokens are not reinterpreted as characters');
+
 
 // Retry a retained multi-chat response without re-generating or sending local-only metadata to SQL.
 const multiPage = ts.createSourceFile('multi.tsx', read('src/pages/MultichatPage.tsx'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -60,7 +65,7 @@ findRetry(multiPage); assert(retrySource);
 const savedCalls = [], notifications = [], retryErrors = [];
 let rejectSave = false;
 const retry = vm.runInNewContext(compile(retrySource) + '\nretrySummarySave', {
-  summaryPending: { target_room: 'room', summary_text: archive('x'.repeat(49920)), generation_finish_reason: 'stop', narrative_config: config },
+  summaryPending: { target_room: 'room', summary_text: archive('x'.repeat(12480)), generation_finish_reason: 'stop', narrative_config: config },
   summaryLock: { current: false }, setSummaryGenerating() {}, user: null,
   supabase: { rpc: async (name, args) => { savedCalls.push({ name, args }); return { data: {}, error: rejectSave ? Error('save denied') : null }; } },
   setSummaryPending() {}, patchSession() {}, refresh: async () => {}, report: error => retryErrors.push(error),
@@ -103,4 +108,4 @@ try {
 } finally {
   if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow;
 }
-console.log('Summary narrative: approved English, configuration, numeric/range targets, section isolation, dates/fences, honest estimates, partial/missing results and real top-toast events passed.');
+console.log('Summary narrative: approved English, configuration, numeric/range targets, section isolation, dates/fences, exact character counts, partial/missing results and real top-toast events passed.');

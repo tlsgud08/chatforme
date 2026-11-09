@@ -763,6 +763,7 @@ export default function ChatPage() {
       const ids = candidates.map((message) => message.id);
       const { data: updated, error } = await supabase.rpc('save_generated_summary', {
         target_session: session.id, summary_text: result.text, through_turn: throughTurn,
+        generation_narrative_config: narrativeConfig,
         ...completionMetadata,
         source_versions: [
           ...candidates.map(message => ({ id: message.id, version: message.content_version ?? 0 })),

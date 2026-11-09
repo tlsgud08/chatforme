@@ -101,8 +101,9 @@ try{
  await login(a);await rpc('request_multichat_summary',[room,7,[]]);assert.equal(await rpc('claim_multichat_summary',[room]),null,'host requests but cannot use the PC2-only key');
  await login(b);const summaryTicket=await rpc('claim_multichat_summary',[room]);assert.ok(summaryTicket.token);
  const versions=(await query('select id,content_version as version from messages where session_id=$1 and is_active_variant',[room]));
- await rpc('finish_multichat_summary',[room,summaryTicket.id,summaryTicket.token,'SHARED SUMMARY',7,'',1,2,0.001,JSON.stringify(versions),'length','MAX_TOKENS']);
- await rpc('finish_multichat_summary',[room,summaryTicket.id,summaryTicket.token,'SHARED SUMMARY',7,'',1,2,0.001,JSON.stringify(versions),'stop','STOP']);
+ await rpc('finish_multichat_summary',[room,summaryTicket.id,summaryTicket.token,'SHARED SUMMARY',7,'',1,2,0.001,JSON.stringify(versions),'length','MAX_TOKENS',JSON.stringify({unit:'characters',target:'10000',enabled:true})]);
+ await rpc('finish_multichat_summary',[room,summaryTicket.id,summaryTicket.token,'SHARED SUMMARY',7,'',1,2,0.001,JSON.stringify(versions),'stop','STOP',JSON.stringify({unit:'characters',target:'20000',enabled:true})]);
+ assert.deepEqual((await query('select narrative_target_chars,narrative_target_enabled from summary_versions where session_id=$1',[room]))[0],{narrative_target_chars:'10000',narrative_target_enabled:true},'PC2 saves character metadata and replay cannot rewrite its target');
  assert.deepEqual((await query('select finish_reason,native_finish_reason from summary_versions where session_id=$1',[room]))[0],{finish_reason:'length',native_finish_reason:'MAX_TOKENS'},'replay preserves original termination metadata');
  await login(a);assert.equal((await query('select summary from sessions where id=$1',[room]))[0].summary,'SHARED SUMMARY');
  await rpc('edit_multichat_item',[room,'party',party.id,'CHANGED HUMAN ONLY']);assert.equal((await query('select summary from sessions where id=$1',[room]))[0].summary,'SHARED SUMMARY');

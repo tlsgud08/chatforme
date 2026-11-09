@@ -208,7 +208,7 @@ export default function MultichatPage() {
       });
       if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
       const completionMetadata = summaryResultMetadata(result);
-      const completion = { ...completionMetadata, target_room: s.id, request_id: ticket.id, token: ticket.token, summary_text: result.text, through_turn: end, previous_summary: s.summary, in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost, source_versions: source.map(m => ({ id: m.id, version: m.content_version ?? 0 })) };
+      const completion = { ...completionMetadata, generation_narrative_config: narrativeConfig, target_room: s.id, request_id: ticket.id, token: ticket.token, summary_text: result.text, through_turn: end, previous_summary: s.summary, in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost, source_versions: source.map(m => ({ id: m.id, version: m.content_version ?? 0 })) };
       const localCompletion = { ...completion, narrative_config: narrativeConfig };
       setSummaryPending(localCompletion);
       if (user && roomId) { try { localStorage.setItem(storedKey(user.id, roomId) + ':summary', JSON.stringify(localCompletion)); } catch { /* retained in memory */ } }
@@ -234,7 +234,7 @@ export default function MultichatPage() {
       const warning = summaryCompletionWarning(completion.generation_finish_reason as string | undefined);
       if (warning) report(warning);
       const config = narrative_config as ReturnType<typeof summaryNarrativeConfig> | undefined;
-      if (config && typeof config.target === 'string' && typeof config.enabled === 'boolean') {
+      if (config && config.unit === 'characters' && typeof config.target === 'string' && typeof config.enabled === 'boolean') {
         const achievement = summaryAchievementToast(String(completion.summary_text), config, completion.generation_finish_reason as string | undefined);
         showToast(achievement.message, achievement);
       }
