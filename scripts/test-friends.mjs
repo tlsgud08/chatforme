@@ -153,7 +153,7 @@ try{
 }finally{await db.close();}
 const server=await createServer({server:{middlewareMode:true},appType:'custom'});
 try{
- const {friendView,friendActivityLabel,friendActivityDescription,friendLastSeenLabel,FRIEND_AWAY_MS,FRIEND_CONNECTION_TTL_MS}=await server.ssrLoadModule('/src/lib/friends.ts');
+ const {friendView,friendPresenceLabel,friendActivityLabel,friendActivityDescription,friendLastSeenLabel,FRIEND_AWAY_MS,FRIEND_CONNECTION_TTL_MS}=await server.ssrLoadModule('/src/lib/friends.ts');
  const now=Date.now(),iso=stamp=>new Date(stamp).toISOString();
  const base={user_id:b,display_name:'Friend',status:'accepted',requested_by:a,sharing_enabled:true,last_work_id:work,last_played_at:iso(now-60_000),connections:[{seen_at:iso(now),active_at:iso(now-FRIEND_AWAY_MS+1),work_id:work}]};
  for(const [elapsed,label] of [[0,'방금 전 접속'],[59999,'방금 전 접속'],[60000,'1분 전 접속'],[3599999,'59분 전 접속'],[3600000,'1시간 전 접속'],[86399999,'23시간 전 접속'],[86400000,'1일 전 접속'],[172800000,'2일 전 접속'],[-60000,'방금 전 접속']])assert.equal(friendLastSeenLabel(iso(now-elapsed),now),label);
@@ -163,7 +163,14 @@ try{
  assert.equal(friendActivityLabel(friendView(recent,now+60000),{[work]:{title:'빅토리아 3'}}),'4분 전 접속 · 마지막 플레이 · 빅토리아 3','clock ticks advance labels without fetching');
  assert.equal(friendActivityLabel(friendView({...recent,last_work_id:null},now),{}),'3분 전 접속');
  assert.equal(friendActivityLabel(friendView({...recent,last_activity_type:'create'},now),{[work]:{title:'빅토리아 3'}}),'3분 전 접속 · 마지막 제작 · 빅토리아 3');
- assert.equal(friendActivityLabel(friendView({...recent,sharing_enabled:false},now),{}),'활동 비공개');
+ for (const source of [base, recent, {...base,connections:[{...base.connections[0],active_at:iso(now-FRIEND_AWAY_MS),activity_type:'create'}]}]) {
+  const hidden=friendView({...source,sharing_enabled:false},now);
+  assert.equal(hidden.presence,'offline','disabled sharing uses the offline dot and sort order even with a live connection');
+  assert.equal(friendPresenceLabel(hidden),'오프라인');
+  assert.equal(friendActivityLabel(hidden,{[work]:{title:'빅토리아 3'}}),'오프라인');
+  assert.equal(friendActivityDescription(hidden,{}),'오프라인');
+  for(const field of ['currentWorkId','displayWorkId','currentActivityType','displayActivityType','lastSeenLabel','displayPlayMs','displayActivityMs'])assert.equal(hidden[field],null,field+' stays private');
+ }
  assert.equal(friendView(base,now).presence,'online');
  const away=friendView({...base,connections:[{...base.connections[0],active_at:iso(now-FRIEND_AWAY_MS)}]},now);
  assert.equal(away.presence,'away');assert.equal(away.currentWorkId,work);assert.equal(friendActivityLabel(away,{[work]:{title:'빅토리아 3'}}),'빅토리아 3 플레이 중');

@@ -16,7 +16,7 @@ export interface FriendRelationship {
 export interface FriendSnapshot { server_time: string; sharing_enabled: boolean; relationships: FriendRelationship[]; }
 export interface FriendWork { id: string; title: string; thumbnail_url: string | null; }
 export interface FriendView extends FriendRelationship {
-  presence: 'online' | 'away' | 'offline' | 'hidden'; currentWorkId: string | null; displayWorkId: string | null;
+  presence: 'online' | 'away' | 'offline'; currentWorkId: string | null; displayWorkId: string | null;
   currentActivityType: FriendActivityType | null; displayActivityType: FriendActivityType | null; lastSeenLabel: string | null; displayPlayMs: number | null; displayActivityMs: number | null;
 }
 
@@ -49,7 +49,8 @@ export function formatFriendPlayTime(milliseconds: number): string {
 export function friendView(friend: FriendRelationship, now: number): FriendView {
   const live = (friend.connections ?? []).filter(connection => Number.isFinite(Date.parse(connection.seen_at)) && now - Date.parse(connection.seen_at) < FRIEND_CONNECTION_TTL_MS)
     .sort((a, b) => Date.parse(b.active_at) - Date.parse(a.active_at) || Date.parse(b.seen_at) - Date.parse(a.seen_at));
-  if (!friend.sharing_enabled) return { ...friend, presence: 'hidden', currentWorkId: null, displayWorkId: null, currentActivityType: null, displayActivityType: null, lastSeenLabel: null, displayPlayMs: null, displayActivityMs: null };
+  // Disabled sharing uses the ordinary offline presentation without exposing activity.
+  if (!friend.sharing_enabled) return { ...friend, presence: 'offline', currentWorkId: null, displayWorkId: null, currentActivityType: null, displayActivityType: null, lastSeenLabel: null, displayPlayMs: null, displayActivityMs: null };
   const latest = live[0];
   const presence = !latest ? 'offline' : now - Date.parse(latest.active_at) >= FRIEND_AWAY_MS ? 'away' : 'online';
   const currentWorkId = latest?.work_id ?? null;
@@ -65,7 +66,7 @@ export function friendView(friend: FriendRelationship, now: number): FriendView 
 }
 export function friendPresenceLabel(friend: FriendView): string {
   if (friend.presence === 'offline' && friend.lastSeenLabel) return friend.lastSeenLabel;
-  return { online: '접속 중', away: '자리 비움', offline: '오프라인', hidden: '활동 비공개' }[friend.presence];
+  return { online: '접속 중', away: '자리 비움', offline: '오프라인' }[friend.presence];
 }
 export function friendActivityLabel(friend: FriendView, works: Record<string, FriendWork>): string {
   if (!friend.displayWorkId) return friendPresenceLabel(friend);
