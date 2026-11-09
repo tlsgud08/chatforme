@@ -18,6 +18,7 @@ import { multichatTranscript, prepareMultichatContext } from '@/lib/multichatCon
 import { registerAccountTask } from '@/lib/accountTasks';
 import { loadGlobalSummaryPrompt, summaryPromptWithParameters } from '@/lib/summaryPrompt';
 import { summaryNarrativeConfig, summaryAchievementToast } from '@/lib/summaryNarrative';
+import { generateSummaryResponse, isUserSummaryStop, SUMMARY_USER_STOP } from '@/lib/summaryGeneration';
 import { normalizeReasoning } from '@/lib/modelPreferences';
 import { finalThemeDirective, resolveThemeDirectiveChoice, stripThemeDirectives } from '@/lib/themeDirectives';
 import { requestThemeRefresh, paletteFor } from '@/lib/theme';
@@ -63,6 +64,8 @@ export default function MultichatPage() {
   const [data, setData] = useState<RoomData | null>(null), [loadError, setLoadError] = useState('');
   const [input, setInput] = useState(''), [menuOpen, setMenuOpen] = useState(false), [billingOpen, setBillingOpen] = useState(false);
   const [busy, setBusy] = useState(false), [generating, setGenerating] = useState(false), [summaryGenerating, setSummaryGenerating] = useState(false);
+  const [summarySaving, setSummarySaving] = useState(false);
+  const [summaryContent, setSummaryContent] = useState('');
   const [generationProgress] = useState(createGenerationProgress);
   const [generationMessageId, setGenerationMessageId] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<Record<string, CacheDiagnostic>>({});
@@ -179,10 +182,16 @@ export default function MultichatPage() {
     const { error } = await supabase.rpc('request_multichat_summary', { target_room: room.id, through_round: through ?? null, merge_ids: merging.map(version => version.id) });
     if (error) report(error); else { showToast('API 키 담당자에게 요약을 요청했습니다.'); await refresh(); }
   }
+  function stopSummary() {
+    const active = controller.current;
+    if (!summaryLock.current || summarySaving || !active || active.signal.aborted) return;
+    setSummarySaving(true);
+    active.abort(SUMMARY_USER_STOP);
+  }
   async function processSummary(ticket: SummaryTicket) {
     if (!data?.session || !data.profile || !me || summaryLock.current || lock.current) return;
     const key = getApiKey('openrouter');
-    summaryLock.current = true; setSummaryGenerating(true);
+    summaryLock.current = true; setSummaryGenerating(true); setSummarySaving(false); setSummaryContent('');
     const abort = new AbortController(), unregister = registerAccountTask(abort);
     controller.current = abort;
     const timeout = setTimeout(() => abort.abort(), 8 * 60_000);
@@ -202,33 +211,37 @@ export default function MultichatPage() {
       const body = merging.length ? '' : source.filter(m => !previous || m.turn_index > s.summary_last_turn || m.is_hidden).map(m => `[${m.role === 'user' ? 'PC' : 'AI'}]\n${stripThemeDirectives(m.content)}`).join('\n\n');
       const model = s.summary_model_override || profile.summary_model || profile.default_model;
       const narrativeConfig = summaryNarrativeConfig(profile, s);
-      const result = await generate('openrouter', { apiKey: key, model, sessionId: `${s.id}:summary`, signal: abort.signal, reasoning: normalizeReasoning(s.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', model), maxOutputTokens: null,
+      const result = await generateSummaryResponse(generate, { apiKey: key, model, sessionId: `${s.id}:summary`, signal: abort.signal, onChunk: text => setSummaryContent(text), reasoning: normalizeReasoning(s.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', model), maxOutputTokens: null,
         systemParts: { core: summaryPromptWithParameters(await loadGlobalSummaryPrompt(abort.signal), profile, s), persona: '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user', content: [previous && `Previous Summary:\n${previous}`, body && `Dialogue:\n${body}`].filter(Boolean).join('\n\n') }],
       });
-      if (!result.text.trim()) throw new Error('요약 모델이 빈 응답을 반환했습니다.');
+      if (abort.signal.aborted && !isUserSummaryStop(abort.signal)) throw new Error('요약 생성을 중단했습니다.');
+      if (!result.text.trim()) throw new Error(result.finishReason === 'user_stop' ? '수신한 요약 본문이 없어 새 노트를 만들지 않았습니다.' : '요약 모델이 빈 응답을 반환했습니다.');
+      setSummaryContent(result.text);
+      setSummarySaving(true);
       const completionMetadata = summaryResultMetadata(result);
       const completion = { ...completionMetadata, generation_narrative_config: narrativeConfig, target_room: s.id, request_id: ticket.id, token: ticket.token, summary_text: result.text, through_turn: end, previous_summary: s.summary, in_tokens: result.usage.inputTokens, out_tokens: result.usage.outputTokens, response_cost: result.usage.cost, source_versions: source.map(m => ({ id: m.id, version: m.content_version ?? 0 })) };
       const localCompletion = { ...completion, narrative_config: narrativeConfig };
       setSummaryPending(localCompletion);
       if (user && roomId) { try { localStorage.setItem(storedKey(user.id, roomId) + ':summary', JSON.stringify(localCompletion)); } catch { /* retained in memory */ } }
       const { data: saved, error } = await supabase.rpc('finish_multichat_summary', completion);
-      if (error) throw error; setSummaryPending(null); if (user && roomId) { try { localStorage.removeItem(storedKey(user.id, roomId) + ':summary'); } catch { /* acknowledged */ } } patchSession(saved as Session);
+      if (error) throw error; setSummaryContent(''); setSummaryPending(null); if (user && roomId) { try { localStorage.removeItem(storedKey(user.id, roomId) + ':summary'); } catch { /* acknowledged */ } } patchSession(saved as Session);
       const warning = summaryCompletionWarning(completionMetadata.generation_finish_reason);
       if (warning) report(warning);
       const achievement = summaryAchievementToast(result.text, narrativeConfig, result.finishReason);
       showToast(achievement.message, achievement);
-    } catch (error) { await supabase.rpc('fail_multichat_summary', { target_room: data.room.id, request_id: ticket.id, token: ticket.token, error_text: errorText(error) }); report(error); } finally { clearTimeout(timeout); unregister(); controller.current = null; summaryLock.current = false; setSummaryGenerating(false); await refresh().catch(report); }
+    } catch (error) { await supabase.rpc('fail_multichat_summary', { target_room: data.room.id, request_id: ticket.id, token: ticket.token, error_text: errorText(error) }); if (isUserSummaryStop(abort.signal)) showToast('요약 생성을 중지했습니다. ' + errorText(error)); else report(error); } finally { clearTimeout(timeout); unregister(); controller.current = null; summaryLock.current = false; setSummaryGenerating(false); setSummarySaving(false); await refresh().catch(report); }
   }
   async function retrySummarySave() {
     if (!summaryPending || summaryLock.current) return;
-    summaryLock.current = true; setSummaryGenerating(true);
+    summaryLock.current = true; setSummaryGenerating(true); setSummarySaving(true);
     try {
       // The target snapshot belongs to local notification metadata, not RPC arguments.
       const { narrative_config, ...completion } = summaryPending;
       const { data: saved, error } = await supabase.rpc('finish_multichat_summary', completion);
       if (error) throw error;
       setSummaryPending(null);
+      setSummaryContent('');
       if (user && roomId) { try { localStorage.removeItem(storedKey(user.id, roomId) + ':summary'); } catch { /* acknowledged */ } }
       patchSession(saved as Session);
       const warning = summaryCompletionWarning(completion.generation_finish_reason as string | undefined);
@@ -240,7 +253,7 @@ export default function MultichatPage() {
       }
       await refresh();
     } catch (error) { report(error); }
-    finally { summaryLock.current = false; setSummaryGenerating(false); }
+    finally { summaryLock.current = false; setSummaryGenerating(false); setSummarySaving(false); }
   }
   async function runGeneration(retry = false) {
     if (!data?.profile || !me || lock.current || pending || summaryLock.current) return;
@@ -418,6 +431,6 @@ export default function MultichatPage() {
     {menuOpen && menuSession && me && <SessionMenu key={`${room.id}:${me.slot}`} session={menuSession} profile={data.profile} onClose={() => setMenuOpen(false)} onUpdate={patchSession} onPersonaChange={() => { void refresh().catch(report); }} multichat={{ room, members: data.members, slot: me.slot, otherPresent: data.members.some(member => member.user_id !== user?.id && connectedUserIds.includes(member.user_id)), presenceReady, onRoomUpdate: patchRoom, onRefresh: refresh }}
       debugMode={display.debug} onDebugToggle={changeDisplay('debug')} showCost={display.cost} onShowCostToggle={changeDisplay('cost')} showCostKrw={display.krw} onShowCostKrwToggle={changeDisplay('krw')} showCacheTokens={display.cache} onShowCacheTokensToggle={changeDisplay('cache')} showImages={display.images} onShowImagesToggle={changeDisplay('images')} showOffMode={display.spoiler} onShowOffModeToggle={changeDisplay('spoiler')} exchange={exchange}
       sessionModel={session?.model_override || data.profile?.default_model || room.model} onModelChange={model => { void supabase.from('sessions').update({ model_override: model }).eq('id', room.id).then(({ error }) => error ? report(error) : patchSession({ model_override: model })); }} sessionReasoning={session?.reasoning_override ?? data.profile?.default_reasoning ?? {}} onReasoningChange={reasoning => { void supabase.from('sessions').update({ reasoning_override: reasoning }).eq('id', room.id).then(({ error }) => error ? report(error) : patchSession({ reasoning_override: reasoning })); }}
-      errorLog={errors} onClearErrors={() => setErrors([])} onExportConversation={exportConversation} exportingConversation={exporting} onGenerateSummary={summarize} onMergeSummaries={versions => summarize(undefined, versions)} summaryGenerating={summaryGenerating} storyNotes={data.notes} onStoryNotesChange={notes => setData(old => old ? { ...old, notes } : old)} sessionTurnCount={Math.max(0, room.current_round - 1)} sending={writing} onWorkCombinationSavingChange={saving => { if (saving && (lock.current || submitLock.current || combinationLock.current)) return false; combinationLock.current = saving; return true; }} />}
+      errorLog={errors} onClearErrors={() => setErrors([])} onExportConversation={exportConversation} exportingConversation={exporting} onGenerateSummary={summarize} onMergeSummaries={versions => summarize(undefined, versions)} summaryGenerating={summaryGenerating} summarySaving={summarySaving} summaryContent={summaryContent} onStopSummary={stopSummary} storyNotes={data.notes} onStoryNotesChange={notes => setData(old => old ? { ...old, notes } : old)} sessionTurnCount={Math.max(0, room.current_round - 1)} sending={writing} onWorkCombinationSavingChange={saving => { if (saving && (lock.current || submitLock.current || combinationLock.current)) return false; combinationLock.current = saving; return true; }} />}
   </div>;
 }

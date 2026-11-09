@@ -27,6 +27,8 @@ try {
   assert(html.includes('분량 확인 불가') && !html.includes('% 달성'));
   assert(render({ ...version, output_tokens: null }).includes('출력 토큰 확인 불가'));
   assert(render({ ...version, output_tokens: 0 }).includes('총 출력 0토큰'));
+  html = render({ ...version, cost: 0, output_tokens: 0, finish_reason: 'user_stop', native_finish_reason: 'client_abort_usage_unreported' });
+  assert(html.includes('사용 확인 불가') && html.includes('출력 토큰 확인 불가'), 'a manually stopped stream without usage is never advertised as free');
   assert.equal(summaryNarrativeConfig({}, {}).target, '10000');
 
   const page = ts.createSourceFile('menu.tsx', readFileSync(new URL('../src/components/SessionMenu.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);

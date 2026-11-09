@@ -103,6 +103,7 @@ for (const [isAdmin, canManageSettings] of [[true,true],[false,true],[false,fals
 }
 console.log('Settings page: founder sees role management, delegates see settings only, members see neither.');
 
+const { generateSummaryResponse, isUserSummaryStop, SUMMARY_USER_STOP } = await import('data:text/javascript;base64,' + Buffer.from(ts.transpileModule(read('src/lib/summaryGeneration.ts'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText).toString('base64'));
 const { summaryNarrativeConfig, summaryAchievementToast } = await import('data:text/javascript;base64,' + Buffer.from(ts.transpileModule(read('src/lib/summaryNarrative.ts'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText).toString('base64'));
 const { summaryCompletionWarning, summaryResultMetadata } = vm.runInNewContext(compile(read('src/lib/summaryCompletion.ts').replace(/^import .*$/gm, '').replace(/\bexport /g, '')) + '\n({summaryCompletionWarning, summaryResultMetadata})');
 const summaryPromptWithParameters = vm.runInNewContext(compile(read('src/lib/summaryPrompt.ts')
@@ -124,7 +125,7 @@ const runSummary = vm.runInNewContext(compile(processSource) + '\nprocessSummary
   summaryLock: { current: false }, lock: { current: false }, controller: { current: null },
   getApiKey: () => 'fixture', setSummaryGenerating() {}, AbortController, setTimeout, clearTimeout,
   registerAccountTask: () => () => {}, multichatTranscript: async () => transcript,
-  loadGlobalSummaryPrompt: async () => 'ADMIN CORE', summaryNarrativeConfig, summaryAchievementToast, showToast() {}, summaryPromptWithParameters, summaryCompletionWarning, summaryResultMetadata,
+  setSummarySaving() {}, setSummaryContent() {}, generateSummaryResponse, isUserSummaryStop, SUMMARY_USER_STOP, loadGlobalSummaryPrompt: async () => 'ADMIN CORE', summaryNarrativeConfig, summaryAchievementToast, showToast() {}, summaryPromptWithParameters, summaryCompletionWarning, summaryResultMetadata,
   normalizeReasoning: () => ({}), stripThemeDirectives: text => text,
   generate: async (_provider, request) => { requests.push(request); return { text: 'MEMORY', finishReason: mockFinishReason, nativeFinishReason: 'NATIVE', usage: { inputTokens: 1, outputTokens: 1, cost: 0 } }; },
   supabase: { from: () => ({ select() { return this; }, eq() { return this; }, in() { return this; }, single: async () => ({ data: room }) }),
@@ -151,3 +152,25 @@ assert.equal(completed.at(-1).args.summary_text,'MEMORY');
 assert.equal(completed.at(-1).args.generation_finish_reason,'length');
 assert.match(errors[0],/제공자 출력 제한.*저장/);
 assert.equal(errors.length,1,'a saved partial summary reports once and does not enter the failed-request path');
+
+// Render the real menu while streaming: the same generation button becomes Stop,
+// and the history page can show a draft before any summary-version row exists.
+props = { ...props, storyNotes: [], summaryGenerating: true, summarySaving: false, summaryContent: '첫 조각', sending: true, onStopSummary: () => { stops++; } };
+let stops = 0;
+state.length = 0;
+const LiveMenu = vm.runInNewContext(compile(read('src/components/SessionMenu.tsx').replace(/^import .*$/gm, '').replace('export default function', 'function').replace('const [summaryOpen, setSummaryOpen] = useState(false)', 'const [summaryOpen, setSummaryOpen] = useState(true)')).replace('export {};', '') + '\nSessionMenu', { jsx: createElement, Fragment, ...shared });
+const renderLive = () => { cursor = 0; return LiveMenu(props); };
+tree = renderLive();
+let stopButton = nodes(tree, node => node.type === 'button' && [node.props.children].flat(Infinity).includes('요약 생성 중지'))[0];
+assert.equal(stopButton.props.disabled, false, 'sending/busy state must not disable Stop');
+await stopButton.props.onClick();assert.equal(stops, 1);
+let draft = nodes(tree, node => node.props?.['aria-label'] === '생성 중인 요약 노트')[0];
+assert(draft);assert.equal(nodes(draft, node => node.type === 'pre')[0].props.children, '첫 조각');
+props = { ...props, summaryContent: '첫 조각과 다음 조각' };tree = renderLive();
+draft = nodes(tree, node => node.props?.['aria-label'] === '생성 중인 요약 노트')[0];
+assert.equal(nodes(draft, node => node.type === 'pre')[0].props.children, '첫 조각과 다음 조각');
+props = { ...props, summarySaving: true };tree = renderLive();
+assert(nodes(tree, node => node.type === 'button' && [node.props.children].flat(Infinity).includes('요약 저장 중…')).every(node => node.props.disabled));
+props = { ...props, summaryGenerating: false };tree = renderLive();
+assert(nodes(tree, node => node.type === 'strong' && node.props.children === '저장되지 않은 요약').length, 'failed save leaves the received draft visible');
+console.log('Summary menu: active Stop button, saving lock, live history text and unsaved draft preservation passed.');

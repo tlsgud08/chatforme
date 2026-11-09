@@ -17,9 +17,10 @@ function SummaryNoteStats({ version, showCostKrw, exchange }: Props) {
   const targetLabel = enabled === false ? '목표 미적용' : enabled !== true || !version.narrative_target_chars
     ? '목표 기록 없음' : target ? `목표 ${target.minimum.toLocaleString('ko-KR')}${target.maximum !== target.minimum ? `~${target.maximum.toLocaleString('ko-KR')}` : ''}자`
     : `목표 ${version.narrative_target_chars}자`;
-  const cost = typeof version.cost === 'number' && Number.isFinite(version.cost) && version.cost >= 0
+  const usageUnreported = version.finish_reason === 'user_stop' && version.native_finish_reason === 'client_abort_usage_unreported';
+  const cost = !usageUnreported && typeof version.cost === 'number' && Number.isFinite(version.cost) && version.cost >= 0
     ? showCostKrw ? formatKrw(version.cost, exchange.rate) : `$${version.cost.toFixed(6)}` : '확인 불가';
-  const totalTokens = Number.isSafeInteger(version.output_tokens) && version.output_tokens >= 0
+  const totalTokens = !usageUnreported && Number.isSafeInteger(version.output_tokens) && version.output_tokens >= 0
     ? version.output_tokens.toLocaleString('ko-KR') : null;
   return <span className="flex min-w-0 flex-wrap self-center items-center gap-x-3 gap-y-1 text-[11px] text-slate-400" aria-label="요약 노트 사용량과 분량">
     <span title={showCostKrw && exchange.fallback ? '임시 환율로 환산한 사용 크레딧' : '이 노트 생성에 사용한 크레딧'}>사용 {cost}</span>

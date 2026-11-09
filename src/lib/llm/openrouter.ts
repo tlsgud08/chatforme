@@ -59,7 +59,7 @@ export const openrouterAdapter: LLMAdapter = {
     if (streaming) {
       if (!res.body) throw new Error('OpenRouter 스트리밍 응답 본문이 없습니다.');
       const { text, finishReason, nativeFinishReason, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost, generationId, upstreamProvider } =
-        await readOpenAIStream(res.body, text => { phase('first-content'); opts.onChunk!(text); }, () => phase('model-event'), () => phase('model-reasoning'));
+        await readOpenAIStream(res.body, text => { phase('first-content'); opts.onChunk!(text); }, () => phase('model-event'), () => phase('model-reasoning'), opts.onUsage);
       phase('model-complete');
       const usage = { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cost };
       return { text, finishReason, nativeFinishReason, usage, cacheDiagnostic: await createCacheDiagnostic({ sessionId: opts.sessionId, model: opts.model, sources, usage, requestId: res.headers.get('x-request-id') ?? requestId, generationId, upstreamProvider }) };
