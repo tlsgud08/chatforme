@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
+import vm from 'node:vm';
 
 // Render the actual JSX and invoke its event handlers with deterministic hook
 // state and a recording database. No browser, network or test dependency needed.
@@ -127,6 +128,7 @@ for(const selected of [single,{...single,dark_colors:null,light_colors:theme.DEF
 
   let workChoice;
   const work=tree(WorkThemeSettings,{userId:'owner',workId:'work',themeId:selected.id,variant:'light',onChange:(...choice)=>{workChoice=choice;}},[selected,true]);
+  assert.equal(elements(work).find(el=>typeof el.props.onSelect==='function').props.allowWorkCreate,true,'only the work editor opts into work-wide management');
   assert.equal(elements(work).filter(el=>el.props['aria-pressed']!==undefined).length,isDual?2:0);
   elements(work).find(el=>typeof el.props.onSelect==='function').props.onSelect(selected);
   assert.deepEqual(workChoice,[selected.id,'light']);
@@ -195,6 +197,31 @@ for(const tab of ['all','work','mine','hub','favorites']){
 const roomPicker=tree(ThemeMenu,{userId:'owner',workId:'work',scope:'work'},['light',catalog,new Set(),{},'work','',null,undefined,false,null]);
 assert.ok(renderToStaticMarkup(roomPicker).includes('LOCAL WORK'),'matching work chat still selects its work themes');
 assert.ok(!renderToStaticMarkup(roomPicker).includes('OTHER WORK'));
+// Work ownership, a work tab, an empty target list or combined rooms must not
+// turn a chat picker into a work-wide bulk editor.
+for(const drawer of [false,true])for(const workIds of [undefined,['work','other']])for(const records of [[],catalog,[{...local,work_shared:false}]]){
+  const view=tree(ThemeMenu,{userId:'owner',workId:'work',workIds,scope:'work',embedded:true,drawer},
+    ['light',records,new Set(),{},'work','',null,undefined,false,null]);
+  const html=renderToStaticMarkup(view);
+  assert(!html.includes('상태창 유형 일괄 변경')&&!html.includes('일괄 적용'),'chat work-theme pickers never expose bulk editing');
+}
+for(const records of [[],catalog]){
+  const view=tree(ThemeMenu,{userId:'owner',workId:'work',allowWorkCreate:true,embedded:true},
+    ['light',records,new Set(),{},'work','',null,undefined,false,null]);
+  const html=renderToStaticMarkup(view);
+  assert(html.includes('상태창 유형 일괄 변경')&&html.includes('일괄 적용'),'the work editor retains bulk editing, including its empty state');
+}
+// The action itself also rejects non-editor contexts, independently of JSX.
+const themeSource=readFileSync(new URL('../src/components/ThemeMenu.tsx',import.meta.url),'utf8');
+const themeAst=ts.createSourceFile('ThemeMenu.tsx',themeSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+let bulkAction;
+function findBulk(node){if(ts.isFunctionDeclaration(node)&&node.name?.text==='applyBulkStyle')bulkAction=node.getText(themeAst);ts.forEachChild(node,findBulk);}
+findBulk(themeAst);assert(bulkAction);
+const outsideBulk=vm.runInNewContext(ts.transpileModule(bulkAction,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText+'\napplyBulkStyle',{
+  allowWorkCreate:false,workId:'work',busy:false,bulkSaving:{current:false},bulkTargets:[local],
+  setBusy(){throw Error('chat attempted a work-wide write');},
+});
+await outsideBulk();
 console.log('Fluid variant handler, custom global identity, legacy OFF mode transitions and work catalog isolation OK');
 
 // Actual compact and legacy pickers keep every same-name combined-work choice
