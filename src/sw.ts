@@ -6,16 +6,17 @@ import { ExpirationPlugin } from 'workbox-expiration';
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
 import { CacheFirst } from 'workbox-strategies';
+import { CHAT_IMAGE_CACHE_PREFIX, WORK_THUMBNAIL_CACHE_PREFIX } from './lib/imageCache';
 
 declare let self: ServiceWorkerGlobalScope;
 
 const IMAGE_CACHE_VERSION = 'v1';
-const IMAGE_CACHE_NAME = `chat-markdown-images-${IMAGE_CACHE_VERSION}`;
+const IMAGE_CACHE_NAME = `${CHAT_IMAGE_CACHE_PREFIX}${IMAGE_CACHE_VERSION}`;
 const EXTERNAL_IMAGE_PATH = '/__chat-external-image';
 
 // Cache by the complete URL, including the thumbnail upload version (?t=...).
 // Unchanged images stay local; a newly uploaded thumbnail gets a new cache key.
-const WORK_THUMBNAIL_CACHE_NAME = 'work-thumbnails-v1';
+const WORK_THUMBNAIL_CACHE_NAME = `${WORK_THUMBNAIL_CACHE_PREFIX}v1`;
 const supabaseOrigin = (() => {
   const endpoint = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   if (!endpoint) return null;
@@ -162,8 +163,8 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((names) => Promise.all(
       names
         .filter((name) =>
-          (name.startsWith('chat-markdown-images-') && name !== IMAGE_CACHE_NAME)
-          || (name.startsWith('work-thumbnails-') && name !== WORK_THUMBNAIL_CACHE_NAME),
+          (name.startsWith(CHAT_IMAGE_CACHE_PREFIX) && name !== IMAGE_CACHE_NAME)
+          || (name.startsWith(WORK_THUMBNAIL_CACHE_PREFIX) && name !== WORK_THUMBNAIL_CACHE_NAME),
         )
         .map((name) => caches.delete(name)),
     )),
