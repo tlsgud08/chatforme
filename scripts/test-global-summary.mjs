@@ -1,3 +1,4 @@
+import { approvedSummaryLengthDirective } from './fixtures/summary-length.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
@@ -30,6 +31,11 @@ try{
   if(file.endsWith('_global_summary_prompt.sql'))await db.exec(`update auth.users set email='topshjtv@gmail.com' where id='${a}';update profiles set summary_prompt=case when id='${a}' then E'ADMIN EXACT\\nSUMMARY' else 'PRIVATE USER' end;`);
   try{await db.exec(source);}catch(error){throw new Error(file+': '+error.message);}
  }
+ const fresh='00000000-0000-0000-0000-000000000099';
+ await q('insert into auth.users(id,email) values($1,$2)',[fresh,'new-default@test']);
+ assert.equal((await q('select summary_source_mode from profiles where id=$1',[fresh]))[0].summary_source_mode,'full','new accounts use full history');
+ assert.equal((await q('select summary_source_mode from profiles where id=$1',[b]))[0].summary_source_mode,'incremental','existing choices survive the default migration');
+ await db.exec(readFileSync(new URL('20261109042958_summary_full_source_default.sql',dir),'utf8'));
  let prompt=(await q('select summary_prompt from platform_config where id=1'))[0].summary_prompt;assert.equal(prompt,'ADMIN EXACT\nSUMMARY','configured admin prompt migrates verbatim');
  assert.equal((await q("select count(*)::int n from profiles where summary_prompt is not null or summary_extra_note<>''"))[0].n,0,'no personal prompt data remains');
  await db.exec(`create or replace function auth.email() returns text language sql stable as $$select current_setting('test.email',true)$$;`);
@@ -48,6 +54,8 @@ try{
  await assert.rejects(()=>rpc('save_global_summary_prompt',[prompt,'stale overwrite']),/변경/);await assert.rejects(()=>rpc('save_global_summary_prompt',['NEW GLOBAL','   ']));
  await q("insert into works(id,creator_id,title,visibility) values($1,$2,'Fixture','public')",[work,a]);
  assert.ok(await rpc('create_session_with_start',[work,null,null]),'new-session creation remains compatible with retired columns');
+ await login(fresh);const fullRoom=await rpc('create_session_with_start',[work,null,null]);
+ assert.equal((await q('select summary_source_mode_override from sessions where id=$1',[fullRoom]))[0].summary_source_mode_override,'full','new rooms snapshot the full account default');
  await login(b);const created=await rpc('create_session_with_start',[work,null,null]);
  assert.equal((await q('select summary_narrative_target_tokens_override from sessions where id=$1',[created]))[0].summary_narrative_target_tokens_override,'4000~6000','new rooms snapshot the raw text default');
  await q('update sessions set summary_narrative_target_tokens_override=$1 where id=$2',['약 8000',created]);
@@ -89,8 +97,8 @@ try{
  assert.equal(await loadGlobalSummaryPrompt(),'GLOBAL CURRENT');value='GLOBAL CHANGED';assert.equal(await loadGlobalSummaryPrompt(),'GLOBAL CHANGED','subsequent summaries read live global state');
  value='';await assert.rejects(()=>loadGlobalSummaryPrompt(),/전역/);error=true;await assert.rejects(()=>loadGlobalSummaryPrompt());
  const base='GLOBAL EXACT\nPROMPT',profile={summary_level:3,summary_allow_omission:true,summary_parameters_enabled:true,summary_extra_note:'  EXTRA NOTE  '};
- assert.equal(summaryPromptWithParameters(base,{},{}),base+'\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.');
- assert.equal(summaryPromptWithParameters(base,profile,{summary_level_override:0,summary_allow_omission_override:false}),base+'\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.\n\n[ADDITIONAL NOTE]\nEXTRA NOTE');
+ assert.equal(summaryPromptWithParameters(base,{},{}),base+'\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.'+'\n\n'+approvedSummaryLengthDirective('3000'));
+ assert.equal(summaryPromptWithParameters(base,profile,{summary_level_override:0,summary_allow_omission_override:false}),base+'\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.\n\n[ADDITIONAL NOTE]\nEXTRA NOTE'+'\n\n'+approvedSummaryLengthDirective('3000'));
  assert.equal(summaryPromptWithParameters(base,profile,{summary_parameters_enabled_override:false}),base+'\n\n[ADDITIONAL NOTE]\nEXTRA NOTE','disabling parameters keeps the original independent extra-note behavior');
  assert.equal(summaryPromptWithParameters(base,{...profile,summary_extra_note:' ',summary_parameters_enabled:false},{}),base,'OFF with no note preserves the exact shared instruction');
  assert.match(summaryPromptWithParameters(base,profile,{summary_level_override:null,summary_allow_omission_override:null}),/SUMMARY_LEVEL = 3\nALLOW_OMISSION = ON/,'null room overrides inherit personal values');

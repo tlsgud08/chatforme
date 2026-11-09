@@ -1,9 +1,11 @@
+import { approvedSummaryLengthDirective } from './fixtures/summary-length.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
 import vm from 'node:vm';
 const uri=source=>'data:text/javascript;base64,'+Buffer.from(source).toString('base64');
 const compile=source=>ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const { summaryNarrativeConfig, summaryAchievementToast } = await import('data:text/javascript;base64,' + Buffer.from(ts.transpileModule(readFileSync(new URL('../src/lib/summaryNarrative.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText).toString('base64'));
 const {summaryCompletionWarning,summaryResultMetadata}=await import(uri(compile(readFileSync(new URL('../src/lib/summaryCompletion.ts',import.meta.url),'utf8'))));
 const {withoutSyncDateTags}=await import(uri(compile(readFileSync(new URL('../src/lib/syncDate.ts',import.meta.url),'utf8'))));
 const themeURL=uri(compile(readFileSync(new URL('../src/lib/theme.ts',import.meta.url),'utf8')));
@@ -60,7 +62,7 @@ let summaryConnected=false;
 const summaryTasks=new Map();
 const sharedActions=[];let summaryMessageWrites=0;
 const merging=vm.runInNewContext(fn('messagesThroughTurn')+'\n'+fn('generateSummary')+'\ngenerateSummary',{
-  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},profile:{summary_prompt:'IGNORED PRIVATE',summary_level:0,summary_allow_omission:false,summary_extra_note:'EXTRA MEMORY NOTE'},summaryPromptWithParameters,summaryCompletionWarning,summaryResultMetadata,withoutSyncDateTags,loadSemiContext:async()=>summaryConnected?{}:null,loadGlobalSummaryPrompt:async()=> 'global summary core',loadSemiSyncSummaryPrompt:async()=> 'sync summary core',
+  contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},summaryNarrativeConfig, summaryAchievementToast, showToast() {},profile:{summary_prompt:'IGNORED PRIVATE',summary_level:0,summary_allow_omission:false,summary_extra_note:'EXTRA MEMORY NOTE'},summaryPromptWithParameters,summaryCompletionWarning,summaryResultMetadata,withoutSyncDateTags,loadSemiContext:async()=>summaryConnected?{}:null,loadGlobalSummaryPrompt:async()=> 'global summary core',loadSemiSyncSummaryPrompt:async()=> 'sync summary core',
   messages:complete.slice(-5),sendInFlightRef:{current:false},summaryGenerating:false,
   activeGenerations:new Map(),activeSummaryGenerations:summaryTasks,workCombinationSavingRef:{current:false},AbortController,
   getApiKey:()=> 'mock-key',registerAccountTask:()=>()=>{},
@@ -77,7 +79,7 @@ await merging([
   {id:'note10',content:'memory through ten',summarized_through_turn:10},
   {id:'note20',content:'memory through twenty',summarized_through_turn:20},
 ],20);
-const expectedCore='global summary core\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.\n\n[ADDITIONAL NOTE]\nEXTRA MEMORY NOTE';
+const expectedCore='global summary core\n\n[SUMMARY CONFIGURATION]\nSUMMARY_LEVEL = 0\nALLOW_OMISSION = OFF\nCORE_NARRATIVE_TARGET_TOKENS = 3000\nApply this target token count only to [핵심 서사 및 맥락], not to the entire archive.\n\n[ADDITIONAL NOTE]\nEXTRA MEMORY NOTE'+'\n\n'+approvedSummaryLengthDirective('3000');
 assert.deepEqual(summaryErrors,[]);assert.equal(summaryRequests[0].systemParts.core,expectedCore);
 assert.equal(commits[0]?.args.through_turn,20,'summary merge must not replace the checkpoint with the viewport count');
 assert.ok(summaryRequests[0].messages[0].content.includes('memory through twenty'));

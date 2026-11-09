@@ -11,24 +11,26 @@ try {
   const { generate } = await server.ssrLoadModule('/src/lib/llm/index.ts');
   const { readOpenAIStream } = await server.ssrLoadModule('/src/lib/llm/stream.ts');
   const { summaryCompletionWarning, summaryResultMetadata } = await server.ssrLoadModule('/src/lib/summaryCompletion.ts');
+  const { summaryNarrativeConfig, summaryAchievementToast } = await server.ssrLoadModule('/src/lib/summaryNarrative.ts');
   const { summaryPromptWithParameters } = await server.ssrLoadModule('/src/lib/summaryPrompt.ts');
   const page = ts.createSourceFile('chat.tsx', readFileSync(new URL('../src/pages/ChatPage.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  let handler;
+  let handler; const sourceFunctions = [];
   function visit(node) {
+    if (ts.isFunctionDeclaration(node) && ['messagesThroughTurn', 'messagesAfterSummary'].includes(node.name?.text)) sourceFunctions.push(node.getText(page));
     if (ts.isFunctionDeclaration(node) && node.name?.text === 'generateSummary') handler = node.getText(page);
     ts.forEachChild(node, visit);
   }
   visit(page); assert.ok(handler);
-  const compiled = ts.transpileModule(handler, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const compiled = ts.transpileModule(sourceFunctions.join('\n') + '\n' + handler, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   let finishReason = 'stop', content = '받은 요약 원문', saveFailure = false, sent = [];
   globalThis.fetch = async (_url, options) => {
     sent.push(JSON.parse(options.body));
     return Response.json({ choices: [{ finish_reason: finishReason, native_finish_reason: 'NATIVE_' + finishReason,
       message: { content } }], usage: { prompt_tokens: 1, completion_tokens: 9000, cost: 0.01 } });
   };
-  const saved = [], warnings = [], operations = [];
-  const session = { id: 'room', summary: '', summary_last_turn: 0, summary_source_mode_override: 'full' };
-  const messages = [{ id: 'u', role: 'user', content: '행동', is_active_variant: true }, { id: 'a', role: 'assistant', content: '장면', is_active_variant: true }];
+  const saved = [], warnings = [], operations = [], toasts = [];
+  const session = { id: 'room', summary: 'OLD ARCHIVE MUST NOT REPLACE THE SOURCE', summary_last_turn: 0 }; // No source setting: full is the default.
+  const messages = [{ id: 'h', role: 'assistant', is_hidden: true, content: 'HIDDEN START' }, { id: 'u', role: 'user', content: 'TURN ONE' }, { id: 'a', role: 'assistant', content: 'REPLY ONE' }, { id: 'old', role: 'assistant', content: 'INACTIVE REROLL', is_active_variant: false }, { id: 'u2', role: 'user', content: 'TURN TWO' }, { id: 'a2', role: 'assistant', content: 'REPLY TWO' }];
   const summaryTasks = new Map();
   const run = vm.runInNewContext(compiled + '\ngenerateSummary', {
     contextReady: true, session, profile: {}, AbortController,
@@ -37,12 +39,13 @@ try {
     activeGenerations: new Map(), activeSummaryGenerations: summaryTasks, summaryGenerating: false,
     getApiKey: () => 'fixture', registerAccountTask: () => () => {}, setSummaryGenerating() {}, finishSummaryGeneration: id => summaryTasks.delete(id),
     readLiveThemeContext: async () => ({}), recoverExpiredResponses: async () => {},
-    fetchAllSessionMessages: async () => messages, messagesThroughTurn: rows => rows, messagesAfterSummary: rows => rows,
+    fetchAllSessionMessages: async () => messages,
     automaticThemeEnabled: () => false, stripThemeDirectives: text => text,
     loadGlobalSummaryPrompt: async () => 'GLOBAL', loadSemiSyncSummaryPrompt: async () => 'SYNC', summaryPromptWithParameters,
     modelsFor: () => ['fixture/model'], normalizeReasoning: () => ({ send: false }),
     loadSemiContext: async () => null, withoutSyncDateTags: value => value,
-    generate, summaryResultMetadata, summaryCompletionWarning,
+    generate, summaryResultMetadata, summaryCompletionWarning, summaryNarrativeConfig, summaryAchievementToast,
+    showToast: (...args) => { assert(saved.length > 0, 'toast follows the acknowledged save'); toasts.push(args); },
     setMessages() {}, setSession() {}, addError: message => warnings.push(message), describeUnknownError: error => error.message,
     supabase: { rpc: async (name, args) => { if (saveFailure) return { error: Error('保存失敗') }; saved.push({ name, args }); return { data: session }; } },
     semiAction: async (op, _session, _link, args) => {
@@ -54,7 +57,7 @@ try {
   });
   for (const kind of ['ordinary', 'merge', 'sync']) {
     for (const reason of ['stop', 'length', 'content_filter', 'error', null]) {
-      finishReason = reason; sent = []; saved.length = 0; warnings.length = 0; operations.length = 0;
+      finishReason = reason; sent = []; saved.length = 0; warnings.length = 0; operations.length = 0; toasts.length = 0;
       const result = await run(kind === 'merge' ? [{ id: 'note', content: '기존 요약', summarized_through_turn: 1 }] : [], 1, kind === 'sync' ? 'link' : undefined);
       assert.equal(result, true, JSON.stringify({kind,reason,warnings})); assert.equal(sent.length, 1, 'no automatic paid retry');
       assert.ok(!('max_tokens' in sent[0]), 'summary HTTP request omits output cap');
@@ -63,13 +66,20 @@ try {
       assert.equal(saved[0].args.generation_native_finish_reason, 'NATIVE_' + reason);
       assert.equal(warnings.length, reason === 'stop' ? 0 : 1);
       if (reason === 'length') assert.match(warnings[0], /제공자 출력 제한.*저장/);
+      assert.equal(toasts.length, kind === 'sync' ? 0 : 1, 'ordinary/merged notes report once; separate sync prompt has no target');
+      if (kind === 'ordinary') { const input = sent[0].messages.at(-1).content; assert(input.includes('HIDDEN START') && input.includes('TURN ONE') && input.includes('REPLY ONE')); assert(!input.includes('TURN TWO') && !input.includes('INACTIVE REROLL') && !input.includes(session.summary), 'full input obeys through-turn, active-variant filtering and excludes the old archive'); }
       if (kind === 'sync') assert.deepEqual(operations, ['prepare', 'publish']);
     }
   }
+  session.summary_narrative_target_tokens_override = '20000';
+  content = '[핵심 서사 및 맥락]\n' + 'x'.repeat(49920) + '\n[주요 갈등]\nignored'; finishReason = 'stop'; toasts.length = 0;
+  assert.equal(await run([], 1), true); assert.match(toasts[0][0], /62% \(12,480토큰 추정\)/);
+  toasts.length = 0;
   content = ''; saved.length = 0; warnings.length = 0;
   assert.equal(await run(), false); assert.equal(saved.length, 0); assert.match(warnings[0], /빈 응답/);
   content = '잘린 본문'; finishReason = 'length'; saveFailure = true; saved.length = 0; warnings.length = 0;
   assert.equal(await run(), false); assert.equal(saved.length, 0); assert.ok(!warnings[0].includes('저장했어요'), 'failed DB write never claims saved');
+  assert.equal(toasts.length, 0, 'empty output and rejected saves never report achievement');
   saveFailure = false;
   for (const reason of ['stop', 'length', 'content_filter']) {
     const stream = new Response(`data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: reason, native_finish_reason: 'NATIVE' }] })}\n\ndata: [DONE]\n\n`);
