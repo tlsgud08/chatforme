@@ -32,6 +32,7 @@ import { loadGlobalSummaryPrompt, loadSemiSyncSummaryPrompt, summaryPromptWithPa
 import { summaryNarrativeConfig, summaryAchievementToast } from '@/lib/summaryNarrative';
 import { generateSummaryResponse, isUserSummaryStop, SUMMARY_USER_STOP } from '@/lib/summaryGeneration';
 import { saveSummaryWithFallback } from '@/lib/summaryPersistence';
+import { resolveChatSubmission } from '@/lib/chatSubmission';
 import { withoutSyncDateTags } from '@/lib/syncDate';
 import { applySemiContext, loadSemiContext, semiAction, type SemiPreparation } from '@/lib/semiSession';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
@@ -969,6 +970,8 @@ export default function ChatPage() {
       }
     }
     const activeMessages = completeMessages.filter((message) => message.is_active_variant !== false);
+    const submission = resolveChatSubmission(submittedInput, submittedCommand, activeMessages);
+    const reusedUserMessage = options?.reroll ? null : submission.reusedUser;
     const rerollTarget = options?.reroll ? [...activeMessages].reverse().find((message) => message.role === 'assistant' && !message.is_hidden) ?? null : null;
     const baseMessages = rerollTarget ? activeMessages.filter((message) => message.id !== rerollTarget.id) : activeMessages;
     let effectiveSummary = contextSummary;
@@ -1002,20 +1005,21 @@ export default function ChatPage() {
       rerollIndex = Math.max(0, ...variants.map((message) => message.reroll_index ?? 1)) + 1;
     }
     const rerollUserMessage = rerollTarget ? [...baseMessages].reverse().find((message) => message.role === 'user' && !message.is_hidden) ?? null : null;
-    let rerollCommandPrompt = rerollUserMessage?.command_prompt?.trim() ?? '';
-    if (!rerollCommandPrompt && rerollUserMessage?.command_id) {
-      const { data: command, error } = await supabase.from('commands').select('prompt').eq('id', rerollUserMessage.command_id).abortSignal(controller.signal).maybeSingle();
+    const sourceUserMessage = rerollUserMessage ?? reusedUserMessage;
+    let rerollCommandPrompt = sourceUserMessage?.command_prompt?.trim() ?? '';
+    if (!rerollCommandPrompt && sourceUserMessage?.command_id) {
+      const { data: command, error } = await supabase.from('commands').select('prompt').eq('id', sourceUserMessage.command_id).abortSignal(controller.signal).maybeSingle();
       if (error) {
-        if (!controller.signal.aborted) reportSendError('재생성 명령어 조회 실패: ' + describeUnknownError(error));
+        if (!controller.signal.aborted) reportSendError('원래 메시지의 명령어 조회 실패: ' + describeUnknownError(error));
         controller.abort();
         releaseSend();
         return;
       }
       rerollCommandPrompt = command?.prompt?.trim() ?? '';
     }
-    const text = options?.reroll ? rerollUserMessage?.content ?? '' : submittedInput;
-    const commandName = options?.reroll ? rerollUserMessage?.command_name : submittedCommand?.name;
-    const commandPrompt = options?.reroll ? rerollCommandPrompt : submittedCommand?.prompt.trim() ?? '';
+    const text = options?.reroll ? rerollUserMessage?.content ?? '' : submission.text;
+    const commandName = sourceUserMessage ? sourceUserMessage.command_name : submittedCommand?.name;
+    const commandPrompt = sourceUserMessage ? rerollCommandPrompt : submittedCommand?.prompt.trim() ?? '';
     const promptText = commandPrompt ? `${text}${text ? '\n\n' : ''}[Selected Command /${commandName}]\n${commandPrompt}` : text;
     let generationTimedOut = false;
     let generationTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -1031,7 +1035,7 @@ export default function ChatPage() {
     // message advances from the greatest persisted logical turn.
     const turnIndex = rerollTarget
       ? rerollTarget.turn_index
-      : Math.max(0, ...baseMessages.filter((message) => !message.is_hidden).map((message) => message.turn_index)) + 1;
+      : reusedUserMessage?.turn_index ?? Math.max(0, ...baseMessages.filter((message) => !message.is_hidden).map((message) => message.turn_index)) + 1;
     let partialText = '';
     let lastPaint = 0;
     let draftMessageId: string | null = null;
@@ -1062,10 +1066,10 @@ export default function ChatPage() {
     }
     const { liveTheme, workCombination, semiContext } = prepared.value;
 
-    // A reroll re-sends the original user turn as the latest message, so remove
-    // that same row from history to avoid sending it twice.
-    const historySource = rerollUserMessage
-      ? baseMessages.filter((message) => message.id !== rerollUserMessage.id)
+    // Rerolls and unanswered-user retries place the original user last. Remove
+    // that same row from history so neither its body nor command is sent twice.
+    const historySource = sourceUserMessage
+      ? baseMessages.filter((message) => message.id !== sourceUserMessage.id)
       : baseMessages;
     const historyMsgs = buildHistory(historySource, effectiveSummaryTurn);
     const promptCache = resolvePromptCache(session.prompt_cache_enabled ?? false, model,
@@ -1077,7 +1081,7 @@ export default function ChatPage() {
       systemPrompt, mainPrompt: work.main_prompt, workCombination, userNote: session.user_note,
       summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
       plugins: session.active_plugins,
-      keywordBookContents: getActiveKeywordContents(baseMessages.filter(message => message.id !== rerollUserMessage?.id), promptText),
+      keywordBookContents: getActiveKeywordContents(baseMessages.filter(message => message.id !== sourceUserMessage?.id), promptText),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content,
         ...(m.id === promptCache.messageId && { cacheBreakpoint: true }) })),
       // Request-local only: never change the stored user turn, notes, keywords,
@@ -1100,7 +1104,8 @@ export default function ChatPage() {
       startAttempted = true;
       const claimed = await beginResponse({
         target_session: session.id, response_id: crypto.randomUUID(),
-        user_message_id: !options?.reroll && (text || commandPrompt) ? crypto.randomUUID() : null,
+        user_message_id: !options?.reroll && !reusedUserMessage && (text || commandPrompt) ? crypto.randomUUID() : null,
+        ...(reusedUserMessage && { reuse_user_message: reusedUserMessage.id }),
         user_text: text, user_command_id: submittedCommand?.id ?? null, user_command_name: submittedCommand?.name ?? null,
         user_command_prompt: submittedCommand?.prompt.trim() ?? null,
         expected_context_hash: contextHash,
@@ -1113,7 +1118,7 @@ export default function ChatPage() {
       draftMessageId = draft.id;
       // The server removes unselected answers only after a new turn is claimed.
       // Match that transaction locally, including continuation without user text.
-      if (!options?.reroll) {
+      if (!options?.reroll && !reusedUserMessage) {
         setMessages(current => current.filter(message => !(message.role === 'assistant'
           && message.is_active_variant === false && message.turn_index < draft.turn_index)));
       }
@@ -1406,10 +1411,10 @@ export default function ChatPage() {
                     onChange={(e) => setEditingContent(e.target.value)}
                     rows={Math.max(3, editingContent.split('\n').reduce((rows, line) => rows + Math.max(1, Math.ceil(line.length / 36)), 0))}
                     ref={focusEditor}
-                    className={`w-full resize-none overflow-hidden rounded-2xl px-4 py-3 text-sm text-slate-100 outline-none ${editingCommandName ? 'border-2 border-indigo-500 bg-indigo-500/10' : 'bg-surface'}`}
+                    className={`w-full resize-none overflow-hidden rounded-2xl px-4 py-3 text-sm text-slate-100 outline-none ${editingCommandName ? 'border-2 border-brand bg-brand/10' : 'bg-surface'}`}
                   />
                   <div className="flex items-center justify-end gap-2">
-                    {editingCommandName && <button onClick={() => setEditingCommandName(null)} className="mr-auto rounded-lg border border-indigo-400/60 bg-indigo-500/15 px-3 py-1.5 text-xs font-semibold text-indigo-300" aria-label={`/${editingCommandName} 명령어 제거`}>×　/{editingCommandName}</button>}
+                    {editingCommandName && <button onClick={() => setEditingCommandName(null)} className="mr-auto rounded-lg border border-brand/60 bg-brand/15 px-3 py-1.5 text-xs font-semibold text-brand" aria-label={`/${editingCommandName} 명령어 제거`}>×　/{editingCommandName}</button>}
                     <button disabled={editingSavingId === m.id} onClick={() => setEditingId(null)} className="rounded-lg bg-surface2 px-3 py-1.5 text-xs text-slate-300 disabled:opacity-50">취소</button>
                     <button disabled={sending || editingSavingId === m.id} onClick={() => saveEdit(m.id)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{editingSavingId === m.id ? '저장 중…' : '저장'}</button>
                   </div>
@@ -1420,7 +1425,7 @@ export default function ChatPage() {
                     m.is_hidden
                       ? 'border border-amber-500/40 bg-surface text-amber-200'
                       : m.role === 'user' && m.command_name
-                        ? 'border-l-4 border-indigo-500 bg-indigo-500/15 text-slate-100 ring-1 ring-inset ring-indigo-400/25'
+                        ? 'border-l-4 border-brand bg-brand/15 text-slate-100 ring-1 ring-inset ring-brand/25'
                       : m.role === 'user'
                         ? 'bg-brand text-white'
                         : m.generation_status === 'interrupted' && !m.content
@@ -1428,7 +1433,7 @@ export default function ChatPage() {
                           : 'text-slate-100'
                   }`}>
                     <SpoilerBoundary key={`${m.id}:${showOffMode}`} concealed={showOffMode && m.role === 'user'}>
-                      {m.role === 'user' && m.command_name && <p className="mb-2 font-bold text-indigo-400">/{m.command_name}</p>}
+                      {m.role === 'user' && m.command_name && <p className="mb-2 font-bold text-brand">/{m.command_name}</p>}
                       <MessageContent content={m.content} role={m.role} status={m.generation_status} showImages={showImages} />
                     </SpoilerBoundary>
                   </div>
@@ -1493,10 +1498,10 @@ export default function ChatPage() {
           <button
           onClick={() => void send()}
             disabled={workCombinationSaving || !contextReady || !!editingSavingId || !!deletingMessageId || !!selectingVariantId || summaryGenerating}
-            aria-label="메시지 전송"
+            aria-label={input.trim() || selectedCommand ? '메시지 전송' : '계속'}
             className="chat-send-button rounded-full bg-brand px-4 py-2.5 text-sm font-semibold text-white"
           >
-            전송
+            {input.trim() || selectedCommand ? '전송' : '계속'}
           </button>
         )}
       </div>

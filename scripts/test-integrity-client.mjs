@@ -45,7 +45,7 @@ function fn(name){let found;function visit(n){if(ts.isFunctionDeclaration(n)&&n.
 const match=vm.runInNewContext(fn('getActiveKeywordContents')+'\ngetActiveKeywordContents',{keywordBooks:[{keywords:['trigger'],content:'lore',activation_turns:3}]});
 assert.deepEqual(Array.from(match([{role:'user',content:'trigger'},{role:'user',content:'previous'}],'current')),['lore']);
 assert.deepEqual(Array.from(match([{role:'user',content:'trigger'},{role:'user',content:'old'},{role:'user',content:'previous'}],'current')),[]);
-assert.match(source,/getActiveKeywordContents\(baseMessages\.filter\(message => message\.id !== rerollUserMessage\?\.id\), promptText\)/,'real send path must exclude the current turn before the matching function appends it');
+assert.match(source,/getActiveKeywordContents\(baseMessages\.filter\(message => message\.id !== sourceUserMessage\?\.id\), promptText\)/,'real send path must exclude the current turn before the matching function appends it');
 
 // Real generated-summary source with a concurrent generation must return before
 // requesting a paid model or mutating memory.

@@ -294,7 +294,7 @@ try {
     console.log(JSON.stringify(result));
     if (!baseline) {
         const scroller = page.locator('.chat-scroll');
-        await page.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await page.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         await page.waitForTimeout(100);
         await scroller.evaluate(e => { e.scrollTop = e.scrollHeight - e.clientHeight - 40; });
         await page.waitForTimeout(100);
@@ -415,10 +415,10 @@ try {
         await progressivePage.locator('.chat-scroll').waitFor();
         const coreDisplayMs = Date.now()-displayStart;
         assert(coreDisplayMs < 1500, 'history must not wait two seconds for prompt settings');
-        assert.equal(await progressivePage.getByRole('button',{name:'메시지 전송',exact:true}).isEnabled(),false);
+        assert.equal(await progressivePage.getByRole('button',{name:'계속',exact:true}).isEnabled(),false);
         await progressivePage.getByPlaceholder('메시지 입력…').fill('Preserve this draft while loading');
         await progressivePage.getByRole('button',{name:'메시지 전송',exact:true}).waitFor();
-        await progressivePage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await progressivePage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         assert.equal(await progressivePage.getByPlaceholder('메시지 입력…').inputValue(),'Preserve this draft while loading');
         contextDelay = 0; contextFailure = true;
         await progressivePage.reload();
@@ -432,7 +432,7 @@ try {
         contextFailure = false;
         const coreReadsBeforeRetry = requests.filter(r=>r.path==='rpc/session_message_page').length;
         await progressivePage.getByRole('button',{name:'설정 다시 불러오기',exact:true}).click();
-        await progressivePage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await progressivePage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         assert.equal(await progressivePage.getByPlaceholder('메시지 입력…').inputValue(),'Draft survives context retry');
         assert.equal(requests.filter(r=>r.path==='rpc/session_message_page').length,coreReadsBeforeRetry,'context retry must not reload history');
         console.log(JSON.stringify({progressiveHistoryMs:coreDisplayMs,promptDelayMs:2000,contextFailurePreservesHistory:true,contextRetryPreservesDraft:true}));
@@ -464,7 +464,7 @@ try {
         await setup(background);
         const backgroundPage = await background.newPage();
         await backgroundPage.goto(origin+'/chat/'+sessionId);
-        await backgroundPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await backgroundPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         const modelsBeforeBackground=modelRequests;
         modelDelay=1500;
         await backgroundPage.getByPlaceholder('메시지 입력…').fill('Generation survives route changes');
@@ -492,10 +492,10 @@ try {
         await setup(promptContext);
         const promptPage = await promptContext.newPage();
         await promptPage.goto(origin+'/chat/'+sessionId);
-        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         await promptPage.getByPlaceholder('메시지 입력…').fill('Use the first-send scene');
         await promptPage.getByRole('button',{name:'메시지 전송',exact:true}).click();
-        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         assert(JSON.stringify(modelPayloads.at(-1)).includes('FIRST_SEND_CATALOG_SENTINEL'),'first send must include the pending work theme catalog');
         assert(JSON.stringify(modelPayloads.at(-1)).includes('이름: First send scene'),'single-work catalogs must retain unqualified scene names');
         themeDelay = 0;
@@ -508,7 +508,7 @@ try {
         await promptPage.getByRole('button',{name:'다시 생성',exact:true}).click();
         await promptPage.getByRole('dialog',{name:'재생성 지침',exact:true}).getByRole('button',{name:'답변 재생성',exact:true}).click();
         while(requests.filter(r=>r.path==='summary_versions').length===summariesBefore)await promptPage.waitForTimeout(10);
-        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         assert.equal(modelRequests,modelsBeforeReroll,'failed summary reads must not regenerate with missing memory');
         assert.equal(writes(),writesBeforeReroll,'failed reroll context must not write messages');
         failRerollSummary = false; generationSummaryTurn = 0;
@@ -519,7 +519,7 @@ try {
         await promptPage.getByRole('button',{name:'다시 생성',exact:true}).click();
         await promptPage.getByRole('dialog',{name:'재생성 지침',exact:true}).getByRole('button',{name:'답변 재생성',exact:true}).click();
         while(requests.filter(r=>r.path==='commands').length===commandsBefore)await promptPage.waitForTimeout(10);
-        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await promptPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         assert.equal(modelRequests,modelsBeforeReroll,'failed command reads must not regenerate with missing commands');
         assert.equal(writes(),writesBeforeReroll);
         failRerollCommand = false;
@@ -531,7 +531,7 @@ try {
         await setup(retainedContext);
         const retainedPage = await retainedContext.newPage();
         await retainedPage.goto(origin+'/chat/'+sessionId);
-        await retainedPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await retainedPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         const modelsBeforeRecovery=modelRequests, rowsBeforeRecovery=messages.length;
         failFinalCommits=2; loseBeginReply=true;
         await retainedPage.getByPlaceholder('메시지 입력…').fill('Keep the answer after both save failures');
@@ -553,7 +553,7 @@ try {
         await setup(branching);
         const branchPage = await branching.newPage();
         await branchPage.goto(origin+'/chat/'+sessionId);
-        await branchPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await branchPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         failBranchReply=true;
         const beforeBranchRequests=requests.length, modelsBeforeBranch=modelRequests;
         await branchPage.locator('.chat-message').last().getByRole('button',{name:'여기서 분기',exact:true}).click();
@@ -642,7 +642,7 @@ try {
             content:'Second version for same-window editing',is_active_variant:false,content_version:0};
         messages.push(variant);
         await selectionPage.goto(origin+'/chat/'+sessionId);
-        await selectionPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await selectionPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         await selectionPage.getByLabel('리롤 답변 선택').last().selectOption(variant.id);
         const selected=selectionPage.locator('[data-scroll-anchor="'+variant.id+'"]');
         await selected.getByText(variant.content,{exact:true}).waitFor();
@@ -670,7 +670,7 @@ try {
         const parallelPage=await parallelContext.newPage();
         const previousTheme=session.theme_override;session.theme_override=null;
         await parallelPage.goto(origin+'/chat/'+sessionId);
-        await parallelPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"]')&&!document.querySelector('button[aria-label="메시지 전송"]').disabled);
+        await parallelPage.waitForFunction(()=>!!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]')&&!document.querySelector('button[aria-label="메시지 전송"],button[aria-label="계속"]').disabled);
         await parallelPage.waitForTimeout(200);
         const parallelStart=requests.length, modelsBeforeParallel=modelRequests;
         holdGenerationContext=true;releaseGenerationContext=undefined;

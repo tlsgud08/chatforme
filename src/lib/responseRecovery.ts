@@ -66,11 +66,19 @@ export async function beginResponse(args: {
   source_versions: { id: string; version: number; active: boolean }[];
   expected_summary: string; expected_summary_turn: number; reroll_message: string | null;
   requested_turn: number; requested_variant: number; expected_context_hash?: string;
+  reuse_user_message?: string;
 }): Promise<{ draft: Message; userMessage: Message | null; replayed: boolean }> {
+  const { reuse_user_message, ...ordinary } = args;
+  const request = reuse_user_message ? {
+    target_session: args.target_session, response_id: args.response_id, source_user: reuse_user_message,
+    source_versions: args.source_versions, expected_summary: args.expected_summary,
+    expected_summary_turn: args.expected_summary_turn, requested_turn: args.requested_turn,
+    ...(args.expected_context_hash !== undefined && { expected_context_hash: args.expected_context_hash }),
+  } : ordinary;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { data, error } = await supabase.rpc('begin_session_response', args);
+    const { data, error } = await supabase.rpc(reuse_user_message ? 'resume_session_response' : 'begin_session_response', request);
     if (!error && data?.draft?.id === args.response_id) return data;
-    if (error?.code === '40001') {
+    if (error?.code === '40001' || error?.code === 'PT409') {
       if (/generating/i.test(error.message ?? '')) throw new Error('이 채팅방에 생성 중으로 남은 답변이 있습니다. 생성 상태를 확인해 주세요. 입력은 보존했습니다.');
       throw new Error('전송 준비 중 대화 또는 요약이 변경되었습니다. 입력은 보존했으니 대화를 다시 확인해 주세요.');
     }
