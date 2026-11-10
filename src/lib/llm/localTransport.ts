@@ -9,7 +9,11 @@ export interface LocalModelInfo {
   contextLength: number;
   supportedParameters: string[];
   reasoningFormat: 'separate' | 'think-tags';
+  modelKey?: string;
+  instanceId?: string;
 }
+export interface LocalModels { online: true; models: LocalModelInfo[]; managementEnabled?: boolean; }
+export interface LocalModelCatalog extends LocalModels { downloaded: { key: string; name: string; maxContextLength: number | null }[]; }
 export async function localRPC<T>(input: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   signal?.throwIfAborted();
   const { data: { session }, error } = await supabase.auth.getSession();
@@ -29,4 +33,31 @@ export async function localRPC<T>(input: Record<string, unknown>, signal?: Abort
   if (!response.ok) throw new LocalAPIError(result.code ?? 'LOCAL_OFFLINE', result.message ?? 'Local 연결에 실패했습니다.');
   return result as T;
 }
-export const discoverLocalModels = (signal?: AbortSignal) => localRPC<{ online: true; models: LocalModelInfo[] }>({ action: 'models' }, signal);
+export const discoverLocalModels = (signal?: AbortSignal) => localRPC<LocalModels>({ action: 'models' }, signal);
+export const discoverLocalModelCatalog = (signal?: AbortSignal) => localRPC<LocalModelCatalog>({ action: 'model-catalog' }, signal);
+
+export async function loadRemoteLocalModel(input: { modelKey: string; contextLength: number; targetId?: string; expectedInstance?: string },
+  signal: AbortSignal, onProgress: (progress: number, stage: string) => void): Promise<{ id: string; contextLength: number }> {
+  let id = '', complete = false;
+  try {
+    signal.throwIfAborted();
+    ({ id } = await localRPC<{ id: string }>({ action: 'load-model', requestId: crypto.randomUUID(), ...input }));
+    while (true) {
+      signal.throwIfAborted();
+      const poll = await localRPC<{ state: string; progress: number; stage: string; error?: { code: string; message: string }; result?: { id: string; contextLength: number } }>({ action: 'poll', id, cursor: 0 }, signal);
+      signal.throwIfAborted();
+      onProgress(poll.progress, poll.stage || '모델 준비 중');
+      if (poll.state === 'error') throw new LocalAPIError(poll.error?.code ?? 'LOCAL_MODEL_LOAD_FAILED', poll.error?.message ?? '모델 로드에 실패했습니다.');
+      if (poll.state === 'complete') {
+        if (!poll.result) throw new LocalAPIError('LOCAL_MODEL_LOAD_FAILED', '실제 모델 로드 결과를 확인할 수 없습니다.');
+        complete = true; return poll.result;
+      }
+      await new Promise<void>((resolve, reject) => {
+        signal.throwIfAborted();
+        const abort = () => { clearTimeout(timer); reject(signal.reason); };
+        const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, 1000);
+        signal.addEventListener('abort', abort, { once: true });
+      });
+    }
+  } finally { if (id && !complete) void localRPC({ action: 'cancel', id }).catch(() => {}); }
+}

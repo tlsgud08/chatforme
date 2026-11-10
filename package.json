@@ -22,7 +22,7 @@
     "test:plugins": "node scripts/test-plugins.mjs",
     "test:generation-progress": "node scripts/test-generation-progress.mjs && node scripts/test-operation-timing.mjs",
     "test:code-blocks": "node scripts/test-code-block-styles.mjs && node scripts/test-code-block-styles-db.mjs",
-    "test:local": "node scripts/test-local-provider.mjs && node --test scripts/test-local-gateway.mjs && node scripts/test-local-chat-handlers.mjs",
+    "test:local": "node scripts/test-local-provider.mjs && node --test scripts/test-local-gateway.mjs scripts/test-local-model-management.mjs && node scripts/test-local-chat-handlers.mjs",
     "test:browser:local": "node scripts/test-local-browser.mjs",
     "test:local:live": "node --env-file=tools/lm-studio-gateway/.env scripts/test-local-live.mjs"
   },

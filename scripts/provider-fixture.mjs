@@ -3,5 +3,7 @@
 export const providerFixture = {
   loadLocalPreferences: () => ({ provider: 'openrouter', model: '', topP: null }),
   localModelFor: () => '',
+  summaryProviderFor: () => 'openrouter',
+  SummaryProviderSelect: 'SummaryProviderSelect',
   useLocalProvider: () => ({ provider: 'openrouter', model: '', userId: 'owner' }),
 };

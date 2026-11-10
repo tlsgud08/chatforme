@@ -2,9 +2,11 @@ import { useState, useSyncExternalStore } from 'react';
 import { useLocalProvider } from '@/hooks/useLocalProvider';
 import { loadLocalPreferences, saveLocalPreferences, subscribeLocalPreferences } from '@/lib/localPreferences';
 import LocalModelSelector from './LocalModelSelector';
+import LocalModelManagement from './LocalModelManagement';
 
 export default function ProviderSettings() {
   const { provider, model, userId } = useLocalProvider();
+  const { provider: summaryProvider } = useLocalProvider('', true);
   const summaryModel = useSyncExternalStore(subscribeLocalPreferences, () => loadLocalPreferences(userId).summaryModel, () => '');
   const topP = useSyncExternalStore(subscribeLocalPreferences, () => loadLocalPreferences(userId).topP, () => null);
   const [error, setError] = useState('');
@@ -21,7 +23,6 @@ export default function ProviderSettings() {
     <p className="text-xs text-slate-500">이 계정·브라우저에 적용됩니다. 다른 기기에서도 로그인 후 제공자를 선택하세요. OpenRouter 설정과 키는 별도로 유지됩니다.</p>
     {provider === 'local' && <>
       <LocalModelSelector model={model} onModelChange={value => save({ model: value })} label="기본 Local 모델" />
-      <LocalModelSelector model={summaryModel} onModelChange={value => save({ summaryModel: value })} label="Local 요약 모델 (미선택 시 대화 모델)" emptyLabel="Local 대화 모델 사용" />
       <label className="text-xs text-slate-400">Local Top-P (비우면 서버 기본값)
         <input aria-label="Local Top-P" type="number" min={0} max={1} step={0.01} value={topP ?? ''} onChange={e => {
           const value = e.target.value === '' ? null : e.target.valueAsNumber;
@@ -31,6 +32,8 @@ export default function ProviderSettings() {
       </label>
       <p className="text-xs text-slate-400">서버에서 허용한 계정만 연결할 수 있습니다. PC 주소·인증정보는 서버에서 관리합니다. 컨텍스트 초과 시 자동 삭제·요약하지 않습니다. KV 캐시는 LM Studio 메모리에서 관리하며 적중은 보장되지 않습니다.</p>
     </>}
+    {summaryProvider === 'local' && <LocalModelSelector model={summaryModel} onModelChange={value => save({ summaryModel: value })} label="Local 요약 모델 (미선택 시 대화 모델)" emptyLabel="Local 대화 모델 사용" />}
+    {(provider === 'local' || summaryProvider === 'local') && <LocalModelManagement />}
     {error && <p role="alert" className="text-xs text-amber-400">{error}</p>}
   </div>;
 }

@@ -107,6 +107,17 @@ try {
 
   storage.set('chatforme.apiKeys', JSON.stringify({ openrouter: 'PRESERVE_KEY' }));
   preferences.saveLocalPreferences(OWNER, { provider: 'local', model: 'local-a' });
+  assert.equal(preferences.summaryProviderFor(OWNER), 'local', 'old preferences follow conversation provider');
+  preferences.saveLocalPreferences(OWNER, { summaryProvider: 'openrouter' });
+  assert.equal(preferences.summaryProviderFor(OWNER, 's1'), 'openrouter');
+  assert.equal(preferences.loadLocalPreferences(OWNER).provider, 'local', 'cloud summary leaves local conversation selected');
+  preferences.saveLocalPreferences(OWNER, { sessionSummaryProviders: { s1: 'local', s2: 'default' } });
+  assert.equal(preferences.summaryProviderFor(OWNER, 's1'), 'local');
+  assert.equal(preferences.summaryProviderFor(OWNER, 's2'), 'openrouter');
+  assert.equal(preferences.summaryProviderFor(OTHER, 's1'), 'openrouter', 'summary provider is account isolated');
+  preferences.saveLocalPreferences(OWNER, { provider: 'openrouter', summaryProvider: 'local' });
+  assert.equal(preferences.summaryProviderFor(OWNER, 's2'), 'local', 'local summary also works with cloud conversation');
+  preferences.saveLocalPreferences(OWNER, { provider: 'local', summaryProvider: 'default', sessionSummaryProviders: {} });
   preferences.saveLocalSessionModel(OWNER, 's1', 'local-b');
   assert.equal(preferences.localModelFor(OWNER, 's1'), 'local-b'); assert.equal(preferences.localModelFor(OWNER, 's2'), 'local-a');
   assert.equal(preferences.loadLocalPreferences(OTHER).provider, 'openrouter');

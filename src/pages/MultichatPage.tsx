@@ -35,7 +35,7 @@ import CommandMenu from '@/components/CommandMenu';
 import InterfaceIcon from '@/components/InterfaceIcon';
 import { SameWorkFriends } from '@/components/Friends';
 import { usePlayingActivity } from '@/hooks/useFriends';
-import { loadLocalPreferences, localModelFor } from '@/lib/localPreferences';
+import { loadLocalPreferences, localModelFor, summaryProviderFor } from '@/lib/localPreferences';
 import type { ErrorEntry } from './ChatPage';
 import type { Command, MultichatMember, MultichatRoom, Persona, Profile, Session, StartConfig, StoryNote, SummaryVersion } from '@/types/db';
 import './ChatPage.css';
@@ -202,7 +202,7 @@ export default function MultichatPage() {
   async function processSummary(ticket: SummaryTicket) {
     if (!data?.session || !data.profile || !me || summaryLock.current || lock.current) return;
     const key = getApiKey('openrouter');
-    const provider = loadLocalPreferences(user?.id).provider;
+    const provider = summaryProviderFor(user?.id, data.room.id);
     const localModel = localModelFor(user?.id, data.room.id, true);
     summaryLock.current = true; setSummaryGenerating(true); setSummarySaving(false); setSummaryContent('');
     const abort = new AbortController(), unregister = registerAccountTask(abort);

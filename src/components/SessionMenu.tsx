@@ -12,6 +12,7 @@ import { getApiKey } from '@/lib/apiKeys';
 import type { ReasoningSelection } from '@/lib/llm/types';
 import ModelSelector from './ModelSelector';
 import LocalModelSelector from './LocalModelSelector';
+import SummaryProviderSelect from './SummaryProviderSelect';
 import { useLocalProvider } from '@/hooks/useLocalProvider';
 import { saveLocalSessionModel } from '@/lib/localPreferences';
 import type { Persona, Profile, Session, StoryNote, SummaryVersion } from '@/types/db';
@@ -94,7 +95,7 @@ export default function SessionMenu({
 }: Props) {
   const { user, isAdmin } = useAuth();
   const { provider, model: localModel } = useLocalProvider(session.id);
-  const { model: localSummaryModel } = useLocalProvider(session.id, true);
+  const { model: localSummaryModel, provider: summaryProvider } = useLocalProvider(session.id, true);
   const [localSettingsError, setLocalSettingsError] = useState('');
   function changeLocalModel(model: string, summary = false) {
     if (!user) return;
@@ -407,8 +408,9 @@ export default function SessionMenu({
       <div className="inu-content" id="session-panel-memory" role="tabpanel" aria-labelledby="session-tab-memory" hidden={activeTab !== 'memory'}>
         <section className="inu-section">
           <h3><InterfaceIcon name="memory" />요약 메모리</h3><p className="inu-field-label">이 채팅방 요약 모델</p>
-          {provider === 'local' ? <LocalModelSelector model={localSummaryModel} onModelChange={model => changeLocalModel(model, true)} label="이 채팅방 Local 요약 모델" /> : <ModelSelector drawer displayLabel={!session.summary_model_override ? '내 기본 모델 사용' : undefined} provider="openrouter" model={session.summary_model_override || profile?.summary_model || profile?.default_model || sessionModel} reasoning={session.summary_reasoning_override ?? profile?.summary_reasoning ?? {}} onModelChange={summary_model_override => void saveSummarySettings({ summary_model_override })} onReasoningChange={summary_reasoning_override => void saveSummarySettings({ summary_reasoning_override })} favoritesOnly />}
-          <button type="button" className="inu-text-button" onClick={() => provider === 'local' ? changeLocalModel('', true) : void saveSummarySettings({ summary_model_override: null })}>내 기본 모델 사용</button>
+          <SummaryProviderSelect sessionId={session.id} />
+          {summaryProvider === 'local' ? <LocalModelSelector model={localSummaryModel} onModelChange={model => changeLocalModel(model, true)} label="이 채팅방 Local 요약 모델" /> : <ModelSelector drawer displayLabel={!session.summary_model_override ? '내 기본 모델 사용' : undefined} provider="openrouter" model={session.summary_model_override || profile?.summary_model || profile?.default_model || sessionModel} reasoning={session.summary_reasoning_override ?? profile?.summary_reasoning ?? {}} onModelChange={summary_model_override => void saveSummarySettings({ summary_model_override })} onReasoningChange={summary_reasoning_override => void saveSummarySettings({ summary_reasoning_override })} favoritesOnly />}
+          <button type="button" className="inu-text-button" onClick={() => summaryProvider === 'local' ? changeLocalModel('', true) : void saveSummarySettings({ summary_model_override: null })}>내 기본 모델 사용</button>
           <label htmlFor="session-summary-source" className="inu-field-label">요약 입력 범위</label>
           <select id="session-summary-source" value={session.summary_source_mode_override ?? profile?.summary_source_mode ?? 'full'} onChange={event => void saveSummarySettings({ summary_source_mode_override: event.target.value as 'incremental' | 'full' })}><option value="full">이전 요약 제외 + 세션 전체 메시지</option><option value="incremental">이전 요약 + 이후 메시지</option></select>
           <div className="inu-two-fields"><label className="inu-field-label">생성 기준 턴<input type="number" min={1} max={Math.max(1, sessionTurnCount)} value={summaryThroughTurn} onChange={event => setSummaryThroughTurn(event.target.value === '' ? '' : Math.max(1, Math.min(sessionTurnCount, Number(event.target.value) || 1)))} placeholder={`최신 · ${sessionTurnCount}턴`} /></label><label className="inu-field-label">Summary level<input type="number" min={0} max={10} value={session.summary_level_override ?? profile?.summary_level ?? 0} onChange={event => void saveSummarySettings({ summary_level_override: Math.max(0, Math.min(10, Number(event.target.value) || 0)) })} /></label></div>

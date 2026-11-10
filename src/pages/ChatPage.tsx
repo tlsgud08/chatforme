@@ -49,7 +49,7 @@ import { paletteFor, preferredThemeVariant, requestThemeRefresh, type SavedTheme
 import InterfaceIcon from '@/components/InterfaceIcon';
 import { SameWorkFriends } from '@/components/Friends';
 import { usePlayingActivity } from '@/hooks/useFriends';
-import { loadLocalPreferences, localModelFor } from '@/lib/localPreferences';
+import { loadLocalPreferences, localModelFor, summaryProviderFor } from '@/lib/localPreferences';
 import './ChatPage.css';
 
 function SpoilerBoundary({ concealed, children }: { concealed: boolean; children: ReactNode }) {
@@ -736,7 +736,7 @@ export default function ChatPage() {
   async function generateSummary(archivesToMerge: SummaryVersion[] = [], requestedThroughTurn?: number, shareTarget?: string): Promise<boolean> {
     if (!contextReady || !session || !profile || editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current || sendInFlightRef.current || activeGenerations.has(session.id) || summaryGenerating || activeSummaryGenerations.has(session.id) || workCombinationSavingRef.current) return false;
     const apiKey = getApiKey('openrouter');
-    const provider = loadLocalPreferences(session.user_id).provider;
+    const provider = summaryProviderFor(session.user_id, session.id);
     const localModel = localModelFor(session.user_id, session.id, true);
     if (provider === 'openrouter' && !apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return false; }
     if (provider === 'local' && !localModel) { addError('설정에서 Local 요약 모델 또는 기본 모델을 선택하세요.'); return false; }

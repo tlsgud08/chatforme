@@ -16,7 +16,7 @@ export async function fixture(options = {}) {
     countTokens: async text => text.trim().split(/\s+/u).length,
   };
   const lm = createServer(async (req, res) => {
-    if (req.url === '/v1/models') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ data: [{ id: model.identifier }, { id: 'unloaded/model' }] })); return; }
+    if (req.url === '/v1/models') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ data: options.catalog?.() ?? [{ id: model.identifier }, { id: 'unloaded/model' }] })); return; }
     if (req.url !== '/v1/chat/completions') { res.writeHead(404); res.end(); return; }
     let body = ''; for await (const chunk of req) body += chunk;
     received.push(JSON.parse(body));

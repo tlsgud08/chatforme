@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { LocalError, fail, publicError, validateCompletion, consumeCompletion } from './protocol.mjs';
+import { createModelManager } from './modelManagement.mjs';
 
 const MAX_BODY = 16 * 1024 * 1024; // No artificial 100K token cap.
 const OUTPUT_MARGIN = 32; // Special-token safety margin, never removed from the prompt.
@@ -14,7 +15,7 @@ function abortable(task, signal) {
   });
 }
 
-export function createGateway({ secret, lmUrl, lmToken = '', inspector, profiles = {}, defaultOutputTokens = 4096,
+export function createGateway({ secret, lmUrl, lmToken = '', inspector, system, allowModelManagement = false, profiles = {}, defaultOutputTokens = 4096,
   fetchImpl = fetch, now = Date.now, leaseMs = 90_000, retentionMs = 10 * 60_000 }) {
   if (typeof secret !== 'string' || secret.length < 32) throw new Error('GATEWAY_SECRET must contain at least 32 characters.');
   const base = new URL(lmUrl);
@@ -22,6 +23,8 @@ export function createGateway({ secret, lmUrl, lmToken = '', inspector, profiles
     throw new Error('LM_STUDIO_URL must be a loopback HTTP origin.');
   if (!Number.isSafeInteger(defaultOutputTokens) || defaultOutputTokens < 1) throw new Error('Invalid default output tokens.');
   const jobs = new Map();
+  const manager = createModelManager({ inspector, system, enabled: allowModelManagement && !!system, wait: abortable });
+  let managementLock = false;
   const headers = { 'content-type': 'application/json', ...(lmToken && { authorization: `Bearer ${lmToken}` }) };
   const profileFor = id => {
     const p = profiles[id] ?? {};
@@ -42,9 +45,11 @@ export function createGateway({ secret, lmUrl, lmToken = '', inspector, profiles
       if (!catalog.data?.some(item => item.id === model.identifier)) continue;
       const contextLength = await abortable(model.getContextLength(), signal);
       if (!Number.isSafeInteger(contextLength) || contextLength < 1) continue;
-      result.push({ id: model.identifier, name: model.displayName || model.identifier, contextLength, ...profileFor(model.identifier) });
+      const info = manager.enabled ? await abortable(model.getModelInfo(), signal) : null;
+      result.push({ id: model.identifier, name: model.displayName || model.identifier, contextLength, ...profileFor(model.identifier),
+        ...(info?.deviceIdentifier === null && { modelKey: model.modelKey, instanceId: model.instanceReference }) });
     }
-    return { online: true, models: result };
+    return { online: true, models: result, managementEnabled: manager.enabled };
   }
   async function run(job, input) {
     try {
@@ -86,18 +91,32 @@ export function createGateway({ secret, lmUrl, lmToken = '', inspector, profiles
   async function dispatch(input, owner) {
     sweep();
     if (input.action === 'models') return models(AbortSignal.timeout(15_000));
-    if (input.action === 'start') {
-      const request = validateCompletion(input.request);
+    if (input.action === 'model-catalog') {
+      const signal = AbortSignal.timeout(15_000);
+      return { ...(await models(signal)), downloaded: await manager.catalog(signal) };
+    }
+    if (input.action === 'start' || input.action === 'load-model') {
+      const management = input.action === 'load-model';
+      const request = management ? input : validateCompletion(input.request);
+      if (management && !manager.enabled) fail('LOCAL_MANAGEMENT_DISABLED', 'PC 게이트웨이에서 원격 모델 관리를 허용해야 합니다.', 403);
       const requestId = input.requestId;
       if (typeof requestId !== 'string' || !/^[\w-]{16,80}$/.test(requestId)) fail('INVALID_REQUEST', '요청 ID가 올바르지 않습니다.');
       const existing = [...jobs.values()].find(j => j.owner === owner && j.requestId === requestId);
-      if (existing) return { id: existing.id }; // Lost start-response retry cannot create a second generation.
+      if (existing) return { id: existing.id }; // Lost start-response retry cannot create a second operation.
+      if (managementLock || management && [...jobs.values()].some(j => j.state === 'running'))
+        fail('LOCAL_BUSY', '생성 또는 모델 로드가 진행 중입니다. 완료한 뒤 모델 설정을 변경하세요.', 409);
       if ([...jobs.values()].some(j => j.owner === owner && j.state === 'running')) fail('LOCAL_BUSY', '이미 진행 중인 Local 생성이 있습니다.', 429);
       if (jobs.size >= 100 || [...jobs.values()].filter(j => j.state === 'running').length >= 2) fail('LOCAL_BUSY', 'Local PC가 사용 중입니다. 잠시 후 다시 시도하세요.', 429);
-      const job = { id: randomUUID(), requestId, owner, text: '', state: 'running', controller: new AbortController(), lastPoll: now(), completedAt: null,
+      const job = { id: randomUUID(), requestId, owner, kind: management ? 'load' : 'generation', text: '', state: 'running', controller: new AbortController(), lastPoll: now(), completedAt: null,
         finishReason: null, headers: false, reasoning: false, context: null,
         usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: null, cacheCreationTokens: null, cost: 0 } };
-      jobs.set(job.id, job); void run(job, request); return { id: job.id };
+      jobs.set(job.id, job);
+      if (management) {
+        managementLock = true;
+        void manager.run(job, request).then(() => { job.state = 'complete'; }, error => { job.error = publicError(error); job.state = 'error'; })
+          .finally(() => { managementLock = false; job.completedAt = now(); });
+      } else void run(job, request);
+      return { id: job.id };
     }
     const job = typeof input.id === 'string' ? jobs.get(input.id) : null;
     if (!job || job.owner !== owner) fail('LOCAL_JOB_NOT_FOUND', 'Local 생성 정보를 찾을 수 없습니다. 수신한 답변은 기존 복구 규칙으로 보관합니다.', 404);
@@ -106,7 +125,8 @@ export function createGateway({ secret, lmUrl, lmToken = '', inspector, profiles
     if (!Number.isSafeInteger(input.cursor) || input.cursor < 0 || input.cursor > job.text.length) fail('INVALID_REQUEST', '수신 위치가 올바르지 않습니다.');
     job.lastPoll = now();
     return { id: job.id, state: job.state, delta: job.text.slice(input.cursor), cursor: job.text.length, usage: job.usage,
-      finishReason: job.finishReason, error: job.error, headers: job.headers, reasoning: job.reasoning, context: job.context };
+      finishReason: job.finishReason, error: job.error, headers: job.headers, reasoning: job.reasoning, context: job.context,
+      ...(job.kind === 'load' && { kind: job.kind, progress: job.progress ?? 0, stage: job.stage, result: job.result }) };
   }
   const server = createServer(async (req, res) => {
     const respond = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };

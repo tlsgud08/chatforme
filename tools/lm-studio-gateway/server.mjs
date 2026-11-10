@@ -7,7 +7,8 @@ const client = new LMStudioClient({ baseUrl: wsUrl.origin, apiToken: process.env
   // SDK errors may contain prompt/configuration details. Keep them off shared logs.
   logger: { debug() {}, info() {}, warn() {}, error() {} } });
 const gateway = createGateway({ secret: process.env.GATEWAY_SECRET, lmUrl, lmToken: process.env.LM_STUDIO_API_TOKEN,
-  inspector: client.llm, profiles: JSON.parse(process.env.LOCAL_MODEL_PROFILES || '{}'),
+  inspector: client.llm, system: client.system, allowModelManagement: process.env.LOCAL_ALLOW_MODEL_MANAGEMENT === 'true',
+  profiles: JSON.parse(process.env.LOCAL_MODEL_PROFILES || '{}'),
   defaultOutputTokens: Number(process.env.LOCAL_DEFAULT_OUTPUT_TOKENS || 4096) });
 const port = Number(process.env.GATEWAY_PORT || 3210);
 gateway.server.listen(port, '127.0.0.1', () => console.log(`Inuchat Local gateway listening on loopback port ${port}`));

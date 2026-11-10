@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import InterfaceIcon from '@/components/InterfaceIcon';
 import ProviderSettings from '@/components/ProviderSettings';
+import SummaryProviderSelect from '@/components/SummaryProviderSelect';
 import { useLocalProvider } from '@/hooks/useLocalProvider';
 import ModernPageHeading from '@/components/ModernPageHeading';
 import type { InterfaceIconName } from '@/components/InterfaceIcon';
@@ -26,6 +27,7 @@ import { clearImageCaches } from '@/lib/imageCache';
 export default function SettingsPage() {
   const { user, signOut, isAdmin, canManageSettings } = useAuth();
   const { provider } = useLocalProvider();
+  const { provider: summaryProvider } = useLocalProvider('', true);
   const [keys, setKeys] = useState<ApiKeys>(loadApiKeys());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
@@ -354,7 +356,8 @@ export default function SettingsPage() {
           <p className="mb-3 text-xs text-slate-500">요약 지시문은 관리자 설정의 전역 요약 프롬프트를 공통으로 사용합니다.</p>
           <div className="mt-4 flex flex-col gap-3 rounded-xl bg-surface p-3">
             <p className="text-sm font-semibold text-slate-200">요약 모델 · 입력 범위</p>
-            {provider === 'openrouter' ? <ModelSelector
+            <SummaryProviderSelect />
+            {summaryProvider === 'openrouter' ? <ModelSelector
               provider="openrouter"
               model={profile.summary_model || profile.default_model || modelsFor('openrouter')[0]}
               reasoning={summaryReasoning}

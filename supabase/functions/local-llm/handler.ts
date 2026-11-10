@@ -1,7 +1,8 @@
 type Env = (name: string) => string | undefined;
 const MAX_BODY = 16 * 1024 * 1024;
 const KNOWN_ERRORS = new Set(['INVALID_REQUEST', 'LOCAL_BUSY', 'LOCAL_OFFLINE', 'LOCAL_MODEL_UNLOADED', 'LOCAL_CONTEXT_UNKNOWN',
-  'LOCAL_CONTEXT_OVERFLOW', 'LOCAL_STREAM_ERROR', 'LOCAL_MODEL_ERROR', 'LOCAL_EMPTY_RESPONSE', 'LOCAL_CANCELLED', 'LOCAL_JOB_NOT_FOUND', 'REQUEST_TOO_LARGE']);
+  'LOCAL_CONTEXT_OVERFLOW', 'LOCAL_STREAM_ERROR', 'LOCAL_MODEL_ERROR', 'LOCAL_EMPTY_RESPONSE', 'LOCAL_CANCELLED', 'LOCAL_JOB_NOT_FOUND', 'REQUEST_TOO_LARGE',
+  'LOCAL_MANAGEMENT_DISABLED', 'LOCAL_MODEL_NOT_INSTALLED', 'LOCAL_INVALID_CONTEXT', 'LOCAL_MODEL_CHANGED', 'LOCAL_CONTEXT_NOT_APPLIED', 'LOCAL_MODEL_LOAD_FAILED']);
 
 /** Short, authenticated RPCs keep long local inference independent of Edge wall-clock limits. */
 export function createLocalProxy(env: Env, fetchImpl: typeof fetch = fetch) {
@@ -45,7 +46,7 @@ export function createLocalProxy(env: Env, fetchImpl: typeof fetch = fetch) {
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
       let input;
       try { input = JSON.parse(new TextDecoder().decode(bytes)); } catch { return json(400, { code: 'INVALID_REQUEST' }); }
-      if (!input || !['models', 'start', 'poll', 'cancel'].includes(input.action)) return json(400, { code: 'INVALID_REQUEST' });
+      if (!input || !['models', 'start', 'poll', 'cancel', 'model-catalog', 'load-model'].includes(input.action)) return json(400, { code: 'INVALID_REQUEST' });
       // Client cannot choose a destination or supply privileged upstream headers.
       const headers: Record<string, string> = { 'content-type': 'application/json', authorization: `Bearer ${secret}`, 'x-chatforme-user-id': user.id };
       if (env('LOCAL_ACCESS_CLIENT_ID') && env('LOCAL_ACCESS_CLIENT_SECRET')) {

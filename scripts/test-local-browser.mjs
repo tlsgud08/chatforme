@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
-import { fixture, OWNER, SECRET } from './local-gateway-fixture.mjs';
+import { OWNER, SECRET, frame } from './local-gateway-fixture.mjs';
+import { managementFixture } from './model-management-fixture.mjs';
 
 process.env.VITE_SUPABASE_URL = 'https://local-ui.test';
 process.env.VITE_SUPABASE_ANON_KEY = 'fixture-public';
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 await server.listen();
 const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
-const f = await fixture();
+const f = await managementFixture();
 let browser;
 const user = { id: OWNER, email: 'local@example.test', aud: 'authenticated', role: 'authenticated' };
 const sid = '20000000-0000-0000-0000-000000000001', wid = '30000000-0000-0000-0000-000000000001';
@@ -18,7 +19,7 @@ const profile = { id: OWNER, display_name: 'Local fixture', default_provider: 'o
   default_reasoning: { send: false }, default_output_tokens: 256, default_temperature: 1, prefer_work_theme: false, summary_model: 'fixture/summary', favorite_models: [] };
 const session = { id: sid, user_id: OWNER, work_id: wid, title: 'Local RP fixture', summary: '', summary_last_turn: 0, user_note: 'USER NOTE',
   active_plugins: [], theme_override: 'builtin', model_override: 'fixture/openrouter-room', reasoning_override: { send: false }, total_cost: 0 };
-let messages = [], offline = false, claims = [], commits = [], starts = [], mutations = [];
+let messages = [], offline = false, claims = [], commits = [], starts = [], mutations = [], summaries = [], summaryModels = [];
 try {
   const { createLocalProxy } = await server.ssrLoadModule('/supabase/functions/local-llm/handler.ts');
   const env = { SUPABASE_URL: 'https://fixture-auth.test', SUPABASE_ANON_KEY: 'fixture-public', LOCAL_ALLOWED_ORIGINS: origin,
@@ -66,12 +67,17 @@ try {
       const input = req.postDataJSON(); commits.push(input);
       const message = { ...messages.find(m => m.id === input.target_message), content: input.response_text, generation_status: path.includes('interrupt') ? 'interrupted' : 'complete' };
       messages = messages.map(m => m.id === message.id ? message : m); data = { message, session };
+    } else if (path === 'rpc/save_generated_summary') {
+      const input = req.postDataJSON(); summaries.push(input); data = { ...session, summary: input.summary_text, summary_last_turn: input.through_turn };
     } else if (path === 'rpc/session_conversation_counts') data = [{ session_id: sid, conversation_count: messages.filter(m => m.role === 'user').length }];
     else if (path === 'messages') data = single ? messages[0] : messages;
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });
   });
   await context.route('https://openrouter.ai/**', route => {
-    if (route.request().url().includes('chat/completions')) throw new Error('Local must not call OpenRouter');
+    if (route.request().url().includes('chat/completions')) {
+      const input = route.request().postDataJSON(); assert.equal(input.model, 'fixture/summary', 'Only explicitly selected OpenRouter summary may call the cloud'); summaryModels.push(input);
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: frame({ choices: [{ delta: { content: 'OPENROUTER SUMMARY' }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 5, cost: 0.02 } }) + frame('[DONE]') });
+    }
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
   await page.goto(origin + '/settings');
@@ -80,8 +86,24 @@ try {
   assert.equal(await provider.inputValue(), 'openrouter');
   await provider.selectOption('local');
   await page.getByLabel('기본 Local 모델', { exact: true }).selectOption('fixture/local');
+  await page.getByRole('button', { name: '원격 모델 로드 · 컨텍스트', exact: true }).click();
+  await page.getByLabel('다운로드된 Local 모델', { exact: true }).selectOption('fixture/second');
+  await page.getByLabel('원격 로드 컨텍스트', { exact: true }).fill('65536');
+  await page.getByRole('button', { name: '모델 로드', exact: true }).click();
+  await page.getByRole('button', { name: '로드', exact: true }).click();
+  await page.getByText(/로드 완료 · 실제 컨텍스트 65,536/).waitFor();
+  await page.getByLabel('원격 모델 작업 대상', { exact: true }).selectOption('fixture/local');
+  await page.getByLabel('원격 로드 컨텍스트', { exact: true }).fill('131072');
+  await page.getByRole('button', { name: '컨텍스트 적용 · 재로드', exact: true }).click();
+  await page.getByRole('button', { name: '재로드', exact: true }).click();
+  await page.getByText(/로드 완료 · 실제 컨텍스트 131,072/).waitFor();
+  assert.equal(f.active.length, 2); assert.equal(await f.active.find(m => m.identifier === 'fixture/local').getContextLength(), 131072);
+  assert.equal(f.calls.filter(c => c[0] === 'unload').length, 1);
   await page.getByLabel('Local 제공자 사용 중').first().waitFor();
   await page.getByLabel('Local Top-P', { exact: true }).fill('0.85');
+  await page.getByRole('button', { name: '요약 설정', exact: true }).click();
+  await page.getByLabel('요약 제공자', { exact: true }).selectOption('openrouter');
+  await page.getByText(/요약은 OpenRouter로 전송합니다/).waitFor();
   await page.reload(); await page.getByRole('button', { name: 'API · 모델', exact: true }).click();
   assert.equal(await page.getByLabel('기본 Local 모델', { exact: true }).inputValue(), 'fixture/local');
   await mkdir('/tmp/chatforme-artifacts', { recursive: true });
@@ -104,6 +126,15 @@ try {
   await page.reload(); await page.getByText('안녕🙂', { exact: true }).waitFor();
   assert.equal(starts.length, 1, 'reconnect reads saved messages without another generation');
   await page.screenshot({ path: '/tmp/chatforme-artifacts/local-chat-mobile.png', fullPage: true });
+  await page.getByRole('button', { name: '세션 메뉴 열기', exact: true }).click();
+  await page.getByRole('tab', { name: '메모리', exact: true }).click();
+  assert.equal(await page.getByLabel('이 채팅방 요약 제공자', { exact: true }).inputValue(), 'default');
+  await page.getByText(/요약은 OpenRouter로 전송합니다/).waitFor();
+  const summarySaved = page.waitForResponse(response => response.url().includes('/rpc/save_generated_summary') && response.status() === 200);
+  await page.getByRole('button', { name: '지금 요약 노트 생성', exact: true }).click();
+  await summarySaved;
+  assert.equal(summaries.length, 1); assert.equal(summaries[0].response_cost, 0.02); assert.equal(summaries[0].summary_text, 'OPENROUTER SUMMARY');
+  assert.equal(summaryModels.length, 1); assert.equal(starts.length, 1, 'cloud summary never starts local inference');
   await page.goto(origin + '/settings'); await page.getByRole('button', { name: 'API · 모델', exact: true }).click();
   await page.getByLabel('모델 제공자', { exact: true }).selectOption('openrouter');
   assert.equal(await page.getByLabel('Local 제공자 사용 중').count(), 0);
@@ -111,5 +142,5 @@ try {
   assert(mutations.filter(m => m.path === 'sessions').every(m => !m.data.model_override || m.data.model_override === 'fixture/openrouter-room'));
   assert.equal(session.model_override, 'fixture/openrouter-room'); assert.equal(profile.default_model, 'fixture/openrouter');
   assert.deepEqual(errors, []); assert.deepEqual(leaked, []);
-  console.log('Local mobile browser: provider above API key, badge, discover/select/refresh/offline, Top-P, real authenticated local generation and zero-cost DB commit, reconnect, OpenRouter restoration and no secret exposure passed.');
+  console.log('Local mobile browser: authenticated remote model load/context reload, provider/badge/offline/Top-P, Local generation and zero-cost commit, independent OpenRouter summary with actual billing, reconnect and no secret exposure passed.');
 } finally { if (browser) await browser.close(); await f.close(); await server.close(); }
