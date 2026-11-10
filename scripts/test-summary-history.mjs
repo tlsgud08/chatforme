@@ -1,3 +1,4 @@
+import { providerFixture } from './provider-fixture.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -29,7 +30,7 @@ const children = Object.fromEntries(['InterfaceIcon', 'SessionMenuFrame', 'Sessi
   'SessionInformationSettings', 'SemiSessionSettings', 'MultichatApiSettings', 'MultichatProgressSettings'].map(name => [name, name]));
 const Menu = vm.runInNewContext(compile(source).replace('export {};', '') + '\nSessionMenu', {
   jsx: createElement, Fragment, ...hooks, ...children,
-  useAuth: () => ({ user: null }), getApiKey: () => '', normalizeOutputTokens: value => value ?? null, formatKrw: () => '', setTimeout: () => 0,
+  useAuth: () => ({ user: null }), ...providerFixture, getApiKey: () => '', normalizeOutputTokens: value => value ?? null, formatKrw: () => '', setTimeout: () => 0,
   summaryCompletionWarning: reason => reason === 'user_stop' ? '사용자 중지' : null,
   showConfirmDialog: async () => true,
   mutateSummary: async (_session, operation, id, content) => { writes.push({ operation, id, content }); notes = operation === 'delete' ? notes.filter(note => note.id !== id) : notes.map(note => note.id === id ? { ...note, content } : note); return props.session; },

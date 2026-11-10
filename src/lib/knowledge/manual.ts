@@ -5,9 +5,9 @@ import { prepareKnowledge, type KnowledgeOptions } from './runtime';
 import type { MultichatMember, Persona, Session, StartConfig, Work } from '@/types/db';
 
 /** Read the same setup used by automatic extraction, including rooms with no user turn yet. */
-export async function loadManualKnowledgeOptions(sessionId: string, apiKey: string, signal: AbortSignal): Promise<KnowledgeOptions> {
+export async function loadManualKnowledgeOptions(sessionId: string, apiKey: string, signal: AbortSignal, localModel?: string): Promise<KnowledgeOptions> {
   signal.throwIfAborted();
-  if (!apiKey.trim()) throw new Error('정보표를 생성하려면 OpenRouter API 키를 설정해 주세요.');
+  if (!localModel && !apiKey.trim()) throw new Error('정보표를 생성하려면 OpenRouter API 키 또는 Local 모델을 설정해 주세요.');
   const { data, error } = await supabase.from('sessions').select('*').eq('id', sessionId).abortSignal(signal).single();
   if (error || !data) throw error ?? new Error('채팅방 설정을 불러오지 못했습니다.');
   const session = data as Session;
@@ -25,7 +25,7 @@ export async function loadManualKnowledgeOptions(sessionId: string, apiKey: stri
   const work = workResult.data as Work, start = startResult.data as StartConfig | null;
   const combination = await loadWorkCombination(session, work, signal);
   signal.throwIfAborted();
-  const common = { sessionId, revision: session.knowledge_revision ?? 0, apiKey, signal };
+  const common = { sessionId, revision: session.knowledge_revision ?? 0, apiKey, signal, localModel };
   if (multi) {
     const members = membersResult.data as MultichatMember[];
     if (members.length !== 2) throw new Error('두 참여자의 설정을 불러오지 못했습니다.');
@@ -43,8 +43,8 @@ export async function loadManualKnowledgeOptions(sessionId: string, apiKey: stri
   };
 }
 
-export async function generateKnowledgeNow(sessionId: string, apiKey: string, signal: AbortSignal, onProgress?: KnowledgeOptions['onProgress']) {
-  const options = await loadManualKnowledgeOptions(sessionId, apiKey, signal);
+export async function generateKnowledgeNow(sessionId: string, apiKey: string, signal: AbortSignal, onProgress?: KnowledgeOptions['onProgress'], localModel?: string) {
+  const options = await loadManualKnowledgeOptions(sessionId, apiKey, signal, localModel);
   // Uses the automatic path's lease, source hashes and incremental checkpoints.
   return prepareKnowledge({ ...options, onProgress });
 }

@@ -1,3 +1,4 @@
+import { providerFixture } from './provider-fixture.mjs';
 import { approvedSummaryLengthDirective } from './fixtures/summary-length.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -67,7 +68,7 @@ const merging=vm.runInNewContext(fn('messagesThroughTurn')+'\n'+fn('generateSumm
   contextReady:true,editInFlightRef:{current:false},deleteInFlightRef:{current:false},branchInFlightRef:{current:false},session:{id:'s',summary:'current memory',summary_last_turn:25},summaryNarrativeConfig, summaryAchievementToast, generateSummaryResponse, isUserSummaryStop, SUMMARY_USER_STOP, saveSummaryWithFallback, summarySaveRequestRef: { current: null }, setSummarySaving() {}, setSummaryContent() {}, publishSummaryContent() {}, markSummarySaving() {}, showToast() {},profile:{summary_prompt:'IGNORED PRIVATE',summary_level:0,summary_allow_omission:false,summary_extra_note:'EXTRA MEMORY NOTE'},summaryPromptWithParameters,summaryCompletionWarning,summaryResultMetadata,withoutSyncDateTags,loadSemiContext:async()=>summaryConnected?{}:null,loadGlobalSummaryPrompt:async()=> 'global summary core',loadSemiSyncSummaryPrompt:async()=> 'sync summary core',
   messages:complete.slice(-5),sendInFlightRef:{current:false},summaryGenerating:false,
   activeGenerations:new Map(),activeSummaryGenerations:summaryTasks,workCombinationSavingRef:{current:false},AbortController,
-  getApiKey:()=> 'mock-key',registerAccountTask:()=>()=>{},
+  ...providerFixture, getApiKey:()=> 'mock-key',registerAccountTask:()=>()=>{},
   setSummaryGenerating:()=>{},finishSummaryGeneration:id=>summaryTasks.delete(id),setMessages:()=>summaryMessageWrites++,setSession:()=>{},
   semiAction:async(operation,sessionId,linkId,details)=>{sharedActions.push({operation,details});return operation==='prepare'?{token:'share-token',session:{id:'s',summary:'current memory',summary_last_turn:25,summary_source_mode_override:'full'},persona:{name:'SOURCE NAME',description:'SOURCE DESCRIPTION'}}:{total_cost:0.01};},
   readLiveThemeContext:async()=>summaryThemeContext, recoverExpiredResponses:async()=>0,

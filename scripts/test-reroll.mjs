@@ -1,3 +1,4 @@
+import { providerFixture } from './provider-fixture.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -60,7 +61,7 @@ try {
     editInFlightRef: { current: false }, deleteInFlightRef: { current: false }, branchInFlightRef: { current: false },
     workCombinationSavingRef: { current: false }, sendInFlightRef: { current: false }, abortControllerRef: { current: null },
     themeRequestScopeRef: { current: null }, activeGenerations: registry, activeSummaryGenerations: new Map(),
-    modelsFor: () => ['test/model'], getApiKey: () => 'fixture-key', PROVIDER_LABELS: { openrouter: 'OpenRouter' },
+    modelsFor: () => ['test/model'], ...providerFixture, getApiKey: () => 'fixture-key', PROVIDER_LABELS: { openrouter: 'OpenRouter' },
     registerAccountTask: controller => { activeSignal = controller; return () => {}; },
     startOperation: () => ({ mark() {}, finish() {}, describe: () => '' }),
     setInput() {}, setSelectedCommand() {}, setSending() {}, setStreamingContent() {}, setMessages() {}, setTotalUserTurnCount() {},

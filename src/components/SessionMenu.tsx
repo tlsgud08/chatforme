@@ -11,6 +11,9 @@ import { mutateSummary } from '@/lib/sessionData';
 import { getApiKey } from '@/lib/apiKeys';
 import type { ReasoningSelection } from '@/lib/llm/types';
 import ModelSelector from './ModelSelector';
+import LocalModelSelector from './LocalModelSelector';
+import { useLocalProvider } from '@/hooks/useLocalProvider';
+import { saveLocalSessionModel } from '@/lib/localPreferences';
 import type { Persona, Profile, Session, StoryNote, SummaryVersion } from '@/types/db';
 import type { ErrorEntry } from '@/pages/ChatPage';
 import { formatKrw, type ExchangeRate } from '@/lib/exchangeRate';
@@ -90,6 +93,14 @@ export default function SessionMenu({
   onGenerateSummary, onMergeSummaries, summaryGenerating, summarySaving = false, summaryContent = '', onStopSummary, onSummaryDraftChange, onRetrySummarySave, storyNotes, onStoryNotesChange, sessionTurnCount, sending, onWorkCombinationSavingChange, onPublishSemiSummary,
 }: Props) {
   const { user, isAdmin } = useAuth();
+  const { provider, model: localModel } = useLocalProvider(session.id);
+  const { model: localSummaryModel } = useLocalProvider(session.id, true);
+  const [localSettingsError, setLocalSettingsError] = useState('');
+  function changeLocalModel(model: string, summary = false) {
+    if (!user) return;
+    try { saveLocalSessionModel(user.id, session.id, model, summary); setLocalSettingsError(''); }
+    catch { setLocalSettingsError('브라우저 저장소를 사용할 수 없어 Local 모델을 저장하지 못했습니다.'); }
+  }
   const [note, setNote] = useState(session.user_note);
   const [credit, setCredit] = useState<OpenRouterCredit | null>(null);
   const [creditLoading, setCreditLoading] = useState(false);
@@ -382,19 +393,22 @@ export default function SessionMenu({
 
       <div className="inu-content" id="session-panel-ai" role="tabpanel" aria-labelledby="session-tab-ai" hidden={activeTab !== 'ai'}>
         {multichat && <MultichatApiSettings room={multichat.room} members={multichat.members} onUpdate={multichat.onRoomUpdate} />}
-        <section className="inu-section"><h3><InterfaceIcon name="model" />OpenRouter 모델</h3><ModelSelector drawer provider="openrouter" model={sessionModel} reasoning={sessionReasoning} onModelChange={onModelChange} onReasoningChange={onReasoningChange} favoritesOnly hideReasoning /></section>
+        <section className="inu-section"><h3><InterfaceIcon name="model" />{provider === 'local' ? 'Local (LM Studio)' : 'OpenRouter 모델'}</h3>
+          {provider === 'local' ? <LocalModelSelector model={localModel} onModelChange={changeLocalModel} /> : <ModelSelector drawer provider="openrouter" model={sessionModel} reasoning={sessionReasoning} onModelChange={onModelChange} onReasoningChange={onReasoningChange} favoritesOnly hideReasoning />}
+          {localSettingsError && <p role="alert" className="inu-help">{localSettingsError}</p>}
+        </section>
         <details className="inu-section inu-accordion" id="session-output-settings">
           <summary><div><h3><InterfaceIcon name="output" />출력 설정</h3><p className="inu-summary">{outputLabel} · {reasoningLabel}<span className="inu-dot">·</span>{hasExplicitOverride ? '이 채팅방 설정' : '전역 기본값'}</p></div><InterfaceIcon name="down" /></summary>
-          <div className="inu-detail-body"><OutputSettingsEditor compact value={outputSettings} onChange={setOutputSettings} tokenLabel="이 채팅방 출력량" /><button type="button" className="inu-button inu-primary inu-full" onClick={() => void saveOverride()}>출력 저장</button><button type="button" className="inu-text-button" onClick={() => void resetOverride()}>기본값으로 되돌리기</button></div>
+          <div className="inu-detail-body"><OutputSettingsEditor compact local={provider === 'local'} value={outputSettings} onChange={setOutputSettings} tokenLabel="이 채팅방 출력량" /><button type="button" className="inu-button inu-primary inu-full" onClick={() => void saveOverride()}>출력 저장</button><button type="button" className="inu-text-button" onClick={() => void resetOverride()}>기본값으로 되돌리기</button></div>
         </details>
-        <PromptCacheSettings compact key={session.id} session={session} model={sessionModel} turnCount={sessionTurnCount} busy={sending || summaryGenerating} onUpdate={onUpdate} />
+        {provider === 'local' ? <p className="inu-help">Local KV 캐시는 동일 프롬프트 접두부를 바탕으로 LM Studio가 자동 관리합니다. 모델 변경·리롤·편집 시 재계산될 수 있습니다. 기존 OpenRouter 명시적 캐시 설정은 보존됩니다.</p> : <PromptCacheSettings compact key={session.id} session={session} model={sessionModel} turnCount={sessionTurnCount} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
       </div>
 
       <div className="inu-content" id="session-panel-memory" role="tabpanel" aria-labelledby="session-tab-memory" hidden={activeTab !== 'memory'}>
         <section className="inu-section">
           <h3><InterfaceIcon name="memory" />요약 메모리</h3><p className="inu-field-label">이 채팅방 요약 모델</p>
-          <ModelSelector drawer displayLabel={!session.summary_model_override ? '내 기본 모델 사용' : undefined} provider="openrouter" model={session.summary_model_override || profile?.summary_model || profile?.default_model || sessionModel} reasoning={session.summary_reasoning_override ?? profile?.summary_reasoning ?? {}} onModelChange={summary_model_override => void saveSummarySettings({ summary_model_override })} onReasoningChange={summary_reasoning_override => void saveSummarySettings({ summary_reasoning_override })} favoritesOnly />
-          <button type="button" className="inu-text-button" onClick={() => void saveSummarySettings({ summary_model_override: null })}>내 기본 모델 사용</button>
+          {provider === 'local' ? <LocalModelSelector model={localSummaryModel} onModelChange={model => changeLocalModel(model, true)} label="이 채팅방 Local 요약 모델" /> : <ModelSelector drawer displayLabel={!session.summary_model_override ? '내 기본 모델 사용' : undefined} provider="openrouter" model={session.summary_model_override || profile?.summary_model || profile?.default_model || sessionModel} reasoning={session.summary_reasoning_override ?? profile?.summary_reasoning ?? {}} onModelChange={summary_model_override => void saveSummarySettings({ summary_model_override })} onReasoningChange={summary_reasoning_override => void saveSummarySettings({ summary_reasoning_override })} favoritesOnly />}
+          <button type="button" className="inu-text-button" onClick={() => provider === 'local' ? changeLocalModel('', true) : void saveSummarySettings({ summary_model_override: null })}>내 기본 모델 사용</button>
           <label htmlFor="session-summary-source" className="inu-field-label">요약 입력 범위</label>
           <select id="session-summary-source" value={session.summary_source_mode_override ?? profile?.summary_source_mode ?? 'full'} onChange={event => void saveSummarySettings({ summary_source_mode_override: event.target.value as 'incremental' | 'full' })}><option value="full">이전 요약 제외 + 세션 전체 메시지</option><option value="incremental">이전 요약 + 이후 메시지</option></select>
           <div className="inu-two-fields"><label className="inu-field-label">생성 기준 턴<input type="number" min={1} max={Math.max(1, sessionTurnCount)} value={summaryThroughTurn} onChange={event => setSummaryThroughTurn(event.target.value === '' ? '' : Math.max(1, Math.min(sessionTurnCount, Number(event.target.value) || 1)))} placeholder={`최신 · ${sessionTurnCount}턴`} /></label><label className="inu-field-label">Summary level<input type="number" min={0} max={10} value={session.summary_level_override ?? profile?.summary_level ?? 0} onChange={event => void saveSummarySettings({ summary_level_override: Math.max(0, Math.min(10, Number(event.target.value) || 0)) })} /></label></div>

@@ -1,9 +1,11 @@
 import type { Provider } from '@/types/db';
 import type { ChatMessage, GenerateOptions, GenerateResult, LLMAdapter } from './types';
 import { openrouterAdapter } from './openrouter';
+import { localAdapter } from './local';
 
 const ADAPTERS: Record<Provider, LLMAdapter> = {
   openrouter: openrouterAdapter,
+  local: localAdapter,
 };
 
 // 연속된 동일 role 메시지를 병합하고, 첫 메시지가 user임을 보장
@@ -34,7 +36,8 @@ export async function generate(
   provider: Provider,
   opts: GenerateOptions,
 ): Promise<GenerateResult> {
-  const normalized = normalizeMessages(opts.messages);
+  const normalized = normalizeMessages(provider === 'local'
+    ? opts.messages.map(({ role, content }) => ({ role, content })) : opts.messages);
   return getAdapter(provider).generate({ ...opts, messages: normalized });
 }
 

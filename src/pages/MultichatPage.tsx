@@ -35,6 +35,7 @@ import CommandMenu from '@/components/CommandMenu';
 import InterfaceIcon from '@/components/InterfaceIcon';
 import { SameWorkFriends } from '@/components/Friends';
 import { usePlayingActivity } from '@/hooks/useFriends';
+import { loadLocalPreferences, localModelFor } from '@/lib/localPreferences';
 import type { ErrorEntry } from './ChatPage';
 import type { Command, MultichatMember, MultichatRoom, Persona, Profile, Session, StartConfig, StoryNote, SummaryVersion } from '@/types/db';
 import './ChatPage.css';
@@ -201,12 +202,15 @@ export default function MultichatPage() {
   async function processSummary(ticket: SummaryTicket) {
     if (!data?.session || !data.profile || !me || summaryLock.current || lock.current) return;
     const key = getApiKey('openrouter');
+    const provider = loadLocalPreferences(user?.id).provider;
+    const localModel = localModelFor(user?.id, data.room.id, true);
     summaryLock.current = true; setSummaryGenerating(true); setSummarySaving(false); setSummaryContent('');
     const abort = new AbortController(), unregister = registerAccountTask(abort);
     controller.current = abort;
     const timeout = setTimeout(() => abort.abort(), 8 * 60_000);
     try {
-      if (!key.trim()) throw new Error('요약 담당 PC의 API 키를 설정하거나 키 사용 규칙을 변경해 주세요.');
+      if (provider === 'openrouter' && !key.trim()) throw new Error('요약 담당 PC의 API 키를 설정하거나 키 사용 규칙을 변경해 주세요.');
+      if (provider === 'local' && !localModel) throw new Error('Local 요약 모델을 선택하세요.');
       const merged = ticket.mergeIds.length ? await supabase.from('summary_versions').select('*').eq('session_id', data.room.id).in('id', ticket.mergeIds) : { data: [], error: null };
       if (merged.error) throw merged.error;
       const merging = (merged.data ?? []) as SummaryVersion[];
@@ -219,12 +223,12 @@ export default function MultichatPage() {
       if (transcript.some(m => m.generation_status === 'streaming') || !source.length) throw new Error('완료된 대화가 없습니다.');
       const previous = merging.length ? merging.map(version => version.content).join('\n\n') : (s.summary_source_mode_override ?? profile.summary_source_mode ?? 'full') === 'full' ? '' : s.summary;
       const body = merging.length ? '' : source.filter(m => !previous || m.turn_index > s.summary_last_turn || m.is_hidden).map(m => `[${m.role === 'user' ? 'PC' : 'AI'}]\n${stripThemeDirectives(m.content)}`).join('\n\n');
-      const model = s.summary_model_override || profile.summary_model || profile.default_model;
+      const model = provider === 'local' ? localModel : s.summary_model_override || profile.summary_model || profile.default_model;
       const narrativeConfig = summaryNarrativeConfig(profile, s);
       const result = await generateSummaryResponse(generate, { apiKey: key, model, sessionId: `${s.id}:summary`, signal: abort.signal, onChunk: text => setSummaryContent(text), reasoning: normalizeReasoning(s.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', model), maxOutputTokens: null,
         systemParts: { core: summaryPromptWithParameters(await loadGlobalSummaryPrompt(abort.signal), profile, s), persona: '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user', content: [previous && `Previous Summary:\n${previous}`, body && `Dialogue:\n${body}`].filter(Boolean).join('\n\n') }],
-      });
+      }, provider);
       if (abort.signal.aborted && !isUserSummaryStop(abort.signal)) throw new Error('요약 생성을 중단했습니다.');
       if (!result.text.trim()) throw new Error(result.finishReason === 'user_stop' ? '수신한 요약 본문이 없어 새 노트를 만들지 않았습니다.' : '요약 모델이 빈 응답을 반환했습니다.');
       setSummaryContent(result.text);
@@ -267,7 +271,11 @@ export default function MultichatPage() {
   }
   async function runGeneration(retry = false) {
     if (!data?.profile || !me || lock.current || pending || summaryLock.current) return;
-    const key = getApiKey('openrouter'); if (!key.trim()) { report(`PC${me.slot}의 API 키를 설정하거나 키 사용 규칙을 변경해 주세요.`); return; }
+    const key = getApiKey('openrouter');
+    const preferences = loadLocalPreferences(user?.id), provider = preferences.provider;
+    const localModel = localModelFor(user?.id, data.room.id);
+    if (provider === 'openrouter' && !key.trim()) { report(`PC${me.slot}의 API 키를 설정하거나 키 사용 규칙을 변경해 주세요.`); return; }
+    if (provider === 'local' && !localModel) { report('Local 기본 모델 또는 채팅방 모델을 선택하세요.'); return; }
     lock.current = true; setGenerating(true);
     const progressAttempt = generationProgress.start();
     setGenerationMessageId(null);
@@ -283,6 +291,7 @@ export default function MultichatPage() {
       const prepared = await prepareMultichatContext(data.room.id, ticket.round, data.profile, ticket);
       const knowledgeOptions = prepared.session.knowledge_enabled ? {
         sessionId: data.room.id, revision: prepared.session.knowledge_revision ?? 0, apiKey: key, signal: abort.signal,
+        ...(provider === 'local' && { localModel }),
         setup: prepared.knowledgeSetup,
         pcs: prepared.knowledgePCs,
       } : null;
@@ -293,7 +302,8 @@ export default function MultichatPage() {
       abort.signal.throwIfAborted();
       writer = createDraftWriter(async text => { const { error } = await supabase.rpc('stream_multichat_response', { target_message: ticket!.messageId, token: ticket!.token, partial_text: text }); if (error) throw error; });
       await refresh();
-      const result = await generate('openrouter', { apiKey: key, sessionId: data.room.id, signal: abort.signal, model: prepared.model, reasoning: prepared.reasoning, maxOutputTokens: prepared.maxOutputTokens, sampling: prepared.sampling, ...prepared.assembled, cacheSystemOnly: prepared.cacheSystemOnly,
+      const result = await generate(provider, { apiKey: key, sessionId: data.room.id, signal: abort.signal, model: provider === 'local' ? localModel : prepared.model, reasoning: provider === 'local' ? { send: false } : prepared.reasoning, maxOutputTokens: prepared.maxOutputTokens,
+        sampling: { ...prepared.sampling, ...(provider === 'local' && preferences.topP !== null && { topP: preferences.topP, topPSend: true }) }, ...prepared.assembled, cacheSystemOnly: prepared.cacheSystemOnly,
         onPhase: progressAttempt.onPhase,
         onChunk: text => { partial = multichatNarrative(text, data.members); writer?.push(partial); setData(old => old ? { ...old, game: old.game.map(message => message.id === ticket!.messageId ? { ...message, content: partial } : message) } : old); },
       });

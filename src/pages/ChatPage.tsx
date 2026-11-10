@@ -49,6 +49,7 @@ import { paletteFor, preferredThemeVariant, requestThemeRefresh, type SavedTheme
 import InterfaceIcon from '@/components/InterfaceIcon';
 import { SameWorkFriends } from '@/components/Friends';
 import { usePlayingActivity } from '@/hooks/useFriends';
+import { loadLocalPreferences, localModelFor } from '@/lib/localPreferences';
 import './ChatPage.css';
 
 function SpoilerBoundary({ concealed, children }: { concealed: boolean; children: ReactNode }) {
@@ -735,7 +736,10 @@ export default function ChatPage() {
   async function generateSummary(archivesToMerge: SummaryVersion[] = [], requestedThroughTurn?: number, shareTarget?: string): Promise<boolean> {
     if (!contextReady || !session || !profile || editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current || sendInFlightRef.current || activeGenerations.has(session.id) || summaryGenerating || activeSummaryGenerations.has(session.id) || workCombinationSavingRef.current) return false;
     const apiKey = getApiKey('openrouter');
-    if (!apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return false; }
+    const provider = loadLocalPreferences(session.user_id).provider;
+    const localModel = localModelFor(session.user_id, session.id, true);
+    if (provider === 'openrouter' && !apiKey) { addError('OpenRouter API 키가 없어 요약을 생성할 수 없습니다.'); return false; }
+    if (provider === 'local' && !localModel) { addError('설정에서 Local 요약 모델 또는 기본 모델을 선택하세요.'); return false; }
     const summarySessionId = session.id;
     const summaryController = new AbortController();
     const unregisterTask = registerAccountTask(summaryController);
@@ -798,15 +802,15 @@ export default function ChatPage() {
         apiKey,
         sessionId: `${sourceSession.id}:summary`,
         signal: summaryController.signal,
-        model: sourceSession.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
-        reasoning: normalizeReasoning(sourceSession.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', sourceSession.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
+        model: provider === 'local' ? localModel : sourceSession.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0],
+        reasoning: provider === 'local' ? { send: false } : normalizeReasoning(sourceSession.summary_reasoning_override ?? profile.summary_reasoning, 'openrouter', sourceSession.summary_model_override || profile.summary_model || profile.default_model || modelsFor('openrouter')[0]),
         systemParts: { core: summaryCore, persona: shareTarget ? `# Source Persona\nName: ${shareTicket?.persona?.name ?? '페르소나 미선택'}\nDescription: ${shareTicket?.persona?.description ?? ''}` : '', userNote: '', summary: '', keywords: '' },
         messages: [{ role: 'user' as const, content: input }],
         maxOutputTokens: null,
         onChunk: (text: string) => { setSummaryContent(text); publishSummaryContent(summarySessionId, text); },
       };
       const connected = shareTarget || await loadSemiContext(sourceSession.id, summaryController.signal);
-      const result = await generateSummaryResponse(generate, connected ? summaryRequest : withoutSyncDateTags(summaryRequest));
+      const result = await generateSummaryResponse(generate, connected ? summaryRequest : withoutSyncDateTags(summaryRequest), provider);
       if (summaryController.signal.aborted && !isUserSummaryStop(summaryController.signal)) throw new Error('요약 생성을 중단했습니다.');
       if (!result.text.trim()) {
         if (result.finishReason === 'user_stop') { showToast('요약 생성을 중지했습니다. 수신한 본문이 없어 새 노트를 만들지 않았습니다.'); return false; }
@@ -878,17 +882,20 @@ export default function ChatPage() {
     if (workCombinationSavingRef.current) { showToast('작품 결합 설정을 저장한 뒤 전송해 주세요.'); return; }
     if (!work || !session || sendInFlightRef.current || (sessionId && (activeGenerations.has(sessionId) || activeSummaryGenerations.has(sessionId)))) return;
 
-    const provider: Provider = 'openrouter';
-    const model = (sessionModel || modelsFor(provider)[0]);
-    const reasoning = sessionReasoning;
+    const localPreferences = loadLocalPreferences(user?.id);
+    const provider: Provider = localPreferences.provider;
+    const model = provider === 'local' ? localModelFor(user?.id, session.id) : (sessionModel || modelsFor(provider)[0]);
+    if (!model) { addError('설정에서 Local 기본 모델 또는 채팅방 모델을 선택하세요.'); return; }
+    const reasoning = provider === 'local' ? { send: false } : sessionReasoning;
     const sampling = {
+      ...(provider === 'local' && localPreferences.topP !== null && { topP: localPreferences.topP, topPSend: true }),
       temperature: (session?.output_settings_override_enabled ? session.temperature_override : null) ?? profile?.default_temperature ?? 1,
       temperatureSend: (session?.output_settings_override_enabled ? session.temperature_enabled_override : null) ?? profile?.default_temperature_enabled ?? false,
       frequencyPenalty: (session?.output_settings_override_enabled ? session.frequency_penalty_override : null) ?? profile?.default_frequency_penalty ?? 0,
       frequencyPenaltySend: (session?.output_settings_override_enabled ? session.frequency_penalty_enabled_override : null) ?? profile?.default_frequency_penalty_enabled ?? false,
     };
     const apiKey = getApiKey(provider);
-    if (!apiKey) { addError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
+    if (provider === 'openrouter' && !apiKey) { addError(`${PROVIDER_LABELS[provider]} API 키가 없습니다. 설정 탭에서 입력하세요.`); return; }
 
     // React state is not a synchronous lock: two clicks in the same render can
     // both observe `sending === false`. Lock before the first await and snapshot
@@ -1092,6 +1099,7 @@ export default function ChatPage() {
     }), semiContext);
     const knowledgeOptions = liveTheme.session.knowledge_enabled ? {
       sessionId: session.id, revision: liveTheme.session.knowledge_revision ?? 0, apiKey, signal: controller.signal,
+      ...(provider === 'local' && { localModel: model }),
       setup: JSON.stringify({ work: work.main_prompt, combination: workCombination, persona, start: startConfig?.initial_context ?? '' }),
       pcs: [{ name: persona?.name || 'PC', aliases: ['PC'], pc: true }],
     } : null;
