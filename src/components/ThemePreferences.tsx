@@ -175,8 +175,15 @@ export default function ThemePreferences({ userId }: { userId: string }) {
         </div>}
       </div>}
 
-      <FontWeightSettings />
-      <ChatFontSizeSettings />
+      <section className="flex flex-col gap-4 rounded-xl bg-surface p-3" aria-label="채팅 글꼴">
+        <div><h3 className="text-sm font-semibold text-white">채팅 글꼴</h3><p className="mt-1 text-xs text-slate-400">채팅과 상태창 본문에 적용되고 계정에 저장됩니다.</p></div>
+        <ChatFontSizeSettings />
+        <div className="border-t border-surface2" />
+        <FontWeightSettings />
+        <div className="break-words rounded-lg bg-bg p-3 text-white" aria-label="채팅 글꼴 미리보기" style={{fontSize:'var(--chat-font-size, 14px)',fontWeight:'var(--chat-font-weight, 400)'}}>
+          오늘은 어떤 이야기가 펼쳐질까요? <strong style={{fontWeight:'var(--chat-bold-weight, 700)'}}>중요한 내용은 이렇게 강조돼요.</strong>
+        </div>
+      </section>
       {userId && <label className="flex items-start justify-between gap-3 rounded-xl bg-surface p-3">
         <span className="flex flex-col gap-1">
           <strong className="text-sm text-white">작품 테마 기본 사용</strong>

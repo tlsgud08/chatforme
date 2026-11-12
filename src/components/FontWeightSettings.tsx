@@ -46,8 +46,8 @@ export default function FontWeightSettings() {
     if (n !== current.current[key]) save({ ...current.current, [key]: n });
     else setDraft(value => ({ ...value, [key]: String(n) }));
   }
-  return <div className="rounded-xl bg-surface p-3 flex flex-col gap-3">
-    <div><strong className="text-sm text-white">채팅 글꼴 굵기</strong><p className="text-xs text-slate-400 mt-1">숫자는 1~1000까지 직접 입력할 수 있어요. 글꼴에 따라 중간 굵기가 같게 보일 수 있어요.</p></div>
+  return <div className="flex flex-col gap-3">
+    <div><strong className="text-sm text-white">글꼴 굵기</strong><p className="text-xs text-slate-400 mt-1">숫자는 1~1000까지 직접 입력할 수 있어요. 글꼴에 따라 중간 굵기가 같게 보일 수 있어요.</p></div>
     {(['normal', 'bold'] as const).map(key => {
       const min = key === 'normal' ? 300 : 400, max = key === 'normal' ? 700 : 900;
       return <div key={key}>
@@ -58,7 +58,6 @@ export default function FontWeightSettings() {
         <div className="flex justify-between text-xs text-slate-400"><span>{min}</span><span>{max}</span></div>
       </div>;
     })}
-    <div className="rounded-lg bg-bg p-3 text-sm text-white" aria-label="글꼴 굵기 미리보기" style={{fontWeight: weights.normal}}>오늘은 어떤 이야기가 펼쳐질까요? <strong style={{fontWeight: weights.bold}}>중요한 내용은 이렇게 강조돼요.</strong></div>
-    <button type="button" className="self-start rounded-lg bg-surface2 px-3 py-2 text-xs text-brand" onClick={() => save(DEFAULT_FONT_WEIGHTS)}>기본값 되돌리기</button>
+    <button type="button" className="self-start rounded-lg bg-surface2 px-3 py-2 text-xs text-brand" onClick={() => save(DEFAULT_FONT_WEIGHTS)}>굵기 기본값 되돌리기</button>
   </div>;
 }
