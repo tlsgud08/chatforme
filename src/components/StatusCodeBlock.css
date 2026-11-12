@@ -20,7 +20,7 @@
 .status-code-frame .cf-file-tab { font-size: 11px; }
 .status-code-frame .cf-head[hidden] { display: none; }
 /* The chosen Basic is the former Legacy mockup, with live palette colors. */
-.status-code-frame.cf-basic .cf-block { border-radius: 16px 16px 0 0; overflow: hidden; background: color-mix(in srgb, var(--cf-bg) 88%, var(--cf-fg) 12%); }
+.status-code-frame.cf-basic .cf-block { border-radius: 16px; overflow: hidden; background: color-mix(in srgb, var(--cf-bg) 88%, var(--cf-fg) 12%); }
 .status-code-frame.cf-basic .cf-head { min-height: 56px; padding: 16px 20px; background: color-mix(in srgb, var(--cf-bg) 72%, var(--cf-fg) 28%); }
 .status-code-frame.cf-basic .cf-title { color: color-mix(in srgb, var(--cf-fg) 62%, color-mix(in srgb, var(--cf-bg) 72%, var(--cf-fg) 28%) 38%); font-size: 15px; letter-spacing: 0; }
 .status-code-frame.cf-basic .cf-raw { padding: 21px 20px 23px; font-family: -apple-system, BlinkMacSystemFont, "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; font-size: 14px; line-height: 1.9; }
