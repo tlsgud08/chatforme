@@ -27,6 +27,8 @@ export default function ThemePreferences({ userId }: { userId: string }) {
   const [chosen, setChosen] = useState<SavedTheme | null>(null);
   const [picker, setPicker] = useState(false);
   const [loading, setLoading] = useState(true);
+  const fontSizeRef = useRef<{ reset: () => void }>(null);
+  const fontWeightRef = useRef<{ reset: () => void }>(null);
   const latestUpdate = useRef(0);
   const currentPref = useRef(pref);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -176,10 +178,13 @@ export default function ThemePreferences({ userId }: { userId: string }) {
       </div>}
 
       <section className="flex flex-col gap-4 rounded-xl bg-surface p-3" aria-label="채팅 글꼴">
-        <div><h3 className="text-sm font-semibold text-white">채팅 글꼴</h3><p className="mt-1 text-xs text-slate-400">채팅과 상태창 본문에 적용되고 계정에 저장됩니다.</p></div>
-        <ChatFontSizeSettings />
-        <div className="border-t border-surface2" />
-        <FontWeightSettings />
+        <div><h3 className="text-sm font-semibold text-white">채팅 글꼴</h3><p className="mt-1 text-xs text-slate-400">채팅과 상태창 본문에 적용되고 계정에 저장됩니다. 숫자를 직접 입력할 수도 있어요.</p></div>
+        <ChatFontSizeSettings ref={fontSizeRef} />
+        <FontWeightSettings ref={fontWeightRef} />
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="rounded-lg bg-surface2 px-3 py-2 text-xs text-brand" onClick={() => fontSizeRef.current?.reset()}>크기 기본값 되돌리기</button>
+          <button type="button" className="rounded-lg bg-surface2 px-3 py-2 text-xs text-brand" onClick={() => fontWeightRef.current?.reset()}>굵기 기본값 되돌리기</button>
+        </div>
         <div className="break-words rounded-lg bg-bg p-3 text-white" aria-label="채팅 글꼴 미리보기" style={{fontSize:'var(--chat-font-size, 14px)',fontWeight:'var(--chat-font-weight, 400)'}}>
           오늘은 어떤 이야기가 펼쳐질까요? <strong style={{fontWeight:'var(--chat-bold-weight, 700)'}}>중요한 내용은 이렇게 강조돼요.</strong>
         </div>
