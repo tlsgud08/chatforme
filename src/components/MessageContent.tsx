@@ -60,7 +60,7 @@ const MessageContent = memo(function MessageContent({ content, role, status, sho
   }), [mutedTextClassName, showImages]);
   const visibleContent = role === 'assistant' ? stripSyncDateTags(stripThemeDirectives(content, status === 'streaming'), status === 'streaming') : content;
   if (generationProgress && !visibleContent.trim()) return <GenerationStatus progress={generationProgress} />;
-  return (<>
+  return (<div className="chat-message-content">
     <ReactMarkdown
       remarkPlugins={status === 'streaming' ? streamingRemarkPlugins : remarkPlugins}
       components={components}
@@ -68,7 +68,7 @@ const MessageContent = memo(function MessageContent({ content, role, status, sho
       {visibleContent || (status === 'streaming' ? '다른 창에서 응답을 생성하고 있습니다…' : status === 'interrupted' ? '응답이 중단되었습니다.' : '')}
     </ReactMarkdown>
     {generationProgress && <GenerationStatus progress={generationProgress} savingOnly />}
-  </>);
+  </div>);
 });
 
 export default MessageContent;

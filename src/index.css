@@ -134,3 +134,10 @@ button:active {
   color: var(--custom-accent-text, #fff);
   opacity: .65;
 }
+
+/* Account-selected weights apply to message text and fenced status content. */
+.chat-message-content { font-weight: var(--chat-font-weight, 400); }
+.chat-message-content strong { font-weight: var(--chat-bold-weight, 700); }
+.chat-message-content .status-code-frame.cf-basic .cf-raw,
+.chat-message-content .status-code-frame .cf-raw,
+.chat-message-content .legacy-status-body { font-weight: var(--chat-font-weight, 400); }
