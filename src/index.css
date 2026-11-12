@@ -141,3 +141,10 @@ button:active {
 .chat-message-content .status-code-frame.cf-basic .cf-raw,
 .chat-message-content .status-code-frame .cf-raw,
 .chat-message-content .legacy-status-body { font-weight: var(--chat-font-weight, 400); }
+
+/* A custom size applies to message and status text; default keeps each style's sizing. */
+:root[data-chat-font-size='custom'] .chat-message-content { font-size: var(--chat-font-size); }
+:root[data-chat-font-size='custom'] .chat-message-content .status-code-frame.cf-basic .cf-raw,
+:root[data-chat-font-size='custom'] .chat-message-content .status-code-frame .cf-raw,
+:root[data-chat-font-size='custom'] .chat-message-content .legacy-status-body { font-size: var(--chat-font-size); }
+:root[data-chat-font-size='custom'] .chat-message-content .status-code-frame.cf-notebook .cf-raw { line-height: 1.7; }
