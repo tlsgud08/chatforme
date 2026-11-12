@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import { applyFontWeights, DEFAULT_FONT_WEIGHTS, normalizeFontWeights, type FontWeights } from '@/lib/fontWeights';
 
-export default function FontWeightSettings() {
+const FontWeightSettings = forwardRef<{ reset: () => void }>(function FontWeightSettings(_, ref) {
   const { user } = useAuth();
   const [weights, setWeights] = useState(() => normalizeFontWeights(user?.user_metadata?.inuchat_font_weights));
   const [draft, setDraft] = useState(() => ({ normal: String(weights.normal), bold: String(weights.bold) }));
@@ -46,8 +46,8 @@ export default function FontWeightSettings() {
     if (n !== current.current[key]) save({ ...current.current, [key]: n });
     else setDraft(value => ({ ...value, [key]: String(n) }));
   }
+  useImperativeHandle(ref, () => ({ reset: () => save(DEFAULT_FONT_WEIGHTS) }));
   return <div className="flex flex-col gap-3">
-    <div><strong className="text-sm text-white">글꼴 굵기</strong><p className="text-xs text-slate-400 mt-1">숫자는 1~1000까지 직접 입력할 수 있어요. 글꼴에 따라 중간 굵기가 같게 보일 수 있어요.</p></div>
     {(['normal', 'bold'] as const).map(key => {
       const min = key === 'normal' ? 300 : 400, max = key === 'normal' ? 700 : 900;
       return <div key={key}>
@@ -58,6 +58,6 @@ export default function FontWeightSettings() {
         <div className="flex justify-between text-xs text-slate-400"><span>{min}</span><span>{max}</span></div>
       </div>;
     })}
-    <button type="button" className="self-start rounded-lg bg-surface2 px-3 py-2 text-xs text-brand" onClick={() => save(DEFAULT_FONT_WEIGHTS)}>굵기 기본값 되돌리기</button>
   </div>;
-}
+});
+export default FontWeightSettings;
