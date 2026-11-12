@@ -123,7 +123,7 @@ function NumberParameterControl({ label, value, min, max, onChange }: { label: s
         }}
         onBlur={commitDraft}
         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-right text-sm text-slate-100 outline-none focus:border-brand"
+        className="w-full rounded-lg border border-surface2 bg-surface px-2 py-1.5 text-right text-sm text-white outline-none focus:border-brand"
       />
     </div>
   );
