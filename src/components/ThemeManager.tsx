@@ -6,6 +6,7 @@ import { invalidateInFlight, shareInFlight } from '@/lib/inFlight';
 import { activeThemeWorkIds, type WorkThemeScope } from '@/lib/workCombination';
 import { automaticThemeAvailable, dayNightDisplayVariant, dayNightModeEnabled } from '@/lib/themeDirectives';
 import { applyCustomTheme, applyTheme, bothVariants, loadTheme, paletteFor, preferredThemeVariant, resolveThemeSelection, type SavedTheme, type ThemeVariant } from '@/lib/theme';
+import { applyFontWeights } from '@/lib/fontWeights';
 import { applyCodeBlockStyle, resolveCodeBlockStyle, type CodeBlockSession } from '@/lib/codeBlockStyles';
 
 type Preference = { prefer_work_theme: boolean; use_legacy_status?: boolean; preferred_theme_mode: 'dark' | 'light' | 'custom' | null; preferred_theme_id: string | null; preferred_theme_variant: ThemeVariant | null };
@@ -17,6 +18,11 @@ type SessionTheme = WorkThemeScope & CodeBlockSession & { theme_override: 'built
 export default function ThemeManager() {
   const { user } = useAuth();
   const location = useLocation();
+  useEffect(() => { applyFontWeights(user?.user_metadata?.inuchat_font_weights); }, [user?.id, user?.user_metadata?.inuchat_font_weights]);
+  useEffect(() => {
+    const refresh = () => { if (user) void supabase.auth.getUser().then(({data}) => { if (data.user?.id === user.id) { const weights = data.user.user_metadata?.inuchat_font_weights; applyFontWeights(weights); window.dispatchEvent(new CustomEvent('inuchat:font-weights-refreshed', { detail: weights })); } }); };
+    window.addEventListener('focus', refresh); return () => window.removeEventListener('focus', refresh);
+  }, [user?.id]);
   useEffect(() => {
     let current = true;
     let generation = 0;

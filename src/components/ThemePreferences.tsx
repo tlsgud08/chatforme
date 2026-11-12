@@ -4,6 +4,7 @@ import { showToast } from '@/lib/toast';
 import { bothVariants, loadTheme, requestThemeRefresh, type SavedTheme, type ThemeVariant } from '@/lib/theme';
 import ThemeMenu from './ThemeMenu';
 import InterfaceIcon from './InterfaceIcon';
+import FontWeightSettings from './FontWeightSettings';
 
 type Mode = 'dark' | 'light' | 'custom';
 type Pref = {
@@ -173,6 +174,7 @@ export default function ThemePreferences({ userId }: { userId: string }) {
         </div>}
       </div>}
 
+      <FontWeightSettings />
       {userId && <label className="flex items-start justify-between gap-3 rounded-xl bg-surface p-3">
         <span className="flex flex-col gap-1">
           <strong className="text-sm text-white">작품 테마 기본 사용</strong>

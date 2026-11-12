@@ -42,7 +42,7 @@ export default function MarkdownCodeBlock({ children, mutedTextClassName = 'chat
       <div className="bg-[#45443f] px-5 py-[18px] text-[15px] font-semibold leading-5 text-[#858583]">
         {title}
       </div>
-      <pre className="m-0 max-w-full min-w-0 overflow-x-hidden whitespace-pre-wrap break-words bg-[#232220] px-5 py-5 font-sans text-[15px] font-normal leading-[1.7] text-[#dedde7] [overflow-wrap:anywhere] [word-break:break-word]">
+      <pre className="legacy-status-body m-0 max-w-full min-w-0 overflow-x-hidden whitespace-pre-wrap break-words bg-[#232220] px-5 py-5 font-sans text-[15px] font-normal leading-[1.7] text-[#dedde7] [overflow-wrap:anywhere] [word-break:break-word]">
         <code className="block max-w-full whitespace-pre-wrap break-words [font-family:inherit] [overflow-wrap:anywhere] [word-break:break-word]">
           {formatCodeEmphasis(content, mutedTextClassName)}
         </code>
