@@ -1,3 +1,4 @@
+import { providerFixture } from './provider-fixture.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -19,7 +20,7 @@ function mount() {
   let values=[],refs=[],effects=[],i=0,r=0,e=0;
   const hooks={useState(initial){const n=i++;if(!(n in values))values[n]=typeof initial==='function'?initial():initial;return[values[n],v=>{values[n]=typeof v==='function'?v(values[n]):v}]},useRef(v){return refs[r++]??={current:v}},useMemo:fn=>fn(),useEffect(fn,deps){const n=e++;const old=effects[n];if(!old||deps.some((v,i)=>v!==old.deps[i])){old?.cleanup?.();effects[n]={deps,fn,pending:true};}}};
   const Panel=vm.runInNewContext(compile(read('src/components/SessionInformationSettings.tsx'))+'\nSessionInformationSettings',{
-    ...hooks,...registry,jsx:createElement,getApiKey:()=> 'fixture',Toggle:'toggle',
+    ...hooks,...registry,jsx:createElement,...providerFixture, getApiKey:()=> 'fixture',Toggle:'toggle',
     emptyState:()=>({actors:[],facts:[],knowledge:[],scene:[]}),replayContext:()=>({state:{actors:[],facts:[],knowledge:[],scene:[]},pending:[]}),knowledgeSymbol:()=> 'X',
     readKnowledgeContext:async()=>({entries:[],cost:0,inputTokens:0,outputTokens:0}),
     window:{addEventListener(){},removeEventListener(){}},showConfirmDialog:async()=>confirm,

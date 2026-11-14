@@ -10,7 +10,7 @@ const LEGACY_REASONING_KEY = 'chatforme.defaultReasoning';
 const FAVORITE_MODELS_KEY = 'inuchat.favoriteModels';
 
 export type CustomModels = Record<Provider, string[]>;
-const EMPTY: CustomModels = { openrouter: [] };
+const EMPTY: CustomModels = { openrouter: [], local: [] };
 
 const PROVIDER_PREFIX: Record<string, string> = {
   openai: 'openai', claude: 'anthropic', gemini: 'google',
@@ -35,6 +35,7 @@ export function loadCustomModels(): CustomModels {
 }
 
 export function modelsFor(provider: Provider): string[] {
+  if (provider === 'local') return []; // Loaded Local models come from the authenticated gateway.
   return [...new Set([
     ...modelsForProvider(provider).map((item) => item.modelId),
     ...loadOpenRouterModels().map((model) => model.id),

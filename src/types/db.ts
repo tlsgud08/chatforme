@@ -1,6 +1,6 @@
 // DB 테이블에 대응하는 TypeScript 타입 (supabase/migrations/0001_init.sql 와 일치)
 
-export type Provider = 'openrouter';
+export type Provider = 'openrouter' | 'local';
 export type Role = 'user' | 'assistant';
 
 export interface Profile {

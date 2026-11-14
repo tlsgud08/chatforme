@@ -44,6 +44,8 @@ export const MODEL_CAPABILITIES: readonly ModelCapabilities[] = [
 ];
 
 export function capabilitiesFor(_provider: Provider, modelId: string): ModelCapabilities {
+  if (_provider === 'local') return { provider: 'local', modelId, displayName: modelId, availability: 'unverified',
+    release: 'stable', reasoningKind: 'none', supportedEfforts: [], profile: 'LM Studio 서버 설정 사용' };
   const registered = MODEL_CAPABILITIES.find((item) => item.modelId === modelId);
   if (registered) return registered;
   const discovered = getOpenRouterModel(modelId);
@@ -60,6 +62,7 @@ export function capabilitiesFor(_provider: Provider, modelId: string): ModelCapa
 }
 
 export function modelsForProvider(_provider: Provider): ModelCapabilities[] {
+  if (_provider === 'local') return [];
   return [...MODEL_CAPABILITIES];
 }
 

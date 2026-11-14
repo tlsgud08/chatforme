@@ -159,6 +159,7 @@ export async function extractEntry(
   setup: string,
   signal: AbortSignal,
   repair = false,
+  localModel?: string,
 ): Promise<KnowledgePatch> {
   const foundActors = encounteredActors(cleanNarrative(entry.content), state.actors);
   let interim = applyPatch(state, { ...emptyState(), actors: foundActors, scene: state.scene });
@@ -210,7 +211,7 @@ export async function extractEntry(
         .map((k) => k.actor),
     }));
     const output = await structured<Extraction>(
-      { apiKey, sessionId, model: prompts.model, reasoning: prompts.reasoning, signal },
+      { apiKey, sessionId, model: prompts.model, reasoning: prompts.reasoning, signal, localModel },
       prompts.recordPrompt +
         "\nJSON changes only. New facts use N1,N2; knowledge references N# or provided F#. Quotes must be exact substrings of the indicated source (record=an existing supplied fact quote). New actors require assistant evidence of encounter/INFO, never setup alone. Keep canonical actor names and absent actors. Return scene names. Intentions are not completed outcomes.\n" +
         INCIDENT_RULES,
@@ -353,6 +354,7 @@ export async function readKnowledgeContext(sessionId: string, beforeTurn = 21474
   return data as KnowledgeContext;
 }
 export interface KnowledgeOptions {
+  localModel?: string;
   sessionId: string; revision: number; apiKey: string; signal: AbortSignal;
   beforeTurn?: number; setup: string; pcs: Actor[];
   onProgress?: (processed: number, total: number) => void;
@@ -372,7 +374,7 @@ export async function prepareKnowledge(o: KnowledgeOptions) {
       const roster = encounteredActors(cleanNarrative(entry.content), state.actors);
       const missingPcFields = pcStatusFacts(cleanNarrative(entry.content), state.actors.filter(a => a.pc)).some(f => !state.facts.some(old => old.id === f.id));
       const changed = entry.turn_index === -1 || roster.length > 0 || missingPcFields || await needsKnowledgeUpdate(
-        { apiKey: o.apiKey, sessionId: o.sessionId, model: config.detectorModel, signal },
+        { apiKey: o.apiKey, sessionId: o.sessionId, model: config.detectorModel, signal, localModel: o.localModel },
         config.detectorPrompt + '\n이미 기록된 같은 전투·방문 장면의 개별 공격·방어·회피·반복 대사만 이어지면 새 사건이 아니다. 별도 기록할 부상·피해·성패·정체 노출·인지 변화가 없다면 false로 판단할 수 있다. 누구와 어디에서 시간을 보냈는지 같은 새 일상 사건은 유지한다.',
         {
           user: cleanNarrative(entry.user_text), assistant: cleanNarrative(entry.content),
@@ -381,7 +383,7 @@ export async function prepareKnowledge(o: KnowledgeOptions) {
         },
       );
       const patch = changed
-        ? await extractEntry(o.sessionId, entry, state, o.apiKey, config, o.setup, signal)
+        ? await extractEntry(o.sessionId, entry, state, o.apiKey, config, o.setup, signal, false, o.localModel)
         : { ...emptyState(), scene: state.scene, formatVersion: 3 };
       // Persist the deterministic roster as well, including PCs and previously missed speakers.
       const awareness = awarenessPatch(applyPatch(state, patch), [...completed, ...replay.pending.slice(0, index + 1).map(row => ({ ...row, patch }))]);

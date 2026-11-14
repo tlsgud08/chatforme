@@ -1,3 +1,4 @@
+import { providerFixture } from './provider-fixture.mjs';
 import { approvedSummaryLengthDirective } from './fixtures/summary-length.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -36,7 +37,7 @@ const children = Object.fromEntries(['InterfaceIcon', 'SessionMenuFrame', 'Sessi
   'ModernPageHeading', 'InterfacePreferences', 'ThemePreferences', 'AdminSettings', 'SettingsAccessManager'].map(name => [name, name]));
 let auth = { user: { id: 'owner' } };
 const shared = { ...hooks, ...children, supabase, summaryCompletionWarning: () => null, useAuth: () => auth,
-  getApiKey: () => '', formatKrw: () => '', normalizeOutputTokens: value => value ?? null, setTimeout: () => 0,
+  ...providerFixture, getApiKey: () => '', formatKrw: () => '', normalizeOutputTokens: value => value ?? null, setTimeout: () => 0,
 };
 const Menu = loadComponent('src/components/SessionMenu.tsx', 'SessionMenu', shared);
 let props = { session: { id: 'room', total_cost: 0, user_note: '', summary_level_override: 0, summary_allow_omission_override: false },
@@ -74,6 +75,7 @@ const profile = { id: 'owner', default_model: 'fixture/model', summary_level: 4,
   summary_parameters_enabled: true, summary_extra_note: 'EXTRA', summary_source_mode: 'full' };
 state.length = 0; state[1] = profile;
 const Settings = loadComponent('src/pages/SettingsPage.tsx', 'SettingsPage', { ...shared,
+  ProviderSettings: 'ProviderSettings',
   ADMIN_EMAIL: '', loadApiKeys: () => ({ openrouter: '' }), modelsFor: () => ['fixture/model'], loadDefaultReasoning: () => ({}),
   loadTurnPriceWarning: () => ({ enabled: false, currency: 'KRW', threshold: 80 }), useUsdKrwRate: () => ({ rate: 1400 }),
   saveDefaultReasoning() {}, useWorkCredits: () => false, saveWorkCredits() {},
@@ -124,7 +126,7 @@ const transcript = [{ id: 'u', role: 'user', content: 'ACTION', turn_index: 1 },
 const runSummary = vm.runInNewContext(compile(processSource) + '\nprocessSummary', {
   data: { session: room, room, profile }, me: { slot: 2 }, user: null,
   summaryLock: { current: false }, lock: { current: false }, controller: { current: null },
-  getApiKey: () => 'fixture', setSummaryGenerating() {}, AbortController, setTimeout, clearTimeout,
+  ...providerFixture, getApiKey: () => 'fixture', setSummaryGenerating() {}, AbortController, setTimeout, clearTimeout,
   registerAccountTask: () => () => {}, multichatTranscript: async () => transcript,
   setSummarySaving() {}, setSummaryContent() {}, saveSummaryWithFallback, generateSummaryResponse, isUserSummaryStop, SUMMARY_USER_STOP, loadGlobalSummaryPrompt: async () => 'ADMIN CORE', summaryNarrativeConfig, summaryAchievementToast, showToast() {}, summaryPromptWithParameters, summaryCompletionWarning, summaryResultMetadata,
   normalizeReasoning: () => ({}), stripThemeDirectives: text => text,
