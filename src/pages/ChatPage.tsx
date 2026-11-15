@@ -17,6 +17,7 @@ import { loadChatRoom, loadChatContext, type ChatContext } from '@/lib/chatRoomD
 import { mutateMessage } from '@/lib/messageMutations';
 import { registerAccountTask } from '@/lib/accountTasks';
 import { branchSession, fetchMessagePage, generationContext, mergeLatestPage, selectResponse } from '@/lib/sessionData';
+import { hasPassedLatestChatTurn, latestChatMessageWindow } from '@/lib/chatMessageWindow';
 import { cacheSessionCount } from '@/lib/sessionCounts';
 import { startOperation, measureOperation } from '@/lib/operationTiming';
 import { createGenerationProgress, type GenerationProgress } from '@/lib/generationProgress';
@@ -310,6 +311,8 @@ export default function ChatPage() {
   const { scrollRef, rememberScroll } = useChatScroll(sessionId, !!session && !!work);
   const olderMessagesSentinelRef = useRef<HTMLDivElement>(null);
   const olderMessagesInFlightRef = useRef(false);
+  const olderMessagesRevisionRef = useRef(0);
+  const collapsedToLatestRef = useRef(false);
   const jumpToStartControllerRef = useRef<AbortController | null>(null);
   const jumpAfterRenderRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -334,6 +337,7 @@ export default function ChatPage() {
     setHasOlderServerMessages(false);
     setOldestLoadedAt(null);
     setTotalUserTurnCount(0);
+    collapsedToLatestRef.current = false;
   }, [sessionId]);
 
   const loadLatestMessages = useCallback(async () => {
@@ -357,11 +361,13 @@ export default function ChatPage() {
   const loadOlderMessages = useCallback(async () => {
     if (!sessionId || oldestLoadedAt === null || !hasOlderServerMessages || olderMessagesInFlightRef.current) return;
     olderMessagesInFlightRef.current = true;
+    collapsedToLatestRef.current = false;
+    const revision = olderMessagesRevisionRef.current;
     setLoadingOlderMessages(true);
     try {
       const signal = messageReadControllerRef.current.signal;
       const page = await fetchMessagePage(sessionId, oldestLoadedAt, signal);
-      if (signal.aborted) return;
+      if (signal.aborted || revision !== olderMessagesRevisionRef.current) return;
       setMessages((current) => {
         const loadedIds = new Set(current.map((message) => message.id));
         return orderMessagesByTurn([...page.messages.filter((message) => !loadedIds.has(message.id)), ...current]);
@@ -377,12 +383,29 @@ export default function ChatPage() {
     }
   }, [hasOlderServerMessages, oldestLoadedAt, sessionId]);
 
+  const collapseOlderMessages = useCallback(() => {
+    if (editingId || editInFlightRef.current || deleteInFlightRef.current) return;
+    jumpToStartControllerRef.current?.abort();
+    olderMessagesRevisionRef.current++;
+    setMessages(current => {
+      const latest = latestChatMessageWindow(current);
+      if (latest === current) return current;
+      const boundary = { hasOlder: true, oldestTurn: latest[0].turn_index };
+      collapsedToLatestRef.current = true;
+      messageBoundaryRef.current = boundary;
+      setHasOlderServerMessages(boundary.hasOlder);
+      setOldestLoadedAt(boundary.oldestTurn);
+      return latest;
+    });
+  }, [editingId]);
+
   const scrollToEdge = useCallback((edge: 'start' | 'end') => {
     const element = scrollRef.current;
     if (!element) return;
     element.scrollTop = edge === 'start' ? 0 : element.scrollHeight;
     rememberScroll();
-  }, [rememberScroll, scrollRef]);
+    if (edge === 'end') collapseOlderMessages();
+  }, [collapseOlderMessages, rememberScroll, scrollRef]);
 
   useLayoutEffect(() => {
     if (!jumpAfterRenderRef.current) return;
@@ -395,6 +418,7 @@ export default function ChatPage() {
     if (!hasOlderServerMessages || oldestLoadedAt === null) { scrollToEdge('start'); return; }
     const controller = new AbortController();
     jumpToStartControllerRef.current = controller;
+    collapsedToLatestRef.current = false;
     olderMessagesInFlightRef.current = true;
     setJumpingToStart(true);
     setJumpLoadedPages(0);
@@ -444,7 +468,7 @@ export default function ChatPage() {
     const sentinel = olderMessagesSentinelRef.current;
     if (!root || !sentinel || !hasOlderMessagesToReveal) return;
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) revealOlderMessages();
+      if (entry.isIntersecting && !(collapsedToLatestRef.current && root.scrollHeight <= root.clientHeight)) revealOlderMessages();
     }, { root, rootMargin: '80px 0px 0px' });
     observer.observe(sentinel);
     return () => observer.disconnect();
@@ -1442,8 +1466,10 @@ export default function ChatPage() {
       <div ref={scrollRef} onScroll={(event) => {
         const element = event.currentTarget;
         rememberScroll();
-        setAwayFromLatest(element.scrollHeight - element.clientHeight - element.scrollTop > 80);
-        if (element.scrollTop <= 80) revealOlderMessages();
+        const distanceFromBottom = element.scrollHeight - element.clientHeight - element.scrollTop;
+        setAwayFromLatest(hasPassedLatestChatTurn(element));
+        if (distanceFromBottom <= 2) collapseOlderMessages();
+        else if (element.scrollTop <= 80) revealOlderMessages();
       }} className="chat-scroll h-full w-full min-h-0 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
@@ -1457,7 +1483,7 @@ export default function ChatPage() {
             </div>
           )}
           {visibleMessages.map((m, index) => (
-            <div key={m.id} data-role={m.role} data-scroll-anchor={m.id} className="chat-message flex w-full min-w-0 flex-col gap-1">
+            <div key={m.id} data-role={m.role} data-scroll-anchor={m.id} data-chat-turn-start={m.role === 'user' && !m.is_hidden ? m.turn_index : undefined} className="chat-message flex w-full min-w-0 flex-col gap-1">
               {index > 0 && (
                 <hr className="chat-turn-divider" aria-label="메시지 구분" />
               )}
