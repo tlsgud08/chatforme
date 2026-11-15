@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocalProvider } from '@/hooks/useLocalProvider';
 import { supabase } from '@/lib/supabase';
 import { emptyState, knowledgeSymbol, visibleFact } from '@/lib/knowledge/core';
 import { cancelKnowledge, readKnowledgeContext, replayContext } from '@/lib/knowledge/runtime';
@@ -10,6 +11,7 @@ import Toggle from './Toggle';
 import { showConfirmDialog } from '@/lib/dialog';
 
 export default function SessionInformationSettings({ session, busy, onUpdate }: { session: Session; busy: boolean; onUpdate: (patch: Partial<Session>) => void }) {
+  const { provider, model: localModel } = useLocalProvider(session.id);
   const [open, setOpen] = useState(false), [context, setContext] = useState<KnowledgeContext | null>(null);
   const [message, setMessage] = useState(''), [saving, setSaving] = useState(false), [loading, setLoading] = useState(false);
   const [job, setJob] = useState(() => getKnowledgeJob(session.id));
@@ -40,7 +42,8 @@ export default function SessionInformationSettings({ session, busy, onUpdate }: 
   function generateNow() {
     if (busy || lock.current || !session.knowledge_enabled) return;
     setOpen(true); setMessage('');
-    startKnowledgeJob(session.id, getApiKey('openrouter'));
+    if (provider === 'local' && !localModel) { setMessage('설정에서 Local 모델을 선택하세요.'); return; }
+    startKnowledgeJob(session.id, getApiKey('openrouter'), provider === 'local' ? localModel : undefined);
   }
   useEffect(() => { setContext(null); setInspect(null); if (open) void refresh(); return () => { request.current++; }; }, [session.id, open, busy, session.knowledge_revision]);
   useEffect(() => {

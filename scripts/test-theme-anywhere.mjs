@@ -1,3 +1,4 @@
+import { providerFixture } from './provider-fixture.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -72,7 +73,7 @@ try {
     const runGeneration = vm.runInNewContext(compile(generation) + '\nrunGeneration', {
       data: { profile: {}, session, room: { id: 'room' }, members: [] }, me: { slot: 2 }, user: null,
       lock: { current: false }, summaryLock: { current: false }, pending: null, controller: { current: null },
-      getApiKey: () => 'fixture', setGenerating() {}, generationProgress, setGenerationMessageId() {}, AbortController, setTimeout, clearTimeout, registerAccountTask: () => () => {},
+      ...providerFixture, getApiKey: () => 'fixture', setGenerating() {}, generationProgress, setGenerationMessageId() {}, AbortController, setTimeout, clearTimeout, registerAccountTask: () => () => {},
       prepareMultichatContext: async () => prepared, createDraftWriter: () => ({ stop: async () => {} }), refresh: async () => {},
       generate: async () => ({ text: content, usage: { inputTokens: 1, outputTokens: 1, cost: 0 } }),
       multichatNarrative: text => text, setDiagnostics() {}, setPending() {}, commit: async value => committed.push(value),
@@ -89,7 +90,7 @@ try {
   const source = read('src/components/SessionInformationSettings.tsx').replace(/^import .*$/gm, '').replace('export default function', 'function');
   const Panel = vm.runInNewContext(compile(source) + '\nSessionInformationSettings', { jsx: createElement,
     useState: value => [value, () => {}], useEffect() {}, useMemo: fn => fn(), useRef: value => ({ current: value }),
-    emptyState, Toggle: 'toggle',
+    ...providerFixture, emptyState, Toggle: 'toggle',
     supabase: { rpc: async (name, args) => { rpc.push({ name, args }); return { data: { knowledge_enabled: args.knowledge, knowledge_revision: 1 } }; } },
   });
   const tree = Panel({ session: { id: 'room', theme_anywhere_enabled: false }, busy: false, onUpdate: update => updates.push(update) });

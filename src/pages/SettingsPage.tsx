@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import InterfaceIcon from '@/components/InterfaceIcon';
+import ProviderSettings from '@/components/ProviderSettings';
+import SummaryProviderSelect from '@/components/SummaryProviderSelect';
+import { useLocalProvider } from '@/hooks/useLocalProvider';
 import ModernPageHeading from '@/components/ModernPageHeading';
 import type { InterfaceIconName } from '@/components/InterfaceIcon';
 import { supabase } from '@/lib/supabase';
@@ -23,6 +26,8 @@ import { clearImageCaches } from '@/lib/imageCache';
 
 export default function SettingsPage() {
   const { user, signOut, isAdmin, canManageSettings } = useAuth();
+  const { provider } = useLocalProvider();
+  const { provider: summaryProvider } = useLocalProvider('', true);
   const [keys, setKeys] = useState<ApiKeys>(loadApiKeys());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [savedMsg, setSavedMsg] = useState('');
@@ -265,6 +270,7 @@ export default function SettingsPage() {
 
       {/* API 키 */}
       <section data-settings-section="api">
+        <ProviderSettings />
         <h2 className="mb-1 font-semibold text-white">OpenRouter API 키</h2>
         <p className="mb-3 text-xs text-slate-500">
           키는 이 기기 브라우저에만 저장되며 서버로 전송되지 않습니다.
@@ -273,7 +279,7 @@ export default function SettingsPage() {
               <div className="rounded-lg border border-brand/40 bg-brand/5 p-3">
                 <div className="mb-1 flex items-center gap-2">
                   <label className="text-sm font-semibold text-white">OpenRouter</label>
-                  <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">전용</span>
+                  <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">BYOK</span>
                 </div>
                 <p className="mb-2 text-[11px] text-slate-400">
                   키 하나로 Claude·Gemini·GPT 등 모든 모델 사용 가능.{' '}
@@ -311,17 +317,17 @@ export default function SettingsPage() {
           <div className="flex flex-col gap-3">
             <div className="rounded-lg bg-surface px-4 py-3 text-sm">
               <p className="text-xs text-slate-400">AI 공급사</p>
-              <p className="mt-1 font-semibold text-white">OpenRouter 전용</p>
+              <p className="mt-1 font-semibold text-white">{provider === 'local' ? 'Local (LM Studio) · 모델 선택은 API · 모델 설정에서' : 'OpenRouter'}</p>
             </div>
-            <ModelSelector
+            {provider === 'openrouter' && <ModelSelector
               provider="openrouter"
               model={profile.default_model || modelsFor('openrouter')[0]}
               reasoning={defaultReasoning}
               onModelChange={(model) => setProfile({ ...profile, default_model: model })}
               onReasoningChange={setDefaultReasoning}
               hideReasoning
-            />
-            {defaultOutputSettings && <OutputSettingsEditor value={defaultOutputSettings} onChange={(value) => { setDefaultOutputSettings(value); setDefaultReasoning(value.reasoning); }} tokenLabel="기본 출력량" />}
+            />}
+            {defaultOutputSettings && <OutputSettingsEditor local={provider === 'local'} value={defaultOutputSettings} onChange={(value) => { setDefaultOutputSettings(value); setDefaultReasoning(value.reasoning); }} tokenLabel="기본 출력량" />}
             <button onClick={saveProfile} className="rounded-lg bg-brand py-2.5 text-sm font-semibold text-white">
               저장
             </button>
@@ -350,13 +356,14 @@ export default function SettingsPage() {
           <p className="mb-3 text-xs text-slate-500">요약 지시문은 관리자 설정의 전역 요약 프롬프트를 공통으로 사용합니다.</p>
           <div className="mt-4 flex flex-col gap-3 rounded-xl bg-surface p-3">
             <p className="text-sm font-semibold text-slate-200">요약 모델 · 입력 범위</p>
-            <ModelSelector
+            <SummaryProviderSelect />
+            {summaryProvider === 'openrouter' ? <ModelSelector
               provider="openrouter"
               model={profile.summary_model || profile.default_model || modelsFor('openrouter')[0]}
               reasoning={summaryReasoning}
               onModelChange={(summary_model) => setProfile({ ...profile, summary_model })}
               onReasoningChange={setSummaryReasoning}
-            />
+            /> : <p className="text-xs text-slate-400">Local 요약 모델은 API · 모델 또는 채팅방 메뉴에서 선택합니다.</p>}
             <label className="text-xs text-slate-400">요약 입력 범위
               <select value={profile.summary_source_mode ?? 'full'} onChange={(e) => setProfile({ ...profile, summary_source_mode: e.target.value as 'incremental' | 'full' })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none">
                 <option value="full">이전 요약 제외 + 세션 전체 메시지</option>

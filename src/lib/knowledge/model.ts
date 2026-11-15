@@ -1,8 +1,10 @@
 import { openRouterReasoningPayload } from "../llm/reasoningPayloads";
 import { supabase } from "../supabase";
+import { generate } from '../llm';
 
 
 export interface ModelOptions {
+  localModel?: string;
   apiKey: string;
   sessionId: string;
   model: string;
@@ -51,6 +53,16 @@ export async function structured<T>(
   schema: object,
   maxTokens = 1600,
 ): Promise<T> {
+  if (o.localModel) {
+    const result = await generate('local', { apiKey: '', model: o.localModel, sessionId: `${o.sessionId}:knowledge`, signal: o.signal,
+      maxOutputTokens: maxTokens, reasoning: { send: false }, sampling: { temperature: 0, temperatureSend: true, frequencyPenalty: 0, frequencyPenaltySend: false },
+      systemParts: { core: instructions + '\nReturn only JSON matching this schema:\n' + JSON.stringify(schema), persona: '', userNote: '', summary: '', keywords: '' },
+      messages: [{ role: 'user', content: JSON.stringify(state) }] });
+    await account({ usage: { prompt_tokens: result.usage.inputTokens, completion_tokens: result.usage.outputTokens, cost: 0 } }, { ...o, model: o.localModel });
+    if (result.finishReason === 'length') throw new Error('Local 보조 모델의 출력 한도를 초과했습니다. 출력 설정을 확인하세요.');
+    try { return JSON.parse(result.text.replace(/^\s*```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim()) as T; }
+    catch { throw new Error('Local 보조 모델의 JSON 기록을 해석하지 못했습니다. JSON 출력이 가능한 모델을 선택하세요.'); }
+  }
   const data = await responseJSON(
     "https://openrouter.ai/api/v1/chat/completions",
     {
@@ -90,6 +102,8 @@ export async function structured<T>(
 
 /** Jev returns typed decisions; it must not use the chat-completions endpoint. */
 export async function needsKnowledgeUpdate(o: ModelOptions, instructions: string, state: unknown): Promise<boolean> {
+  // Jev is OpenRouter-specific. Local always runs its recorder; no hidden paid fallback.
+  if (o.localModel) return true;
   try {
     const body = {
       model: o.model,

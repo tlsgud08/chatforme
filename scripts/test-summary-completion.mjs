@@ -1,3 +1,4 @@
+import { providerFixture } from './provider-fixture.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -39,7 +40,7 @@ try {
     editInFlightRef: { current: false }, deleteInFlightRef: { current: false }, branchInFlightRef: { current: false },
     sendInFlightRef: { current: false }, workCombinationSavingRef: { current: false },
     activeGenerations: new Map(), activeSummaryGenerations: summaryTasks, summaryGenerating: false,
-    getApiKey: () => 'fixture', registerAccountTask: () => () => {}, setSummaryGenerating() {}, finishSummaryGeneration: id => summaryTasks.delete(id),
+    ...providerFixture, getApiKey: () => 'fixture', registerAccountTask: () => () => {}, setSummaryGenerating() {}, finishSummaryGeneration: id => summaryTasks.delete(id),
     readLiveThemeContext: async () => ({}), recoverExpiredResponses: async () => {},
     fetchAllSessionMessages: async () => messages,
     automaticThemeEnabled: () => false, stripThemeDirectives: text => text,

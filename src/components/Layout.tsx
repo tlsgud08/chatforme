@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { canLeaveCurrentPage } from '@/lib/navigationGuard';
 import InterfaceIcon, { type InterfaceIconName } from './InterfaceIcon';
+import LocalBadge from './LocalBadge';
 
 const TABS: { to: string; label: string; icon: InterfaceIconName }[] = [
   { to: '/works', label: '작품', icon: 'works' },
@@ -23,6 +24,7 @@ export default function Layout() {
         <button onClick={() => void guardedNavigate('/works')} className="app-header-home flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand" aria-label="Inuchat 홈으로 이동">
           <img src="/logo-128.png" alt="" className="h-8 w-8 rounded-full object-cover" />
           <span className="text-lg font-bold text-white">Inuchat</span>
+          <LocalBadge />
         </button>
         <button
           onClick={() => void guardedNavigate('/search')}

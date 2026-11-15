@@ -10,7 +10,7 @@ type Generate = (provider: Provider, options: GenerateOptions) => Promise<Genera
 type SummaryResult = Pick<GenerateResult, 'text' | 'usage' | 'finishReason' | 'nativeFinishReason'>;
 
 /** Keep received summary bodies on user stops and stream failures, never on account resets. */
-export async function generateSummaryResponse(generate: Generate, options: GenerateOptions): Promise<SummaryResult> {
+export async function generateSummaryResponse(generate: Generate, options: GenerateOptions, provider: Provider = 'openrouter'): Promise<SummaryResult> {
   let partial = '';
   let usageReported = false;
   let usage: Usage = { inputTokens: 0, outputTokens: 0, cost: 0, cacheCreationTokens: null, cacheReadTokens: null };
@@ -23,7 +23,7 @@ export async function generateSummaryResponse(generate: Generate, options: Gener
       if (isUserSummaryStop(options.signal)) return interrupted('user_stop', 'client_abort');
       throw options.signal.reason ?? new DOMException('요약 생성을 중단했습니다.', 'AbortError');
     }
-    const result = await generate('openrouter', {
+    const result = await generate(provider, {
       ...options,
       onChunk: text => {
         // Ignore buffered events processed after the user clicked stop.

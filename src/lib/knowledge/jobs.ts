@@ -21,7 +21,7 @@ export function stopKnowledgeJob(id: string) {
   job.controller.abort(); publish();
 }
 /** A screen subscribes to the job; it does not own its lifetime. */
-export function startKnowledgeJob(id: string, apiKey: string) {
+export function startKnowledgeJob(id: string, apiKey: string, localModel?: string) {
   const current = jobs.get(id);
   if (current && ['running', 'stopping'].includes(current.state.status)) return;
   const controller = new AbortController(), unregister = registerAccountTask(controller);
@@ -30,7 +30,7 @@ export function startKnowledgeJob(id: string, apiKey: string) {
   void generateKnowledgeNow(id, apiKey, controller.signal, (processed, total) => {
     if (jobs.get(id) !== job || controller.signal.aborted) return;
     job.state = { ...job.state, processed, total, message: `${total}개 중 ${processed}개 응답 정리 완료` }; publish();
-  }).then(result => {
+  }, localModel).then(result => {
     controller.signal.throwIfAborted();
     if (jobs.get(id) !== job) return;
     job.state = { ...job.state, status: 'completed', message: result.processed ? '정보표 생성/갱신을 완료했어요.' : '새로 반영할 정보가 없어요. 최신 정보표예요.' };

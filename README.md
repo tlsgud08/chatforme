@@ -5,6 +5,7 @@
 - **프론트엔드**: Vite + React + TypeScript + Tailwind (모바일 우선 PWA)
 - **백엔드**: Supabase (Auth · Postgres · Storage) — 무료 티어
 - **AI 호출**: 브라우저에서 OpenRouter로 직접 호출 (키는 서버에 저장되지 않음)
+- **선택적 Local (LM Studio)**: 인증된 서버 중계와 PC HTTPS 터널로 로컬 LLM 사용·원격 로드·컨텍스트 재설정. 대화와 요약 제공자를 각각 선택할 수 있습니다. [설치·구조·검증 안내](docs/lm-studio.md).
 
 ---
 

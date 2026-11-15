@@ -51,6 +51,9 @@ export interface ReasoningSelection {
 }
 
 export interface SamplingSettings {
+  /** Local only. OpenRouter serialization deliberately remains unchanged. */
+  topP?: number;
+  topPSend?: boolean;
   temperature: number;
   temperatureSend: boolean;
   frequencyPenalty: number;
@@ -102,4 +105,5 @@ export interface LLMAdapter {
 
 export const PROVIDER_LABELS: Record<Provider, string> = {
   openrouter: 'OpenRouter',
+  local: 'Local (LM Studio)',
 };

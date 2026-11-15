@@ -10,6 +10,7 @@ import {
 } from '@/lib/interfacePreference';
 import InterfaceIcon, { type InterfaceIconName } from './InterfaceIcon';
 import './InterfaceFrame.css';
+import LocalBadge from './LocalBadge';
 
 const NAVIGATION: { to: string; label: string; icon: InterfaceIconName }[] = [
   { to: '/works', label: '작품', icon: 'works' },
@@ -80,7 +81,7 @@ export default function InterfaceFrame({ children }: { children: ReactNode }) {
       {showNavigation && <>
         <header className="interface-topbar modern-only">
           <Link to="/works" onClick={event => void guardedNavigate(event, '/works')} className="interface-brand" aria-label="Inuchat 홈으로 이동">
-            <img src="/logo-128.png" alt="" /><span>Inuchat</span>
+            <img src="/logo-128.png" alt="" /><span>Inuchat</span><LocalBadge />
           </Link>
           <Link to="/search" onClick={event => void guardedNavigate(event, '/search')} className="interface-search" aria-label="작품·유저 검색">
             <InterfaceIcon name="search" /><span>작품·유저 검색…</span>

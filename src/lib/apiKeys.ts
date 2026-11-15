@@ -3,7 +3,7 @@ import type { Provider } from '@/types/db';
 
 const STORAGE_KEY = 'chatforme.apiKeys';
 
-export type ApiKeys = Record<Provider, string>;
+export type ApiKeys = Record<'openrouter', string>;
 
 const EMPTY: ApiKeys = { openrouter: '' };
 
@@ -23,7 +23,7 @@ export function saveApiKeys(keys: ApiKeys): void {
 }
 
 export function getApiKey(provider: Provider): string {
-  return loadApiKeys()[provider] ?? '';
+  return provider === 'openrouter' ? loadApiKeys().openrouter : '';
 }
 
 export function hasApiKey(provider: Provider): boolean {
