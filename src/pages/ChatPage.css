@@ -5,6 +5,45 @@
   border-top: 1px solid color-mix(in srgb, var(--page-text) 20%, transparent);
 }
 
+.chat-scroll-navigation {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.chat-scroll-navigation button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--page-text) 20%, transparent);
+  border-radius: 50%;
+  background: rgb(var(--color-bg) / .88);
+  color: color-mix(in srgb, var(--page-text) 62%, transparent);
+  box-shadow: 0 2px 8px rgb(0 0 0 / .12);
+}
+
+.chat-scroll-navigation button:hover { color: var(--page-text); }
+.chat-scroll-navigation button:disabled { opacity: .5; }
+.chat-scroll-navigation button:focus-visible { outline: 2px solid rgb(var(--color-brand)); outline-offset: 2px; }
+.chat-scroll-navigation svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chat-scroll-navigation-status {
+  position: absolute;
+  right: 48px;
+  bottom: 48px;
+  white-space: nowrap;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: rgb(var(--color-bg) / .92);
+  color: var(--page-text);
+  font-size: 11px;
+}
+
 /* Both designs use the legacy conversation layout, including dividers and padding. */
 .chat-header > button:first-child,
 .chat-header > button:last-child {

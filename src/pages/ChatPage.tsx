@@ -1,7 +1,7 @@
 import { summaryCompletionWarning, summaryResultMetadata } from '@/lib/summaryCompletion';
 import { prepareKnowledge, queueKnowledge, cancelKnowledge } from '@/lib/knowledge/runtime';
 import { applyKnowledge } from '@/lib/knowledge/core';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import MessageContent from '@/components/MessageContent';
@@ -295,6 +295,9 @@ export default function ChatPage() {
   const [hasOlderServerMessages, setHasOlderServerMessages] = useState(false);
   const [oldestLoadedAt, setOldestLoadedAt] = useState<number | null>(null);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [jumpingToStart, setJumpingToStart] = useState(false);
+  const [jumpLoadedPages, setJumpLoadedPages] = useState(0);
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
   const [totalUserTurnCount, setTotalUserTurnCount] = useState(0);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [selectedCommand, setSelectedCommand] = useState<Command | null>(null);
@@ -307,6 +310,8 @@ export default function ChatPage() {
   const { scrollRef, rememberScroll } = useChatScroll(sessionId, !!session && !!work);
   const olderMessagesSentinelRef = useRef<HTMLDivElement>(null);
   const olderMessagesInFlightRef = useRef(false);
+  const jumpToStartControllerRef = useRef<AbortController | null>(null);
+  const jumpAfterRenderRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendInFlightRef = useRef(false);
   const editInFlightRef = useRef(false);
@@ -321,7 +326,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     messageReadControllerRef.current = new AbortController();
-    return () => { messageReadControllerRef.current.abort(); latestReadSequenceRef.current++; };
+    return () => { messageReadControllerRef.current.abort(); jumpToStartControllerRef.current?.abort(); latestReadSequenceRef.current++; };
   }, [sessionId]);
 
   useEffect(() => {
@@ -371,6 +376,59 @@ export default function ChatPage() {
       setLoadingOlderMessages(false);
     }
   }, [hasOlderServerMessages, oldestLoadedAt, sessionId]);
+
+  const scrollToEdge = useCallback((edge: 'start' | 'end') => {
+    const element = scrollRef.current;
+    if (!element) return;
+    element.scrollTop = edge === 'start' ? 0 : element.scrollHeight;
+    rememberScroll();
+  }, [rememberScroll, scrollRef]);
+
+  useLayoutEffect(() => {
+    if (!jumpAfterRenderRef.current) return;
+    jumpAfterRenderRef.current = false;
+    scrollToEdge('start');
+  }, [messages, scrollToEdge]);
+
+  const jumpToStart = useCallback(async () => {
+    if (!sessionId || olderMessagesInFlightRef.current || editInFlightRef.current || deleteInFlightRef.current) return;
+    if (!hasOlderServerMessages || oldestLoadedAt === null) { scrollToEdge('start'); return; }
+    const controller = new AbortController();
+    jumpToStartControllerRef.current = controller;
+    olderMessagesInFlightRef.current = true;
+    setJumpingToStart(true);
+    setJumpLoadedPages(0);
+    let before = oldestLoadedAt;
+    let hasOlder = true;
+    const older: Message[] = [];
+    try {
+      while (hasOlder) {
+        const page = await fetchMessagePage(sessionId, before, controller.signal);
+        if (controller.signal.aborted) return;
+        older.push(...page.messages);
+        hasOlder = page.hasOlder;
+        setJumpLoadedPages(count => count + 1);
+        if (hasOlder && (page.oldestTurn === null || page.oldestTurn >= before)) throw new Error('이전 대화의 위치를 확인하지 못했습니다.');
+        if (page.oldestTurn !== null) before = page.oldestTurn;
+      }
+      messageBoundaryRef.current = { hasOlder: false, oldestTurn: null };
+      jumpAfterRenderRef.current = true;
+      setMessages(current => {
+        const loadedIds = new Set(current.map(message => message.id));
+        return orderMessagesByTurn([...older.filter(message => !loadedIds.has(message.id)), ...current]);
+      });
+      setHasOlderServerMessages(false);
+      setOldestLoadedAt(null);
+    } catch (error) {
+      if (!controller.signal.aborted) addError(`처음으로 이동 실패: ${describeUnknownError(error)}`);
+    } finally {
+      if (jumpToStartControllerRef.current === controller) {
+        jumpToStartControllerRef.current = null;
+        olderMessagesInFlightRef.current = false;
+        setJumpingToStart(false);
+      }
+    }
+  }, [hasOlderServerMessages, oldestLoadedAt, scrollToEdge, sessionId]);
 
   const hasOlderMessagesToReveal = hasOlderServerMessages;
 
@@ -1380,11 +1438,13 @@ export default function ChatPage() {
           </div>
         </div>
       )}
+      <div className="chat-scroll-container relative min-h-0 flex-1">
       <div ref={scrollRef} onScroll={(event) => {
         const element = event.currentTarget;
         rememberScroll();
+        setAwayFromLatest(element.scrollHeight - element.clientHeight - element.scrollTop > 80);
         if (element.scrollTop <= 80) revealOlderMessages();
-      }} className="chat-scroll w-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
+      }} className="chat-scroll h-full w-full min-h-0 overflow-y-auto overflow-x-hidden px-3 py-4 [overflow-anchor:none]">
         {visibleMessages.length === 0 && (
           <p className="mt-8 text-center text-sm text-slate-500">메시지를 입력해 시작하세요.</p>
         )}
@@ -1468,6 +1528,16 @@ export default function ChatPage() {
             </>
           )}
         </div>
+      </div>
+      {totalUserTurnCount >= 6 && (awayFromLatest || jumpingToStart) && <div className="chat-scroll-navigation" aria-label="대화 이동">
+        {jumpingToStart && <span className="chat-scroll-navigation-status" role="status">처음으로 이동 중 · {jumpLoadedPages}묶음 불러옴</span>}
+        <button type="button" aria-label="대화 맨 처음으로 이동" title="대화 맨 처음으로 이동" disabled={loadingOlderMessages || jumpingToStart} onClick={() => void jumpToStart()}>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 14 6-6 6 6" /></svg>
+        </button>
+        <button type="button" aria-label="대화 맨 아래로 이동" title="대화 맨 아래로 이동" onClick={() => { jumpToStartControllerRef.current?.abort(); scrollToEdge('end'); }}>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 10 6 6 6-6" /></svg>
+        </button>
+      </div>}
       </div>
 
       {selectedCommand && <div className="chat-command-banner flex shrink-0 items-center gap-2 border-t border-surface2 bg-brand/10 px-3 py-2 text-sm">
