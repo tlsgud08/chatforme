@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import SceneShareThemeSettings from './SceneShareThemeSettings';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { showConfirmDialog } from '@/lib/dialog';
@@ -112,6 +113,7 @@ export default function AdminSettings() {
     </div>
     {isAdmin && <section className="rounded-lg border border-red-500/30 p-4">
       <h3 className="font-semibold">장면 공유 관리</h3>
+      <SceneShareThemeSettings />
       <p className="my-2 text-xs text-slate-400">전체 채팅방의 공개 링크와 공유본을 즉시 삭제해요.</p>
       <button type="button" onClick={() => void purgeSharedScenes()} disabled={purgingShares}
         className="rounded-lg border border-red-500/40 px-3 py-2 text-sm font-semibold text-red-300 disabled:opacity-50">

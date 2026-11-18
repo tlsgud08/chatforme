@@ -21,7 +21,7 @@ export default function SharedSceneContent({ scene }) {
         : null;
       const role = element('div', { className: 'shared-scene-role' }, message.role === 'user' ? '유저' : 'AI');
       const text = message.role === 'user' && scene.hideUser
-        ? element('span', { className: 'shared-scene-hidden' }, '유저 대사 가림')
+        ? element('div', { className: 'shared-scene-hidden', role: 'img', 'aria-label': '가려진 유저 대사' })
         : element(ReactMarkdown, { skipHtml: true, remarkPlugins: [remarkGfm], components: markdownComponents }, message.text ?? '');
       const bubble = element('div', { className: 'shared-scene-message shared-scene-' + message.role }, role, text);
       return element('li', { key: index }, turn, bubble);
