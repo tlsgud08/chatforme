@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 
 export interface SharedScene {
   title: string;
+  thumbnail?: string | null;
   start: number;
   end: number;
   hideUser: boolean;
