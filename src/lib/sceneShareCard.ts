@@ -74,11 +74,18 @@ export async function buildSceneShareCard(scene: SharedScene): Promise<string | 
     context.restore();
   }
 
-  if (logo) context.drawImage(logo, 84, 84, 72, 72);
+  if (logo) {
+    context.save();
+    context.beginPath();
+    context.roundRect(84, 84, 72, 72, 16);
+    context.clip();
+    context.drawImage(logo, 84, 84, 72, 72);
+    context.restore();
+  }
   const font = 'system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
   context.textBaseline = 'middle';
   context.fillStyle = DEFAULT_DARK.mainText;
-  context.font = '650 32px ' + font;
+  context.font = '600 32px ' + font;
   context.fillText('Inuchat', logo ? 174 : 84, 120);
 
   context.font = '700 59px ' + font;
