@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import SharedSceneContent, { sceneTurnLabel, type SharedScene } from '../src/components/SharedSceneContent';
+import SharedSceneContent, { sceneTurnLabel, type SharedScene } from '../src/components/SharedSceneContent.js';
 
 const coverPath = '/scene-share-cover.jpg';
 const coverAlt = 'Inuchat 장면 공유';
@@ -69,7 +69,7 @@ function documentHtml(scene: SharedScene | null, origin: string, token: string, 
         ),
         scene
           ? createElement(SharedSceneContent, { scene })
-          : createElement('p', null, errorTitle ? '잠시 후 다시 열어 주세요.' : '링크가 삭제되었거나 주소가 올바르지 않아요.'),
+          : createElement('p', null, errorTitle ? '잠시 후 다시 열어 주세요.' : '링크가 만료·삭제되었거나 주소가 올바르지 않아요.'),
       ),
     ),
   );

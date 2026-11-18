@@ -9,8 +9,12 @@ interface PreparedScene {
   fingerprint: string;
 }
 
-interface SceneLink {
+interface PublishedSceneLink {
   token: string;
+  expiresAt: string;
+}
+
+interface SceneLink extends PublishedSceneLink {
   start: number;
   end: number;
   hideUser: boolean;
@@ -29,6 +33,8 @@ const sceneErrors: Record<string, string> = {
 function errorMessage(error: { message: string }) {
   return sceneErrors[error.message] ?? '장면 공유 요청에 실패했어요. 다시 시도해 주세요.';
 }
+
+const expiryFormat = new Intl.DateTimeFormat('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 function sceneUrl(token: string) {
   return new URL('/s/' + token, window.location.origin).href;
@@ -53,7 +59,7 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
   const [end, setEnd] = useState(String(latestTurn));
   const [hideUser, setHideUser] = useState(true);
   const [prepared, setPrepared] = useState<PreparedScene | null>(null);
-  const [createdToken, setCreatedToken] = useState<string | null>(null);
+  const [publishedLink, setPublishedLink] = useState<PublishedSceneLink | null>(null);
   const [links, setLinks] = useState<SceneLink[] | null>(null);
   const [linksError, setLinksError] = useState(false);
   const [listRevision, setListRevision] = useState(0);
@@ -80,7 +86,7 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
 
   function resetPreview() {
     setPrepared(null);
-    setCreatedToken(null);
+    setPublishedLink(null);
     setError('');
   }
 
@@ -110,8 +116,8 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
     if (result.error) {
       if (result.error.message === 'SCENE_CHANGED') setPrepared(null);
       setError(errorMessage(result.error));
-    } else if (typeof result.data === 'string') {
-      setCreatedToken(result.data);
+    } else if (result.data?.token) {
+      setPublishedLink(result.data as PublishedSceneLink);
       setListRevision(revision => revision + 1);
     }
     setBusy(false);
@@ -129,7 +135,7 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
     const result = await supabase.rpc('revoke_scene_share', { p_session: sessionId, p_token: token });
     if (result.error) setError(errorMessage(result.error));
     else {
-      if (createdToken === token) setCreatedToken(null);
+      if (publishedLink?.token === token) setPublishedLink(null);
       setLinks(previous => previous?.filter(link => link.token !== token) ?? previous);
       setListRevision(revision => revision + 1);
       showToast('장면 공유 링크를 껐어요.');
@@ -167,14 +173,15 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
       <h3>{prepared.scene.title} · {sceneTurnLabel(prepared.scene.start, prepared.scene.end)}</h3>
       {prepared.scene.hideUser && <p className="inu-help">AI 응답에 인용된 유저 대사는 공개될 수 있어요.</p>}
       <div className="shared-scene-preview"><SharedSceneContent scene={prepared.scene} /></div>
-      <p className="inu-help">링크를 받은 사람은 로그인 없이 이 장면을 읽을 수 있어요.</p>
-      {!createdToken && <button className="inu-button inu-full" type="button" disabled={busy || sending}
+      <p className="inu-help">링크를 받은 사람은 로그인 없이 읽을 수 있어요. 링크는 처음 만든 시점부터 24시간 동안 열려요.</p>
+      {!publishedLink && <button className="inu-button inu-full" type="button" disabled={busy || sending}
         onClick={() => void publish()}>공유 링크 만들기</button>}
-      {createdToken && <div className="grid gap-2">
+      {publishedLink && <div className="grid gap-2">
+        <p className="inu-help">만료 예정 <time dateTime={publishedLink.expiresAt}>{expiryFormat.format(new Date(publishedLink.expiresAt))}</time></p>
         <label className="sr-only" htmlFor={linkId}>공유 링크</label>
         <input id={linkId} className="w-full rounded-lg border border-surface2 bg-surface px-3 py-2" readOnly
-          value={sceneUrl(createdToken)} onFocus={event => event.target.select()} />
-        <button className="inu-button inu-full" type="button" onClick={() => void copyLink(createdToken)}>링크 복사</button>
+          value={sceneUrl(publishedLink.token)} onFocus={event => event.target.select()} />
+        <button className="inu-button inu-full" type="button" onClick={() => void copyLink(publishedLink.token)}>링크 복사</button>
       </div>}
     </section>}
 
@@ -190,6 +197,7 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
           : !links.length && <p className="inu-help">공유 중인 장면이 없어요.</p>}
       {links?.map(link => <div key={link.token} className="grid gap-1 border-t border-surface2 py-3">
         <p>{sceneTurnLabel(link.start, link.end)} · {link.hideUser ? '유저 대사 가림' : '유저 대사 공개'}</p>
+        <p className="inu-help">만료 예정 <time dateTime={link.expiresAt}>{expiryFormat.format(new Date(link.expiresAt))}</time></p>
         <input aria-label={sceneTurnLabel(link.start, link.end) + ' 공유 링크'}
           className="w-full rounded-lg border border-surface2 bg-surface px-3 py-2 text-sm" readOnly
           value={sceneUrl(link.token)} onFocus={event => event.target.select()} />

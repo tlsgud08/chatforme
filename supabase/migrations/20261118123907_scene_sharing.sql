@@ -10,8 +10,10 @@ create table scene_sharing.shares (
   fingerprint text not null,
   scene jsonb not null,
   created_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '24 hours'),
   unique (session_id, owner_id, hide_user, fingerprint)
 );
+create index shares_expiry_idx on scene_sharing.shares (expires_at);
 alter table scene_sharing.shares enable row level security;
 revoke all on table scene_sharing.shares from public, anon, authenticated;
 
@@ -85,10 +87,10 @@ $$;
 create function scene_sharing.publish(
   p_session uuid, p_start integer, p_end integer, p_hide boolean, p_fingerprint text
 )
-returns uuid language plpgsql security definer set search_path = '' as $$
+returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   prepared jsonb;
-  share_token uuid;
+  published jsonb;
 begin
   if auth.uid() is null then raise exception 'SCENE_NOT_FOUND'; end if;
   prepared := scene_sharing.prepare(p_session, p_start, p_end, p_hide);
@@ -96,24 +98,27 @@ begin
 
   insert into scene_sharing.shares as shares (session_id, owner_id, hide_user, fingerprint, scene)
   values (p_session, auth.uid(), p_hide, p_fingerprint, prepared->'scene')
-  on conflict (session_id, owner_id, hide_user, fingerprint) do update set token = shares.token
-  returning token into share_token;
-  return share_token;
+  on conflict (session_id, owner_id, hide_user, fingerprint) do update set
+    token = case when shares.expires_at <= now() then excluded.token else shares.token end,
+    created_at = case when shares.expires_at <= now() then excluded.created_at else shares.created_at end,
+    expires_at = case when shares.expires_at <= now() then excluded.expires_at else shares.expires_at end
+  returning jsonb_build_object('token', token, 'expiresAt', expires_at) into published;
+  return published;
 end;
 $$;
 
 create function scene_sharing.read(p_token uuid)
 returns jsonb language sql stable security definer set search_path = '' as $$
-  select scene from scene_sharing.shares where token = p_token;
+  select scene from scene_sharing.shares where token = p_token and expires_at > now();
 $$;
 
 create function scene_sharing.list(p_session uuid)
 returns jsonb language sql stable security definer set search_path = '' as $$
   select coalesce(jsonb_agg(jsonb_build_object(
-    'token', token, 'start', scene->'start', 'end', scene->'end', 'hideUser', hide_user
+    'token', token, 'start', scene->'start', 'end', scene->'end', 'hideUser', hide_user, 'expiresAt', expires_at
   ) order by created_at desc, token), '[]'::jsonb)
   from scene_sharing.shares
-  where session_id = p_session and owner_id = auth.uid();
+  where session_id = p_session and owner_id = auth.uid() and expires_at > now();
 $$;
 
 create function scene_sharing.revoke(p_session uuid, p_token uuid)
@@ -132,7 +137,7 @@ $$;
 create function public.publish_scene_share(
   p_session uuid, p_start integer, p_end integer, p_hide boolean, p_fingerprint text
 )
-returns uuid language sql security invoker set search_path = '' as $$
+returns jsonb language sql security invoker set search_path = '' as $$
   select scene_sharing.publish(p_session, p_start, p_end, p_hide, p_fingerprint);
 $$;
 
@@ -161,3 +166,11 @@ grant execute on function scene_sharing.prepare(uuid, integer, integer, boolean)
   public.preview_scene_share(uuid, integer, integer, boolean),
   public.publish_scene_share(uuid, integer, integer, boolean, text),
   public.list_scene_shares(uuid), public.revoke_scene_share(uuid, uuid) to authenticated;
+
+-- The public read stops at expires_at even between cleanup runs.
+create extension if not exists pg_cron;
+select cron.schedule(
+  'inuchat-delete-expired-scene-shares',
+  '*/15 * * * *',
+  $job$delete from scene_sharing.shares where expires_at <= now()$job$
+);

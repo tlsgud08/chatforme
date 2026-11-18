@@ -1,6 +1,6 @@
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import remarkSpoiler from '../lib/remarkSpoiler';
+import remarkSpoiler from '../lib/remarkSpoiler.js';
 
 export interface SharedScene {
   title: string;
