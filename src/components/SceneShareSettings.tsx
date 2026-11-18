@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { showConfirmDialog } from '@/lib/dialog';
 import { showToast } from '@/lib/toast';
-import SharedSceneContent, { sceneTurnLabel, type SharedScene } from './SharedSceneContent';
+import SharedSceneContent, { sceneTurnLabel, type SharedScene } from '../lib/sceneShareView.js';
 
 interface PreparedScene {
   scene: SharedScene;

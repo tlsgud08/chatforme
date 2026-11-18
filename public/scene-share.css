@@ -100,6 +100,3 @@ body.shared-scene-page {
 .shared-scene-message blockquote { margin-inline: 0; padding-inline: 0.75em; border-left: 2px solid #8267a0; }
 .shared-scene-message table { width: 100%; table-layout: fixed; border-collapse: collapse; }
 .shared-scene-message :is(th, td) { padding: 0.3em; border: 1px solid #614980; }
-.shared-scene-spoiler { color: transparent; background: #55456b; border-radius: 0.2rem; }
-.shared-scene-spoiler:not(:hover, :focus-within) * { visibility: hidden; }
-.shared-scene-spoiler:is(:hover, :focus-within) { color: #fff; }

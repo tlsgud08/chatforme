@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import SharedSceneContent, { sceneTurnLabel, type SharedScene } from '../src/components/SharedSceneContent.js';
+import SharedSceneContent, { sceneTurnLabel, type SharedScene } from '../src/lib/sceneShareView.js';
 
 const coverPath = '/scene-share-cover.jpg';
 const coverAlt = 'Inuchat 장면 공유';
