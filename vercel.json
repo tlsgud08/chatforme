@@ -6,6 +6,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/s/:token",
+      "destination": "/api/shared-scene?token=:token"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

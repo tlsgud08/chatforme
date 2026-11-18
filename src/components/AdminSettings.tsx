@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
+import { showConfirmDialog } from '@/lib/dialog';
 import { DEFAULT_WORK_COMBINATION_PROMPT } from '@/lib/workCombination';
 import { DEFAULT_KNOWLEDGE_CONFIG, type KnowledgeConfig } from '@/lib/knowledge/types';
 import defaultSemi from '@/lib/prompts/semi-multichat.md?raw';
@@ -19,6 +21,10 @@ const editors: { key: PromptKey; title: string; help: string; initial?: string }
 ];
 const columns = [...editors.map(e => e.key), 'knowledge_config'].join(',');
 export default function AdminSettings() {
+  const { isAdmin } = useAuth();
+  const [purgingShares, setPurgingShares] = useState(false);
+  const [sharePurgeMessage, setSharePurgeMessage] = useState('');
+  const purgeInFlight = useRef(false);
   const [draft, setDraft] = useState<AdminDraft | null>(null), [baseline, setBaseline] = useState<AdminDraft | null>(null);
   const [saving, setSaving] = useState(false), [message, setMessage] = useState(''), [attempt, setAttempt] = useState(0);
   const [password, setPassword] = useState(''), [confirm, setConfirm] = useState('');
@@ -53,6 +59,33 @@ export default function AdminSettings() {
     } catch (error) { setMessage((error as Error).message + ' 입력 내용은 유지했습니다.'); }
     finally { lock.current = false; setSaving(false); }
   }
+  async function purgeSharedScenes() {
+    if (!isAdmin || purgeInFlight.current) return;
+    purgeInFlight.current = true;
+    setPurgingShares(true);
+    setSharePurgeMessage('');
+    try {
+      const confirmed = await showConfirmDialog(
+        '모든 장면 공유 링크를 삭제할까요?',
+        '현재 공유 중인 장면을 즉시 만료하고 저장된 공유본을 삭제합니다. 삭제한 공유 링크는 복구할 수 없어요.',
+        '전체 공유 링크 삭제',
+      );
+      if (!confirmed) return;
+
+      const { data, error } = await supabase.rpc('purge_scene_shares');
+      if (error || typeof data !== 'number') {
+        setSharePurgeMessage('공유 링크를 삭제하지 못했어요. 다시 시도해 주세요.');
+        return;
+      }
+      setSharePurgeMessage(data ? data.toLocaleString('ko-KR') + '개의 공유 링크를 삭제했어요.' : '삭제할 공유 링크가 없어요.');
+    } catch {
+      setSharePurgeMessage('공유 링크를 삭제하지 못했어요. 다시 시도해 주세요.');
+    } finally {
+      purgeInFlight.current = false;
+      setPurgingShares(false);
+    }
+  }
+
   return <div data-settings-section="admin" className="flex flex-col gap-6">
     <h2 className="text-lg font-semibold">관리자 설정</h2>
     <fieldset disabled={!draft || saving} className="flex min-w-0 flex-col gap-6 disabled:opacity-60">
@@ -77,5 +110,14 @@ export default function AdminSettings() {
       {message && <p role="status" className="w-full break-words text-sm text-slate-400">{message}</p>}
       {!draft && <button type="button" onClick={() => setAttempt(n => n + 1)} className="text-sm underline">다시 불러오기</button>}
     </div>
+    {isAdmin && <section className="rounded-lg border border-red-500/30 p-4">
+      <h3 className="font-semibold">장면 공유 관리</h3>
+      <p className="my-2 text-xs text-slate-400">전체 채팅방의 공개 링크와 공유본을 즉시 삭제해요.</p>
+      <button type="button" onClick={() => void purgeSharedScenes()} disabled={purgingShares}
+        className="rounded-lg border border-red-500/40 px-3 py-2 text-sm font-semibold text-red-300 disabled:opacity-50">
+        {purgingShares ? '처리 중…' : '전체 공유 링크 만료 및 삭제'}
+      </button>
+      {sharePurgeMessage && <p role="status" className="mt-2 text-sm text-slate-400">{sharePurgeMessage}</p>}
+    </section>}
   </div>;
 }

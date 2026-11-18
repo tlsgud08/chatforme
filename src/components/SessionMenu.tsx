@@ -3,7 +3,7 @@ import InterfaceIcon from './InterfaceIcon';
 import MultichatApiSettings from './MultichatApiSettings';
 import MultichatProgressSettings from './MultichatProgressSettings';
 import type { MultichatMember, MultichatRoom } from '@/types/db';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import SessionMenuFrame, { SessionMenuPage } from './SessionMenuFrame';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -26,6 +26,8 @@ import SessionInformationSettings from './SessionInformationSettings';
 import SemiSessionSettings from './SemiSessionSettings';
 import SummaryNoteStats from './SummaryNoteStats';
 import { conversationFilename, downloadConversationText } from '@/lib/chatExport';
+
+const SceneShareSettings = lazy(() => import('./SceneShareSettings'));
 
 interface OpenRouterCredit {
   usage: number;
@@ -90,6 +92,8 @@ export default function SessionMenu({
   onGenerateSummary, onMergeSummaries, summaryGenerating, summarySaving = false, summaryContent = '', onStopSummary, onSummaryDraftChange, onRetrySummarySave, storyNotes, onStoryNotesChange, sessionTurnCount, sending, onWorkCombinationSavingChange, onPublishSemiSummary,
 }: Props) {
   const { user, isAdmin } = useAuth();
+  const [sceneShareOpen, setSceneShareOpen] = useState(false);
+  const canShareScene = !multichat && !session.multichat_room_id && user?.id === session.user_id;
   const [note, setNote] = useState(session.user_note);
   const [credit, setCredit] = useState<OpenRouterCredit | null>(null);
   const [creditLoading, setCreditLoading] = useState(false);
@@ -419,10 +423,18 @@ export default function SessionMenu({
           <label className="inu-switch-row inu-tall"><span>자랑모드<small>유저 말풍선의 내용을 스포일러로 가립니다. 누르면 볼 수 있어요</small></span><Toggle aria-label="자랑모드" checked={showOffMode} onChange={onShowOffModeToggle} /></label>
           <label className="inu-switch-row inu-tall"><span>디버그 모드<small>숨겨진 메시지를 채팅창에 표시</small></span><Toggle aria-label="디버그 모드" checked={debugMode} onChange={onDebugToggle} /></label>
         </section>
-        <section className="inu-section"><h3><InterfaceIcon name="download" />대화 내보내기</h3><button type="button" className="inu-button inu-full" onClick={() => void onExportConversation()} disabled={sending || exportingConversation} aria-busy={exportingConversation}><InterfaceIcon name="download" />{exportingConversation ? '대화 추출 중…' : '대화 전체 추출'}</button><p className="inu-help">전체 대화를 TXT로 다운로드 · 테마 태그 제외</p></section>
+        <section className="inu-section"><h3><InterfaceIcon name="download" />대화 내보내기</h3><button type="button" className="inu-button inu-full" onClick={() => void onExportConversation()} disabled={sending || exportingConversation} aria-busy={exportingConversation}><InterfaceIcon name="download" />{exportingConversation ? '대화 추출 중…' : '대화 전체 추출'}</button><p className="inu-help">전체 대화를 TXT로 다운로드 · 테마 태그 제외</p>
+          {canShareScene && <button type="button" className="inu-button inu-full" onClick={() => setSceneShareOpen(true)}>장면 공유</button>}
+        </section>
         <details className="inu-section inu-accordion" open={logOpen} onToggle={event => setLogOpen(event.currentTarget.open)}><summary><h3><InterfaceIcon name="alert" />에러 로그{errorLog.length > 0 && <span className="inu-tag">{errorLog.length}</span>}</h3><InterfaceIcon name="down" /></summary><div className="inu-detail-body">{errorLog.length > 0 && <button type="button" className="inu-text-button inu-danger" onClick={onClearErrors}>로그 지우기</button>}{errorLog.length === 0 ? <p className="inu-help">기록된 에러가 없습니다.</p> : [...errorLog].reverse().map(error => <article key={error.id} className="inu-log"><small>{new Date(error.at).toLocaleTimeString('ko-KR')}</small><strong>{error.short}</strong>{error.detail !== error.short && <p>{error.detail}</p>}</article>)}</div></details>
       </div>
     </main>
+
+    {canShareScene && sceneShareOpen && <SessionMenuPage enabled title="장면 공유" onBack={() => setSceneShareOpen(false)}>
+      <Suspense fallback={<p className="inu-help">불러오는 중…</p>}>
+        <SceneShareSettings sessionId={session.id} latestTurn={sessionTurnCount} sending={sending} />
+      </Suspense>
+    </SessionMenuPage>}
 
     {summaryOpen && <SessionMenuPage enabled title="요약 노트 기록" onBack={() => setSummaryOpen(false)}>
       <div className="inu-summary-list">
