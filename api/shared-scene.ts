@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import SharedSceneContent, { sceneTurnLabel, type SharedScene } from '../src/lib/sceneShareView.js';
@@ -12,16 +14,31 @@ const headers = {
   'X-Robots-Tag': 'noindex, nofollow',
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
-  'Content-Security-Policy': "default-src 'none'; img-src 'self' https:; style-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+  'Content-Security-Policy': "default-src 'none'; script-src 'self'; img-src 'self' https:; style-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
 };
 
-function documentHtml(scene: SharedScene | null, origin: string, token: string, errorTitle?: string) {
+async function readAppAssets() {
+  try {
+    const index = await readFile(join(process.cwd(), 'dist/index.html'), 'utf8');
+    const scripts = [...index.matchAll(/<script\b[^>]*\bsrc="(\/assets\/[^"]+)"[^>]*>/g)]
+      .map(([, src]) => createElement('script', { key: src, type: 'module', crossOrigin: 'anonymous', src }));
+    const styles = [...index.matchAll(/<link\b[^>]*\bhref="(\/assets\/[^"]+\.css)"[^>]*>/g)]
+      .map(([, href]) => createElement('link', { key: href, rel: 'stylesheet', href }));
+    return { styles, scripts };
+  } catch {
+    return { styles: [], scripts: [] };
+  }
+}
+
+async function documentHtml(scene: SharedScene | null, origin: string, token: string, errorTitle?: string) {
   const turnLabel = scene ? sceneTurnLabel(scene.start, scene.end) : '';
   const title = scene?.title ?? errorTitle ?? '장면을 찾을 수 없어요';
   const pageTitle = title + ' · Inuchat';
   const description = scene ? turnLabel : '';
   const thumbnail = scene?.thumbnail && /^https:\/\//i.test(scene.thumbnail) ? scene.thumbnail : origin + coverPath;
   const shareUrl = origin + '/s/' + token;
+  const image = scene?.hasCard ? shareUrl + '?card=1' : thumbnail;
+  const assets = scene ? await readAppAssets() : null;
   const meta = (property: string, content: string) => createElement('meta', { key: property, property, content });
   const html = createElement('html', { lang: 'ko' },
     createElement('head', null,
@@ -30,21 +47,29 @@ function documentHtml(scene: SharedScene | null, origin: string, token: string, 
       createElement('title', null, pageTitle),
       createElement('link', { rel: 'icon', href: '/favicon-32.png' }),
       createElement('link', { rel: 'stylesheet', href: '/scene-share.css' }),
+      assets?.styles,
+      assets?.scripts,
       scene && [
         meta('og:type', 'website'),
         meta('og:site_name', 'Inuchat'),
         meta('og:title', title),
         meta('og:description', description),
         meta('og:url', shareUrl),
-        meta('og:image', thumbnail),
+        meta('og:image', image),
+        ...(scene.hasCard ? [meta('og:image:width', '1200'), meta('og:image:height', '630')] : []),
         meta('og:image:alt', coverAlt),
         createElement('meta', { key: 'large-card', name: 'twitter:card', content: 'summary_large_image' }),
       ],
     ),
-    createElement('body', { className: 'shared-scene-page' },
-      createElement('main', { className: 'shared-scene-main' },
+    createElement('body', { className: assets?.scripts.length ? undefined : 'shared-scene-page' },
+      scene && createElement('script', {
+        type: 'application/json', id: 'shared-scene-data',
+        dangerouslySetInnerHTML: { __html: JSON.stringify(scene).replace(/</g, '\\u003c') },
+      }),
+      createElement('div', { id: 'root' }, createElement('main', { className: 'shared-scene-main' },
         createElement('header', { className: 'shared-scene-heading' },
-          createElement('p', { className: 'shared-scene-brand' }, 'Inuchat'),
+          createElement('a', { href: '/works', className: 'shared-scene-brand', 'aria-label': 'Inuchat 홈으로 이동' },
+            createElement('img', { src: '/logo-128.png', alt: '', width: 29, height: 29 })),
           scene?.thumbnail && /^https:\/\//i.test(scene.thumbnail) ? createElement('img', { className: 'shared-scene-thumbnail', src: scene.thumbnail, alt: '', referrerPolicy: 'no-referrer' }) : null,
           createElement('h1', null, title),
           scene ? createElement('p', { className: 'shared-scene-range' }, turnLabel) : null,
@@ -52,7 +77,7 @@ function documentHtml(scene: SharedScene | null, origin: string, token: string, 
         scene
           ? createElement(SharedSceneContent, { scene })
           : createElement('p', null, errorTitle ? '잠시 후 다시 열어 주세요.' : '링크가 만료·삭제되었거나 주소가 올바르지 않아요.'),
-      ),
+      )),
     ),
   );
   return '<!doctype html>' + renderToStaticMarkup(html);
@@ -71,8 +96,8 @@ export default {
     const origin = process.env.VERCEL_ENV === 'production' && productionDomain
       ? 'https://' + productionDomain : url.origin;
 
-    function page(status: number, scene: SharedScene | null = null, errorTitle?: string) {
-      return new Response(request.method === 'HEAD' ? null : documentHtml(scene, origin, token, errorTitle), { status, headers });
+    async function page(status: number, scene: SharedScene | null = null, errorTitle?: string) {
+      return new Response(request.method === 'HEAD' ? null : await documentHtml(scene, origin, token, errorTitle), { status, headers });
     }
 
     if (!tokenPattern.test(token)) return page(404);
@@ -81,8 +106,10 @@ export default {
     const apiKey = process.env.VITE_SUPABASE_ANON_KEY;
     if (!endpoint || !apiKey) return page(503, null, '장면을 불러오지 못했어요');
 
+    const card = url.searchParams.get('card') === '1';
+    const rpc = card ? 'read_scene_share_card' : 'read_scene_share';
     try {
-      const response = await fetch(new URL('/rest/v1/rpc/read_scene_share', endpoint), {
+      const response = await fetch(new URL('/rest/v1/rpc/' + rpc, endpoint), {
         method: 'POST',
         headers: {
           apikey: apiKey,
@@ -95,7 +122,13 @@ export default {
       });
       if (!response.ok) return page(503, null, '장면을 불러오지 못했어요');
 
-      const scene = await response.json() as SharedScene | null;
+      const data = await response.json() as SharedScene | string | null;
+      if (card && typeof data === 'string') {
+        return new Response(request.method === 'HEAD' ? null : Buffer.from(data, 'base64'), {
+          headers: { ...headers, 'Content-Type': 'image/jpeg' },
+        });
+      }
+      const scene = data as SharedScene | null;
       return scene ? page(200, scene) : page(404);
     } catch {
       return page(503, null, '장면을 불러오지 못했어요');

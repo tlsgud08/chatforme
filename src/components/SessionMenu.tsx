@@ -432,7 +432,7 @@ export default function SessionMenu({
 
     {canShareScene && sceneShareOpen && <SessionMenuPage enabled title="장면 공유" onBack={() => setSceneShareOpen(false)}>
       <Suspense fallback={<p className="inu-help">불러오는 중…</p>}>
-        <SceneShareSettings sessionId={session.id} latestTurn={sessionTurnCount} sending={sending} />
+        <SceneShareSettings sessionId={session.id} latestTurn={sessionTurnCount} sending={sending} showImages={showImages} />
       </Suspense>
     </SessionMenuPage>}
 

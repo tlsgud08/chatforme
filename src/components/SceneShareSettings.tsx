@@ -2,7 +2,10 @@ import { useEffect, useId, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { showConfirmDialog } from '@/lib/dialog';
 import { showToast } from '@/lib/toast';
-import SharedSceneContent, { sceneTurnLabel, type SharedScene } from '../lib/sceneShareView.js';
+import { sceneTurnLabel, type SharedScene } from '../lib/sceneShareView.js';
+import { buildSceneShareCard } from '@/lib/sceneShareCard';
+import { appliedCodeBlockStyle } from '@/lib/codeBlockStyles';
+import { loadChatWidthLimited, loadInterfaceDesign } from '@/lib/interfacePreference';
 
 interface PreparedScene {
   scene: SharedScene;
@@ -27,7 +30,7 @@ const sceneErrors: Record<string, string> = {
   SCENE_STREAMING: '이 장면의 응답 생성이 끝난 뒤 다시 시도해 주세요.',
   SCENE_EMPTY: '선택한 구간에 공개할 내용이 없어요.',
   SCENE_TOO_LARGE: '장면 내용이 너무 길어요. 공유할 턴 범위를 줄여 주세요.',
-  SCENE_CHANGED: '미리보기 이후 장면이 바뀌었어요. 다시 미리 봐 주세요.',
+  SCENE_CHANGED: '링크를 만드는 동안 장면이 바뀌었어요. 다시 시도해 주세요.',
 };
 
 function errorMessage(error: { message: string }) {
@@ -49,16 +52,16 @@ async function copyLink(token: string) {
   }
 }
 
-export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
+export default function SceneShareSettings({ sessionId, latestTurn, sending, showImages }: {
   sessionId: string;
   latestTurn: number;
   sending: boolean;
+  showImages: boolean;
 }) {
   const linkId = useId();
   const [start, setStart] = useState(String(Math.max(latestTurn > 0 ? 1 : 0, latestTurn - 2)));
   const [end, setEnd] = useState(String(latestTurn));
   const [hideUser, setHideUser] = useState(true);
-  const [prepared, setPrepared] = useState<PreparedScene | null>(null);
   const [publishedLink, setPublishedLink] = useState<PublishedSceneLink | null>(null);
   const [links, setLinks] = useState<SceneLink[] | null>(null);
   const [linksError, setLinksError] = useState(false);
@@ -84,51 +87,52 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
     Number.isSafeInteger(first) && Number.isSafeInteger(last) &&
     first <= last && last <= latestTurn && last - first < maximumTurns;
 
-  function resetPreview() {
-    setPrepared(null);
+  function resetResult() {
     setPublishedLink(null);
     setError('');
   }
 
-  async function preview() {
-    if (busy || sending || !validRange) return;
-    resetPreview();
-    setBusy(true);
-    const result = await supabase.rpc('preview_scene_share', {
-      p_session: sessionId, p_start: first, p_end: last, p_hide: hideUser,
-    });
-    if (result.error) setError(errorMessage(result.error));
-    else setPrepared(result.data as PreparedScene);
-    setBusy(false);
-  }
-
   async function publish() {
-    if (busy || sending || !prepared) return;
-    setError('');
+    if (busy || sending || !validRange) return;
+    resetResult();
     setBusy(true);
-    const result = await supabase.rpc('publish_scene_share', {
-      p_session: sessionId,
-      p_start: prepared.scene.start,
-      p_end: prepared.scene.end,
-      p_hide: prepared.scene.hideUser,
-      p_fingerprint: prepared.fingerprint,
-    });
-    if (result.error) {
-      if (result.error.message === 'SCENE_CHANGED') setPrepared(null);
-      setError(errorMessage(result.error));
-    } else if (result.data?.token) {
-      setPublishedLink(result.data as PublishedSceneLink);
+    try {
+      const result = await supabase.rpc('preview_scene_share', {
+        p_session: sessionId, p_start: first, p_end: last, p_hide: hideUser,
+      });
+      if (result.error) throw result.error;
+      const { scene, fingerprint } = result.data as PreparedScene;
+      const root = document.documentElement;
+      const display = {
+        showImages,
+        interfaceDesign: loadInterfaceDesign(),
+        chatWidthLimited: loadChatWidthLimited(),
+        codeBlockStyle: appliedCodeBlockStyle(),
+        fontSize: root.dataset.chatFontSize === 'custom' ? parseFloat(root.style.getPropertyValue('--chat-font-size')) : null,
+        fontWeight: parseFloat(root.style.getPropertyValue('--chat-font-weight')),
+        boldWeight: parseFloat(root.style.getPropertyValue('--chat-bold-weight')),
+      };
+      const card = await buildSceneShareCard(scene).catch(() => null);
+      const published = await supabase.rpc('publish_scene_share_view', {
+        p_session: sessionId, p_start: first, p_end: last, p_hide: hideUser, p_fingerprint: fingerprint,
+        p_display: display, p_card: card,
+      });
+      if (published.error) throw published.error;
+      setPublishedLink(published.data as PublishedSceneLink);
       setListRevision(revision => revision + 1);
+    } catch (error) {
+      setError(errorMessage(error as { message: string }));
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   async function revoke(token: string) {
     if (busy) return;
     if (!await showConfirmDialog(
-      '공유 링크 끄기',
-      '이 링크로 장면을 읽을 수 없게 됩니다. 계속할까요?',
-      '링크 끄기',
+      '공유 링크 삭제',
+      '삭제한 링크로는 장면을 읽을 수 없어요.',
+      '링크 삭제',
     )) return;
     setError('');
     setBusy(true);
@@ -138,7 +142,7 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
       if (publishedLink?.token === token) setPublishedLink(null);
       setLinks(previous => previous?.filter(link => link.token !== token) ?? previous);
       setListRevision(revision => revision + 1);
-      showToast('장면 공유 링크를 껐어요.');
+      showToast('장면 공유 링크를 삭제했어요.');
     }
     setBusy(false);
   }
@@ -150,32 +154,25 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
         <label className="grid gap-1">시작 턴
           <input className="w-full rounded-lg border border-surface2 bg-surface px-3 py-2" type="number"
             min={0} max={latestTurn} step={1} value={start} disabled={busy}
-            onChange={event => { setStart(event.target.value); resetPreview(); }} />
+            onChange={event => { setStart(event.target.value); resetResult(); }} />
         </label>
         <label className="grid gap-1">끝 턴
           <input className="w-full rounded-lg border border-surface2 bg-surface px-3 py-2" type="number"
             min={0} max={latestTurn} step={1} value={end} disabled={busy}
-            onChange={event => { setEnd(event.target.value); resetPreview(); }} />
+            onChange={event => { setEnd(event.target.value); resetResult(); }} />
         </label>
       </div>
       <p className="inu-help">0–{latestTurn}턴 중 최대 {maximumTurns}턴 · 0턴은 첫 장면</p>
       <label className="my-2 flex items-center gap-2">
         <input type="checkbox" checked={hideUser} disabled={busy}
-          onChange={event => { setHideUser(event.target.checked); resetPreview(); }} />
+          onChange={event => { setHideUser(event.target.checked); resetResult(); }} />
         유저 대사 가리기
       </label>
-      <button className="inu-button inu-full" type="button" disabled={busy || sending || !validRange}
-        onClick={() => void preview()}>장면 미리보기</button>
-    </section>
-
-    {prepared && <section className="inu-section">
-      <link rel="stylesheet" href="/scene-share.css" />
-      <h3>{prepared.scene.title} · {sceneTurnLabel(prepared.scene.start, prepared.scene.end)}</h3>
-      {prepared.scene.hideUser && <p className="inu-help">AI 응답에 인용된 유저 대사는 공개될 수 있어요.</p>}
-      <div className="shared-scene-preview"><SharedSceneContent scene={prepared.scene} /></div>
+      {hideUser && <p className="inu-help">AI 응답에 인용된 유저 대사는 공개될 수 있어요.</p>}
       <p className="inu-help">링크를 받은 사람은 로그인 없이 읽을 수 있어요. 링크는 처음 만든 시점부터 24시간 동안 열려요.</p>
-      {!publishedLink && <button className="inu-button inu-full" type="button" disabled={busy || sending}
-        onClick={() => void publish()}>공유 링크 만들기</button>}
+      <button className="inu-button inu-full" type="button" disabled={busy || sending || !validRange}
+        onClick={() => void publish()}>공유 링크 만들기</button>
+
       {publishedLink && <div className="grid gap-2">
         <p className="inu-help">만료 예정 <time dateTime={publishedLink.expiresAt}>{expiryFormat.format(new Date(publishedLink.expiresAt))}</time></p>
         <label className="sr-only" htmlFor={linkId}>공유 링크</label>
@@ -183,7 +180,7 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
           value={sceneUrl(publishedLink.token)} onFocus={event => event.target.select()} />
         <button className="inu-button inu-full" type="button" onClick={() => void copyLink(publishedLink.token)}>링크 복사</button>
       </div>}
-    </section>}
+    </section>
 
     {error && <p role="alert" className="inu-help text-amber-300">{error}</p>}
     {busy && <p role="status" className="inu-help">처리 중…</p>}
@@ -205,7 +202,7 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending }: {
           <a className="inu-text-button" href={sceneUrl(link.token)} target="_blank" rel="noreferrer">장면 열기</a>
           <button className="inu-text-button" type="button" onClick={() => void copyLink(link.token)}>복사</button>
           <button className="inu-text-button inu-danger" type="button" disabled={busy}
-            onClick={() => void revoke(link.token)}>끄기</button>
+            onClick={() => void revoke(link.token)}>링크 삭제</button>
         </div>
       </div>)}
     </section>

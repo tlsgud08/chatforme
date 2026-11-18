@@ -15,7 +15,7 @@ body.shared-scene-page{margin:0;min-height:100vh;background:#121019;color:#edeaf
 .shared-scene-message.shared-scene-user{margin:12px 0;border-radius:16px;background:#5c4680}
 .shared-scene-role{margin-bottom:4px;color:#aaa2b4;font-size:11px;font-weight:600}
 .shared-scene-user .shared-scene-role{color:#e5d9f1}
-.shared-scene-hidden{color:#e2d6ee;font-size:13px}
+.shared-scene-hidden{min-height:1.5em;border-radius:.2em;background:currentColor}
 .shared-scene-message a{color:#d5baff;text-decoration:underline}
 .shared-scene-message p{margin:.5em 0}.shared-scene-message p:last-child{margin-bottom:0}
 .shared-scene-message img{display:block;max-width:100%;height:auto;margin:.5em 0;border-radius:8px}
