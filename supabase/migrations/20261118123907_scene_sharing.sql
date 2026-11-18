@@ -167,10 +167,16 @@ grant execute on function scene_sharing.prepare(uuid, integer, integer, boolean)
   public.publish_scene_share(uuid, integer, integer, boolean, text),
   public.list_scene_shares(uuid), public.revoke_scene_share(uuid, uuid) to authenticated;
 
--- The public read stops at expires_at even between cleanup runs.
-create extension if not exists pg_cron;
-select cron.schedule(
-  'inuchat-delete-expired-scene-shares',
-  '*/15 * * * *',
-  $job$delete from scene_sharing.shares where expires_at <= now()$job$
-);
+-- Public reads stop at expires_at. Embedded test databases lack the scheduler.
+do $$
+begin
+  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    create extension if not exists pg_cron;
+    perform cron.schedule(
+      'inuchat-delete-expired-scene-shares',
+      '*/15 * * * *',
+      $job$delete from scene_sharing.shares where expires_at <= now()$job$
+    );
+  end if;
+end;
+$$;
