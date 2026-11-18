@@ -15,29 +15,12 @@ const headers = {
   'Content-Security-Policy': "default-src 'none'; img-src 'self' https:; style-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
 };
 
-function excerpt(scene: SharedScene) {
-  for (const message of scene.messages) {
-    if (message.role !== 'assistant' || !message.text) continue;
-    const clean = message.text
-      .replace(/^(\x60{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^\1[ \t]*(?:\n|$)|(?![\s\S]))/gm, '')
-      .replace(/\|\|[\s\S]*?(?:\|\||$)/g, '')
-      .replace(/!\[[^\]]*\](?:\([^\n]*\)|\[[^\]]*\])/g, '')
-      .replace(/\[([^\]]+)\]\([^\n]*?\)/g, '$1')
-      .replace(/https?:\/\/\S+|<[^>]*>/g, '')
-      .replace(/[*_#\x60~>]+/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const characters = Array.from(clean);
-    if (characters.length) return characters.length > 120 ? characters.slice(0, 119).join('') + '…' : clean;
-  }
-  return '인유챗에서 공유한 롤플레잉 장면';
-}
-
 function documentHtml(scene: SharedScene | null, origin: string, token: string, errorTitle?: string) {
   const turnLabel = scene ? sceneTurnLabel(scene.start, scene.end) : '';
   const title = scene?.title ?? errorTitle ?? '장면을 찾을 수 없어요';
   const pageTitle = title + ' · Inuchat';
-  const description = scene ? turnLabel + ' · ' + excerpt(scene) : '';
+  const description = scene ? turnLabel : '';
+  const thumbnail = scene?.thumbnail && /^https:\/\//i.test(scene.thumbnail) ? scene.thumbnail : origin + coverPath;
   const shareUrl = origin + '/s/' + token;
   const meta = (property: string, content: string) => createElement('meta', { key: property, property, content });
   const html = createElement('html', { lang: 'ko' },
@@ -53,9 +36,7 @@ function documentHtml(scene: SharedScene | null, origin: string, token: string, 
         meta('og:title', title),
         meta('og:description', description),
         meta('og:url', shareUrl),
-        meta('og:image', origin + coverPath),
-        meta('og:image:width', '1200'),
-        meta('og:image:height', '630'),
+        meta('og:image', thumbnail),
         meta('og:image:alt', coverAlt),
         createElement('meta', { key: 'large-card', name: 'twitter:card', content: 'summary_large_image' }),
       ],
@@ -63,7 +44,8 @@ function documentHtml(scene: SharedScene | null, origin: string, token: string, 
     createElement('body', { className: 'shared-scene-page' },
       createElement('main', { className: 'shared-scene-main' },
         createElement('header', { className: 'shared-scene-heading' },
-          createElement('p', null, 'Inuchat · 장면 공유'),
+          createElement('p', { className: 'shared-scene-brand' }, 'Inuchat'),
+          scene?.thumbnail && /^https:\/\//i.test(scene.thumbnail) ? createElement('img', { className: 'shared-scene-thumbnail', src: scene.thumbnail, alt: '', referrerPolicy: 'no-referrer' }) : null,
           createElement('h1', null, title),
           scene ? createElement('p', { className: 'shared-scene-range' }, turnLabel) : null,
         ),
