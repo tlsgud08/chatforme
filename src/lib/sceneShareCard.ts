@@ -1,22 +1,39 @@
 import { DEFAULT_DARK } from './theme';
 import { sceneTurnLabel, type SharedScene } from './sceneShareView.js';
 
-function loadImage(url: string | null | undefined): Promise<HTMLImageElement | null> {
-  if (!url) return Promise.resolve(null);
-  return new Promise(resolve => {
-    const image = new Image();
-    image.crossOrigin = 'anonymous';
-    const timeout = window.setTimeout(() => finish(null), 3500);
-    function finish(result: HTMLImageElement | null) {
-      window.clearTimeout(timeout);
-      image.onload = null;
-      image.onerror = null;
-      resolve(result);
-    }
-    image.onload = () => finish(image);
-    image.onerror = () => finish(null);
-    image.src = url;
-  });
+async function loadImage(url: string | null | undefined): Promise<HTMLImageElement | null> {
+  if (!url) return null;
+
+  async function attempt(source: string): Promise<HTMLImageElement | null> {
+    return new Promise(resolve => {
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      const timeout = window.setTimeout(() => finish(null), 10000);
+      function finish(result: HTMLImageElement | null) {
+        window.clearTimeout(timeout);
+        image.onload = null;
+        image.onerror = null;
+        resolve(result);
+      }
+      image.onload = () => finish(image);
+      image.onerror = () => finish(null);
+      image.src = source;
+    });
+  }
+
+  const image = await attempt(url);
+  if (image) return image;
+
+  // A browser may cache a previous non-CORS image response. A distinct URL
+  // ensures the retry obtains a response suitable for drawing to canvas.
+  try {
+    const retry = new URL(url, window.location.href);
+    if (retry.protocol !== 'http:' && retry.protocol !== 'https:') return null;
+    retry.searchParams.set('share_card_retry', Date.now().toString());
+    return await attempt(retry.href);
+  } catch {
+    return null;
+  }
 }
 
 function drawCover(context: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, width: number, height: number) {
@@ -52,6 +69,8 @@ export async function buildSceneShareCard(scene: SharedScene): Promise<string | 
     loadImage('/logo-128.png'),
     loadImage(scene.thumbnail),
   ]);
+  if (scene.thumbnail && !thumbnail) throw new Error('SCENE_THUMBNAIL_LOAD_FAILED');
+
   const canvas = document.createElement('canvas');
   canvas.width = 1200;
   canvas.height = 630;

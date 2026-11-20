@@ -30,6 +30,7 @@ const sceneErrors: Record<string, string> = {
   SCENE_STREAMING: '이 장면의 응답 생성이 끝난 뒤 다시 시도해 주세요.',
   SCENE_EMPTY: '선택한 구간에 공개할 내용이 없어요.',
   SCENE_TOO_LARGE: '장면 내용이 너무 길어요. 공유할 턴 범위를 줄여 주세요.',
+  SCENE_THUMBNAIL_LOAD_FAILED: '작품 썸네일을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.',
   SCENE_CHANGED: '링크를 만드는 동안 장면이 바뀌었어요. 다시 시도해 주세요.',
 };
 
@@ -112,7 +113,7 @@ export default function SceneShareSettings({ sessionId, latestTurn, sending, sho
         fontWeight: parseFloat(root.style.getPropertyValue('--chat-font-weight')),
         boldWeight: parseFloat(root.style.getPropertyValue('--chat-bold-weight')),
       };
-      const card = await buildSceneShareCard(scene).catch(() => null);
+      const card = await buildSceneShareCard(scene);
       const published = await supabase.rpc('publish_scene_share_view', {
         p_session: sessionId, p_start: first, p_end: last, p_hide: hideUser, p_fingerprint: fingerprint,
         p_display: display, p_card: card,
