@@ -21,6 +21,21 @@ type RoomActionTarget = { id: string; title: string; multichat?: boolean };
 type ViewTab = 'active' | 'multichat' | 'archived';
 type SelectMode = 'none' | 'archive' | 'delete';
 
+const SELECTION_TURN_LIMIT_KEY = 'inuchat.sessions.selectionTurnLimit';
+
+function parseTurnLimit(value: string) {
+  const limit = Number(value);
+  return /^[0-9]+$/.test(value) && Number.isSafeInteger(limit) ? limit : null;
+}
+
+function loadTurnLimit() {
+  try {
+    return String(parseTurnLimit(localStorage.getItem(SELECTION_TURN_LIMIT_KEY) ?? '') ?? 1);
+  } catch {
+    return '1';
+  }
+}
+
 export default function SessionsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -29,6 +44,8 @@ export default function SessionsPage() {
   const [viewTab, setViewTab] = useState<ViewTab>(searchParams.get('tab') === 'multichat' ? 'multichat' : 'active');
   const [selectMode, setSelectMode] = useState<SelectMode>('none');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [turnLimitInput, setTurnLimitInput] = useState(loadTurnLimit);
+  const turnLimit = parseTurnLimit(turnLimitInput);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<RoomActionTarget | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -59,7 +76,7 @@ export default function SessionsPage() {
     refetchOnMount: 'always',
   });
 
-  const { data: turnCountMap = {}, isError: countsError, refetch: refetchCounts } = useQuery({
+  const { data: turnCountMap = {}, isSuccess: countsReady, isError: countsError, refetch: refetchCounts } = useQuery({
     queryKey: sessionCountsKey(user?.id, list.map(session => session.id)),
     queryFn: ({ signal }) => measureOperation('session-counts', () => fetchSessionConversationCounts(list.map(session => session.id), signal)),
     enabled: !!user && viewTab !== 'multichat' && list.length > 0,
@@ -118,6 +135,22 @@ export default function SessionsPage() {
     const ids = list.map((s) => s.id);
     if (selected.size === ids.length) setSelected(new Set());
     else setSelected(new Set(ids));
+  }
+
+  function updateTurnLimit(value: string) {
+    setTurnLimitInput(value);
+    const limit = parseTurnLimit(value);
+    if (limit === null) return;
+    try {
+      localStorage.setItem(SELECTION_TURN_LIMIT_KEY, String(limit));
+    } catch {
+      // The current input still works when storage is unavailable.
+    }
+  }
+
+  function selectByTurnLimit() {
+    if (!countsReady || turnLimit === null) return;
+    setSelected(new Set(list.filter(session => turnCountMap[session.id] <= turnLimit).map(session => session.id)));
   }
 
   async function confirmArchive() {
@@ -261,7 +294,7 @@ export default function SessionsPage() {
           </div>}
         </div>
       ) : (
-        <div className="flex items-center gap-3 border-b border-surface2 px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-surface2 px-4 py-2.5">
           <button onClick={toggleAll} className="text-sm text-slate-300">
             {allSelected ? '전체 해제' : '전체 선택'}
           </button>
@@ -287,6 +320,29 @@ export default function SessionsPage() {
           <button onClick={cancelSelect} className="text-sm text-slate-500">
             취소
           </button>
+          {selectMode === 'delete' && (
+            <form
+              className="flex basis-full items-center gap-2"
+              onSubmit={(event) => { event.preventDefault(); selectByTurnLimit(); }}
+            >
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]+"
+                value={turnLimitInput}
+                onChange={(event) => updateTurnLimit(event.target.value)}
+                aria-label="선택 기준 턴 수"
+                className="w-16 rounded-lg border border-surface2 bg-surface px-2 py-2 text-center text-base text-white focus:border-brand focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={turnLimit === null || !countsReady || list.length === 0}
+                className="rounded-lg bg-surface px-3 py-2 text-sm text-slate-300 hover:bg-surface2 disabled:opacity-40"
+              >
+                {turnLimit ?? ''}턴 이하 선택
+              </button>
+            </form>
+          )}
         </div>
       )}
 
