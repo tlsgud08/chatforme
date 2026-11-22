@@ -1,6 +1,7 @@
 /** null means use each message/status style's original size. */
 export function normalizeChatFontSize(value: unknown): number | null {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 96 ? value : null;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 96
+    && Math.abs(value * 10 - Math.round(value * 10)) < 1e-8 ? value : null;
 }
 export function applyChatFontSize(value: unknown): void {
   const size = normalizeChatFontSize(value);
