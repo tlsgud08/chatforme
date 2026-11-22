@@ -56,8 +56,8 @@ const ChatFontSizeSettings = forwardRef<{ reset: () => void }>(function ChatFont
   }
   function commitInput() {
     const value = Number(draft);
-    if (!draft.trim() || !Number.isInteger(value) || value < 1 || value > 96) {
-      showToast('글꼴 크기는 1부터 96px까지 입력해 주세요.');
+    if (!/^\d+(?:\.\d?)?$/.test(draft) || normalizeChatFontSize(value) === null) {
+      showToast('글꼴 크기는 1부터 96px까지 소수점 첫째 자리로 입력해 주세요.');
       setDraft(String(current.current ?? DEFAULT_SIZE));
       return;
     }
@@ -66,9 +66,9 @@ const ChatFontSizeSettings = forwardRef<{ reset: () => void }>(function ChatFont
   useImperativeHandle(ref, () => ({ reset: () => save(null) }));
   return <div>
     <label className="flex items-center justify-between gap-2 text-sm text-white">글꼴 크기 (px)
-      <input aria-label="채팅 글꼴 크기" type="number" min="1" max="96" step="1" value={draft} onChange={event => setDraft(event.currentTarget.value)} onBlur={commitInput} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} className="w-20 rounded bg-surface2 px-2 py-1 text-right" />
+      <input aria-label="채팅 글꼴 크기" type="text" inputMode="decimal" value={draft} onChange={event => setDraft(event.currentTarget.value)} onBlur={commitInput} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} className="w-20 rounded bg-surface2 px-2 py-1 text-right" />
     </label>
-    <input aria-label="채팅 글꼴 크기 조절" type="range" min="12" max="24" step="1" value={Math.max(12, Math.min(24, size ?? DEFAULT_SIZE))} onChange={event => change(Number(event.currentTarget.value))} onPointerUp={() => save(current.current)} onPointerCancel={() => save(current.current)} onKeyUp={() => save(current.current)} className="w-full" />
+    <input aria-label="채팅 글꼴 크기 조절" type="range" min="12" max="24" step="0.5" value={Math.max(12, Math.min(24, size ?? DEFAULT_SIZE))} onChange={event => change(Number(event.currentTarget.value))} onPointerUp={() => save(current.current)} onPointerCancel={() => save(current.current)} onKeyUp={() => save(current.current)} className="w-full" />
     <div className="flex justify-between text-xs text-slate-400"><span>12px</span><span>24px</span></div>
   </div>;
 });
