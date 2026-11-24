@@ -28,6 +28,7 @@ export function diagnosticSources(
     { key: 'userNote', label: 'User Notes', content: parts.userNote },
     { key: 'summary', label: 'Previous Story Summary', content: parts.summary },
     { key: 'storyNotes', label: 'Story Notes', content: parts.storyNotes ?? '' },
+    ...(parts.personaDeaths ? [{ key: 'personaDeaths', label: 'Persona Death Records', content: parts.personaDeaths }] : []),
   ];
   const history = messages.slice(0, -1).map((message, index) => ({
     key: `history:${index}:${message.role}`,

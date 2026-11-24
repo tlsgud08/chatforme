@@ -13,6 +13,7 @@ export interface SystemParts {
   userNote: string;
   summary: string;
   storyNotes?: string;
+  personaDeaths?: string;
   keywords: string;
 }
 

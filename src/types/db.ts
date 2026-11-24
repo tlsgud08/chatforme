@@ -43,6 +43,7 @@ export interface PlatformConfig {
   knowledge_config?: Partial<import('@/lib/knowledge/types').KnowledgeConfig>;
   semi_multichat_prompt?: string;
   semi_sync_summary_prompt?: string;
+  persona_death_prompt?: string;
   summary_prompt: string;
   id: number;
   system_prompt: string;

@@ -1,3 +1,5 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { loadPersonaDeathContext } from '@/lib/personaDeath';
 import { summaryCompletionWarning } from '@/lib/summaryCompletion';
 import InterfaceIcon from './InterfaceIcon';
 import MultichatApiSettings from './MultichatApiSettings';
@@ -24,6 +26,7 @@ import SessionThemeSettings from './SessionThemeSettings';
 import Toggle from './Toggle';
 import SessionInformationSettings from './SessionInformationSettings';
 import SemiSessionSettings from './SemiSessionSettings';
+import PersonaDeathSettings from './PersonaDeathSettings';
 import SummaryNoteStats from './SummaryNoteStats';
 import { conversationFilename, downloadConversationText } from '@/lib/chatExport';
 
@@ -133,6 +136,23 @@ export default function SessionMenu({
   }));
   const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_settings_override_enabled ?? session.output_tokens_override !== null);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [personaSaving, setPersonaSaving] = useState(false);
+  const personaSavingRef = useRef(false);
+  const queryClient = useQueryClient();
+  const deathQueryKey = ['session-persona-deaths', session.id];
+  const canRecordDeath = !multichat && !session.multichat_room_id && user?.id === session.user_id;
+  const deathQuery = useQuery({
+    queryKey: deathQueryKey,
+    queryFn: ({ signal }) => loadPersonaDeathContext(session.id, signal),
+    enabled: canRecordDeath,
+    refetchOnMount: 'always',
+    gcTime: 0,
+  });
+  const deaths = deathQuery.data?.deaths ?? null;
+  const deadPersonaIds = new Set(deaths?.map(death => death.persona_id));
+  const availablePersonas = personas.filter(item => !deadPersonaIds.has(item.id));
+  const currentPersona = availablePersonas.find(item => item.id === session.persona_id)
+    ?? (deathQuery.data?.persona?.id === session.persona_id ? deathQuery.data?.persona ?? undefined : undefined);
   const [savedMsg, setSavedMsg] = useState('');
   const [logOpen, setLogOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -217,12 +237,25 @@ export default function SessionMenu({
     onUpdate(patch);
   }
 
+  function onPersonaSavingChange(saving: boolean) {
+    if (saving && personaSavingRef.current) return false;
+    if (!onWorkCombinationSavingChange(saving)) return false;
+    personaSavingRef.current = saving;
+    setPersonaSaving(saving);
+    return true;
+  }
+
   async function selectPersona(persona: Persona | null) {
-    const pid = persona?.id ?? null;
-    const { error } = multichat ? await supabase.rpc('set_multichat_persona', { target_room: session.id, target_persona: pid }) : await supabase.from('sessions').update({ persona_id: pid }).eq('id', session.id);
-    if (error) { flash(`페르소나 변경 실패: ${error.message}`); return; }
-    if (multichat) await multichat.onRefresh(); else onUpdate({ persona_id: pid });
-    onPersonaChange(persona);
+    if (canRecordDeath && !onPersonaSavingChange(true)) return;
+    try {
+      const pid = persona?.id ?? null;
+      const { error } = multichat ? await supabase.rpc('set_multichat_persona', { target_room: session.id, target_persona: pid }) : await supabase.from('sessions').update({ persona_id: pid }).eq('id', session.id);
+      if (error) { flash(`페르소나 변경 실패: ${error.message}`); return; }
+      if (multichat) await multichat.onRefresh(); else onUpdate({ persona_id: pid });
+      onPersonaChange(persona);
+    } finally {
+      if (canRecordDeath) onPersonaSavingChange(false);
+    }
   }
 
   const loadSummaries = useCallback(async () => {
@@ -336,6 +369,18 @@ export default function SessionMenu({
   const semiSettings = !multichat && user && onPublishSemiSummary
     ? <SemiSessionSettings key={`semi:${session.id}`} sessionId={session.id} userId={user.id} busy={sending || summaryGenerating} onPublish={onPublishSemiSummary} onSavingChange={onWorkCombinationSavingChange} onActiveChange={handleSemiActiveChange} />
     : null;
+  const deathSettings = canRecordDeath
+    ? <PersonaDeathSettings key={`death:${session.id}`} sessionId={session.id} currentPersona={currentPersona}
+        nextPersonas={availablePersonas} deaths={deaths} readError={deathQuery.isError && !deaths}
+        busy={sending || summaryGenerating || personaSaving} onRetry={() => void deathQuery.refetch()}
+        onSavingChange={onPersonaSavingChange}
+        onSaved={context => {
+          void queryClient.cancelQueries({ queryKey: deathQueryKey });
+          queryClient.setQueryData(deathQueryKey, context);
+          onUpdate({ persona_id: context.persona?.id ?? null });
+          onPersonaChange(context.persona);
+        }} />
+    : null;
 
   return <SessionMenuFrame subtitle={`${session.title || '채팅방'} · ${sessionTurnCount}턴`} onClose={onClose}>
     <details className="inu-credit">
@@ -365,14 +410,16 @@ export default function SessionMenu({
       <div className="inu-content" id="session-panel-chat" role="tabpanel" aria-labelledby="session-tab-chat" hidden={activeTab !== 'chat'}>
         <section className="inu-section">
           <h3><InterfaceIcon name="my" />페르소나</h3>
-          <select aria-label="페르소나 선택" value={session.persona_id ?? ''} disabled={sending} onChange={event => void selectPersona(personas.find(item => item.id === event.target.value) ?? null)}>
-            <option value="">없음 · 페르소나 미사용</option>{personas.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          <select aria-label="페르소나 선택" value={session.persona_id ?? ''} disabled={sending || personaSaving} onChange={event => void selectPersona(availablePersonas.find(item => item.id === event.target.value) ?? (currentPersona?.id === event.target.value ? currentPersona : null))}>
+            <option value="">없음 · 페르소나 미사용</option>{availablePersonas.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+            {currentPersona && !availablePersonas.some(item => item.id === currentPersona.id) && <option value={currentPersona.id}>{currentPersona.name}</option>}
           </select>
-          {personas.find(item => item.id === session.persona_id) && <p className="inu-help">{personas.find(item => item.id === session.persona_id)?.description}</p>}
+          {currentPersona && <p className="inu-help">{currentPersona.description}</p>}
           {personas.length === 0 && <p className="inu-help">My 탭에서 페르소나를 추가하세요.</p>}
         </section>
         {multichat && <MultichatProgressSettings room={multichat.room} members={multichat.members} slot={multichat.slot} otherPresent={multichat.otherPresent} presenceReady={multichat.presenceReady} onUpdate={multichat.onRoomUpdate} onRefresh={multichat.onRefresh} />}
         {semiActive && semiSettings}
+        {semiActive && deathSettings}
         {user && <SessionThemeSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         <section className="inu-section">
           <div className="inu-row"><h3><InterfaceIcon name="note" />{multichat ? '내 유저 노트' : '유저 노트'}</h3><span className="inu-help">{note.length.toLocaleString()}자 · 제한 없음</span></div>
@@ -382,6 +429,7 @@ export default function SessionMenu({
         {user && <SessionPluginSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         {user && <SessionWorkCombinationSettings key={session.id} session={session} userId={user.id} includeUnlisted={isAdmin} busy={sending || summaryGenerating} onUpdate={onUpdate} onSavingChange={onWorkCombinationSavingChange} />}
         {!semiActive && semiSettings}
+        {!semiActive && deathSettings}
       </div>
 
       <div className="inu-content" id="session-panel-ai" role="tabpanel" aria-labelledby="session-tab-ai" hidden={activeTab !== 'ai'}>
