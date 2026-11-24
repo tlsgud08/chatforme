@@ -52,7 +52,7 @@ try {
   await login(owner);
   const before = await rpc('session_generation_context', [room]);
   await db.exec('reset role');
-  await db.exec(migration('20261125000100_persona_deaths.sql'));
+  await db.exec(migration('20261124155642_persona_deaths.sql'));
   await login(owner);
   assert.deepEqual(await rpc('session_generation_context', [room]), before, 'the unused generation context and hash are exact');
   await assert.rejects(() => rpc('record_session_persona_death', [room, first, second, firstRequest, 'memo', status, message, 99]), /메시지가 변경/);
