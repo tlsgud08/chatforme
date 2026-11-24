@@ -25,6 +25,7 @@ import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import { assemblePrompt } from '@/lib/prompt/assemble';
+import { applyPersonaDeaths, type PersonaDeathContext } from '@/lib/personaDeathPrompt';
 import { loadWorkCombination } from '@/lib/workCombinationData';
 import { workThemeScopeKey } from '@/lib/workCombination';
 import { loadWorkThemeCatalog } from '@/lib/workThemeData';
@@ -957,7 +958,7 @@ export default function ChatPage() {
     if (pendingSave || (user && sessionId && pendingResponse(user.id, sessionId))) { showToast('보관한 답변의 저장 상태를 먼저 확인해 주세요.'); return; }
     if (!contextReady) { showToast('대화 설정을 모두 불러온 뒤 전송해 주세요.'); return; }
     if (editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current) { showToast('대화 변경을 마친 뒤 전송해 주세요.'); return; }
-    if (workCombinationSavingRef.current) { showToast('작품 결합 설정을 저장한 뒤 전송해 주세요.'); return; }
+    if (workCombinationSavingRef.current) { showToast('채팅방 설정을 저장한 뒤 전송해 주세요.'); return; }
     if (!work || !session || sendInFlightRef.current || (sessionId && (activeGenerations.has(sessionId) || activeSummaryGenerations.has(sessionId)))) return;
 
     const provider: Provider = 'openrouter';
@@ -1034,6 +1035,7 @@ export default function ChatPage() {
     let contextSummary = session.summary;
     let contextSummaryTurn = session.summary_last_turn;
     let contextHash: string | undefined;
+    let personaDeathContext: PersonaDeathContext | null = null;
     if (sessionId) {
       try {
         const context = await generationContext(session, Math.max(0, ...keywordBooks.map(book => book.activation_turns)), options?.reroll === true, controller.signal);
@@ -1042,6 +1044,7 @@ export default function ChatPage() {
         contextSummary = context.summary;
         contextSummaryTurn = context.summaryLastTurn;
         contextHash = context.contextHash;
+        personaDeathContext = context.personaDeaths ?? null;
         timing.mark('context');
       } catch (error) {
         if (!controller.signal.aborted) reportSendError(`대화 문맥 불러오기 실패: ${describeUnknownError(error)}`);
@@ -1147,6 +1150,7 @@ export default function ChatPage() {
       return;
     }
     const { liveTheme, workCombination, semiContext } = prepared.value;
+    const activePersona = personaDeathContext ? personaDeathContext.persona : persona;
 
     // Rerolls and unanswered-user retries place the original user last. Remove
     // that same row from history so neither its body nor command is sent twice.
@@ -1161,7 +1165,7 @@ export default function ChatPage() {
     let assembled = applySemiContext(assemblePrompt({
       autoThemeEnabled:automaticThemeEnabled(liveTheme.session,liveTheme.themes,liveTheme.dayNight,!!liveTheme.scope),dayNightThemeNames:liveTheme.names,themePrompt,themeCatalog:themeCatalogPrompt(liveTheme.themes,liveTheme.dayNight,liveTheme.scope),
       systemPrompt, mainPrompt: work.main_prompt, workCombination, userNote: session.user_note,
-      summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona,
+      summary: effectiveSummary, storyNotes: storyNotes.map((note) => note.content), persona: activePersona,
       plugins: session.active_plugins,
       keywordBookContents: getActiveKeywordContents(baseMessages.filter(message => message.id !== sourceUserMessage?.id), promptText),
       history: historyMsgs.map((m) => ({ role: m.role, content: m.content,
@@ -1174,8 +1178,8 @@ export default function ChatPage() {
     }), semiContext);
     const knowledgeOptions = liveTheme.session.knowledge_enabled ? {
       sessionId: session.id, revision: liveTheme.session.knowledge_revision ?? 0, apiKey, signal: controller.signal,
-      setup: JSON.stringify({ work: work.main_prompt, combination: workCombination, persona, start: startConfig?.initial_context ?? '' }),
-      pcs: [{ name: persona?.name || 'PC', aliases: ['PC'], pc: true }],
+      setup: JSON.stringify({ work: work.main_prompt, combination: workCombination, persona: activePersona, start: startConfig?.initial_context ?? '' }),
+      pcs: [{ name: activePersona?.name || 'PC', aliases: ['PC'], pc: true }],
     } : null;
     if (knowledgeOptions) {
       const preparedKnowledge = await prepareKnowledge({ ...knowledgeOptions, beforeTurn: turnIndex });
@@ -1214,7 +1218,7 @@ export default function ChatPage() {
       if (controller.signal.aborted) throw new DOMException('생성을 중단했습니다.', 'AbortError');
       themeRequestScopeRef.current={messageId:draft.id,scope:workThemeScopeKey(liveTheme.session)};
       startGenerationTimeout();
-      const outgoing = semiContext ? assembled : withoutSyncDateTags(assembled);
+      const outgoing = applyPersonaDeaths(semiContext ? assembled : withoutSyncDateTags(assembled), personaDeathContext);
       const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: outgoing.systemParts, messages: outgoing.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, onPhase: phase => { timing.mark(phase); progressAttempt.onPhase(phase); }, signal: controller.signal });
       progressAttempt.advance('saving');
       setStreamingContent(result.text);
@@ -1343,7 +1347,7 @@ export default function ChatPage() {
   }
 
   async function branchFrom(message: Message) {
-    if (workCombinationSavingRef.current) { showToast('작품 결합 설정을 저장한 뒤 분기해 주세요.'); return; }
+    if (workCombinationSavingRef.current) { showToast('채팅방 설정을 저장한 뒤 분기해 주세요.'); return; }
     if (!contextReady || !session || !user || sendInFlightRef.current || editInFlightRef.current || deleteInFlightRef.current || branchInFlightRef.current || summaryGenerating) return;
     branchInFlightRef.current = true;
     const routeSignal = messageReadControllerRef.current.signal;

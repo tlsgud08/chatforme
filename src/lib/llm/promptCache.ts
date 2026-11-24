@@ -46,7 +46,7 @@ const markedContent = (text: string): WireMessage['content'] => [
 
 export function buildOpenRouterMessages(opts: Pick<GenerateOptions, 'model' | 'systemParts' | 'messages' | 'cacheSystemOnly'>): WireMessage[] {
   const system = [opts.systemParts.core, opts.systemParts.persona, opts.systemParts.userNote,
-    opts.systemParts.summary, opts.systemParts.storyNotes].filter(Boolean).join('\n\n');
+    opts.systemParts.summary, opts.systemParts.storyNotes, opts.systemParts.personaDeaths].filter(Boolean).join('\n\n');
   const breakpoint = opts.messages.findIndex((m) => m.cacheBreakpoint);
   const explicit = !!opts.cacheSystemOnly || breakpoint >= 0;
   // A pinned final history answer is still history, never the current user input.
