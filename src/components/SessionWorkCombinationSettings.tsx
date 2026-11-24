@@ -144,7 +144,6 @@ export default function SessionWorkCombinationSettings({ session, userId, includ
         <button type="button" className="inu-icon inu-danger" aria-label={`추가 ${index + 1}순위 작품 제거`} disabled={disabled} onClick={() => void save(enabled, ids.filter(item => item !== id))}><InterfaceIcon name="delete" /></button>
       </div>
     </article>)}
-    {ids.length === 0 && <p className="inu-help">추가 작품이 없으면 기존 작품만 전달합니다.</p>}
     {!enabled && ids.length > 0 && <p className="inu-help">결합을 끄면 선택한 목록은 보관하고, 기존 작품만 전달합니다.</p>}
     {enabled && <>
       <label htmlFor="combination-work-search" className="inu-field-label">추가할 작품 검색</label>

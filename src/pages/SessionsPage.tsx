@@ -349,7 +349,6 @@ export default function SessionsPage() {
       <div className="flex-1 overflow-y-auto">
         {viewTab === 'multichat' && <div className="p-4">
           <Link to="/multichat/new" className="block rounded-lg bg-brand py-3 text-center text-sm font-semibold text-white">+ 멀티챗 만들기</Link>
-          <p className="mt-3 text-xs text-slate-500">모든 멀티챗 방이 여기에 표시돼요. 시작 전 방에 바로 참가할 수 있어요.</p>
           {multichatsLoading && <p className="py-6 text-slate-400">불러오는 중…</p>}
           {multichatsError && <p role="alert" className="py-5 text-sm text-slate-400">방 목록을 불러오지 못했습니다. <button onClick={() => void refetchMultichats()} className="underline">다시 시도</button></p>}
           {(['lobby', 'active'] as const).map(status => <section key={status} className="mt-6">
