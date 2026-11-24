@@ -244,6 +244,8 @@ export default function ChatPage() {
   const [work, setWork] = useState<Work | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [persona, setPersona] = useState<Persona | null>(null);
+  const personaSessionIdRef = useRef(sessionId);
+  personaSessionIdRef.current = sessionId;
   const [startConfig, setStartConfig] = useState<StartConfig | null>(null);
   const [keywordBooks, setKeywordBooks] = useState<KeywordBook[]>([]);
   const [themePrompt,setThemePrompt]=useState('');
@@ -1218,7 +1220,8 @@ export default function ChatPage() {
       if (controller.signal.aborted) throw new DOMException('생성을 중단했습니다.', 'AbortError');
       themeRequestScopeRef.current={messageId:draft.id,scope:workThemeScopeKey(liveTheme.session)};
       startGenerationTimeout();
-      const outgoing = applyPersonaDeaths(semiContext ? assembled : withoutSyncDateTags(assembled), personaDeathContext);
+      let outgoing = semiContext ? assembled : withoutSyncDateTags(assembled);
+      if (personaDeathContext) outgoing = applyPersonaDeaths(outgoing, personaDeathContext);
       const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: outgoing.systemParts, messages: outgoing.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, onPhase: phase => { timing.mark(phase); progressAttempt.onPhase(phase); }, signal: controller.signal });
       progressAttempt.advance('saving');
       setStreamingContent(result.text);
@@ -1627,7 +1630,7 @@ export default function ChatPage() {
           onClose={() => setMenuOpen(false)}
           onUpdate={(patch) => setSession((s) => (s?.id === session.id ? { ...s, ...patch } : s))}
           onWorkCombinationSavingChange={onWorkCombinationSavingChange}
-          onPersonaChange={(p) => setPersona(p)}
+          onPersonaChange={(p) => { if (personaSessionIdRef.current === session.id) setPersona(p); }}
           debugMode={debugMode}
           onDebugToggle={setDebugMode}
           showCost={showCost}

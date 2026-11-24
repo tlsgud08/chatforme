@@ -136,6 +136,8 @@ export default function SessionMenu({
   }));
   const [hasExplicitOverride, setHasExplicitOverride] = useState(session.output_settings_override_enabled ?? session.output_tokens_override !== null);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [personaSaving, setPersonaSaving] = useState(false);
+  const personaSavingRef = useRef(false);
   const queryClient = useQueryClient();
   const deathQueryKey = ['session-persona-deaths', session.id];
   const canRecordDeath = !multichat && !session.multichat_room_id && user?.id === session.user_id;
@@ -235,12 +237,25 @@ export default function SessionMenu({
     onUpdate(patch);
   }
 
+  function onPersonaSavingChange(saving: boolean) {
+    if (saving && personaSavingRef.current) return false;
+    if (!onWorkCombinationSavingChange(saving)) return false;
+    personaSavingRef.current = saving;
+    setPersonaSaving(saving);
+    return true;
+  }
+
   async function selectPersona(persona: Persona | null) {
-    const pid = persona?.id ?? null;
-    const { error } = multichat ? await supabase.rpc('set_multichat_persona', { target_room: session.id, target_persona: pid }) : await supabase.from('sessions').update({ persona_id: pid }).eq('id', session.id);
-    if (error) { flash(`페르소나 변경 실패: ${error.message}`); return; }
-    if (multichat) await multichat.onRefresh(); else onUpdate({ persona_id: pid });
-    onPersonaChange(persona);
+    if (canRecordDeath && !onPersonaSavingChange(true)) return;
+    try {
+      const pid = persona?.id ?? null;
+      const { error } = multichat ? await supabase.rpc('set_multichat_persona', { target_room: session.id, target_persona: pid }) : await supabase.from('sessions').update({ persona_id: pid }).eq('id', session.id);
+      if (error) { flash(`페르소나 변경 실패: ${error.message}`); return; }
+      if (multichat) await multichat.onRefresh(); else onUpdate({ persona_id: pid });
+      onPersonaChange(persona);
+    } finally {
+      if (canRecordDeath) onPersonaSavingChange(false);
+    }
   }
 
   const loadSummaries = useCallback(async () => {
@@ -357,8 +372,8 @@ export default function SessionMenu({
   const deathSettings = canRecordDeath
     ? <PersonaDeathSettings key={`death:${session.id}`} sessionId={session.id} currentPersona={currentPersona}
         nextPersonas={availablePersonas} deaths={deaths} readError={deathQuery.isError && !deaths}
-        busy={sending || summaryGenerating} onRetry={() => void deathQuery.refetch()}
-        onSavingChange={onWorkCombinationSavingChange}
+        busy={sending || summaryGenerating || personaSaving} onRetry={() => void deathQuery.refetch()}
+        onSavingChange={onPersonaSavingChange}
         onSaved={context => {
           void queryClient.cancelQueries({ queryKey: deathQueryKey });
           queryClient.setQueryData(deathQueryKey, context);
@@ -395,7 +410,7 @@ export default function SessionMenu({
       <div className="inu-content" id="session-panel-chat" role="tabpanel" aria-labelledby="session-tab-chat" hidden={activeTab !== 'chat'}>
         <section className="inu-section">
           <h3><InterfaceIcon name="my" />페르소나</h3>
-          <select aria-label="페르소나 선택" value={session.persona_id ?? ''} disabled={sending} onChange={event => void selectPersona(availablePersonas.find(item => item.id === event.target.value) ?? (currentPersona?.id === event.target.value ? currentPersona : null))}>
+          <select aria-label="페르소나 선택" value={session.persona_id ?? ''} disabled={sending || personaSaving} onChange={event => void selectPersona(availablePersonas.find(item => item.id === event.target.value) ?? (currentPersona?.id === event.target.value ? currentPersona : null))}>
             <option value="">없음 · 페르소나 미사용</option>{availablePersonas.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
             {currentPersona && !availablePersonas.some(item => item.id === currentPersona.id) && <option value={currentPersona.id}>{currentPersona.name}</option>}
           </select>
