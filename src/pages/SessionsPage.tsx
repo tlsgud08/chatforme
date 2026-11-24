@@ -8,15 +8,13 @@ import { supabase } from '@/lib/supabase';
 import { fetchSessionConversationCounts, sessionCountsKey } from '@/lib/sessionCounts';
 import { measureOperation } from '@/lib/operationTiming';
 import { useAuth } from '@/hooks/useAuth';
-import type { Session } from '@/types/db';
+import SessionFolderDialog from '@/components/SessionFolderDialog';
+import { groupLibrarySessions, matchesSessionSearch, sessionsInLocation, type LibrarySession, type LibraryLocation, type SessionFolder } from '@/lib/sessionLibrary';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { showToast } from '@/lib/toast';
 import { showConfirmDialog } from '@/lib/dialog';
 
-type SessionRow = Pick<Session, 'id' | 'title'> & {
-  works: { title: string; thumbnail_url: string | null } | null;
-  personas: { name: string } | null;
-};
+type SessionRow = LibrarySession;
 type RoomActionTarget = { id: string; title: string; multichat?: boolean };
 type ViewTab = 'active' | 'multichat' | 'archived';
 type SelectMode = 'none' | 'archive' | 'delete';
@@ -51,6 +49,11 @@ export default function SessionsPage() {
   const [renameValue, setRenameValue] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [location, setLocation] = useState<LibraryLocation>({ kind: 'root' });
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [folderDialog, setFolderDialog] = useState<SessionFolder | 'new' | null>(null);
+  const [bookmarkBusy, setBookmarkBusy] = useState(false);
   useEffect(() => {
     if (!menuId) return;
     const close = (event: PointerEvent) => { if (!(event.target as Element).closest('[data-popup-menu]')) setMenuId(null); };
@@ -59,13 +62,12 @@ export default function SessionsPage() {
   }, [menuId]);
 
   const { data: list = [], isLoading, isError, refetch } = useQuery({
-    queryKey: ['sessions', user?.id, viewTab],
+    queryKey: ['sessions', user?.id, 'library'],
     queryFn: async ({ signal }) => {
       const { data, error } = await supabase
         .from('sessions')
-        .select('id,title,works(title,thumbnail_url),personas(name)')
+        .select('id,title,work_id,is_archived,works(title,thumbnail_url),personas(name)')
         .eq('user_id', user!.id).is('multichat_room_id', null)
-        .eq('is_archived', viewTab === 'archived')
         .order('updated_at', { ascending: false }).abortSignal(signal);
       if (error) throw error;
 
@@ -75,6 +77,48 @@ export default function SessionsPage() {
     staleTime: 30_000,
     refetchOnMount: 'always',
   });
+
+  const { data: folders = [], isLoading: foldersLoading, isError: foldersError, refetch: refetchFolders } = useQuery({
+    queryKey: ['session-folders', user?.id],
+    queryFn: async ({ signal }) => {
+      const { data, error } = await supabase.from('session_folders')
+        .select('id,name,session_folder_items(session_id)').eq('user_id', user!.id)
+        .order('created_at').abortSignal(signal);
+      if (error) throw error;
+      return (data as SessionFolder[]) ?? [];
+    },
+    enabled: !!user && viewTab === 'archived',
+    staleTime: 30_000,
+    refetchOnMount: 'always',
+  });
+  const currentFolder = location.kind === 'custom' ? folders.find(folder => folder.id === location.id) : undefined;
+  const searching = searchOpen && search.trim().length > 0;
+  const folderList = viewTab === 'archived' && !searching && ['root', 'works', 'personas'].includes(location.kind);
+  const visibleList = (viewTab === 'active' || searching ? list : sessionsInLocation(list, location, folders))
+    .filter(session => matchesSessionSearch(session, searchOpen ? search : ''));
+  const groups = location.kind === 'works' || location.kind === 'personas' ? groupLibrarySessions(list, location.kind) : [];
+
+  function navigateFolder(next: LibraryLocation) {
+    setLocation(next);
+    setSearch('');
+    cancelSelect();
+  }
+
+  async function deleteFolder(folder: SessionFolder) {
+    if (!await showConfirmDialog('폴더를 삭제할까요?', `‘${folder.name}’ 폴더를 삭제합니다. 채팅방은 그대로 유지됩니다.`, '삭제')) return;
+    const { data, error } = await supabase.from('session_folders').delete().eq('id', folder.id).select('id');
+    if (error || !data?.length) { showToast('폴더 삭제 실패: ' + (error?.message ?? '폴더를 찾을 수 없습니다.')); return; }
+    await queryClient.invalidateQueries({ queryKey: ['session-folders', user?.id] });
+    navigateFolder({ kind: 'root' });
+  }
+
+  function folderRow(name: string, count: number, next: LibraryLocation) {
+    return <button key={JSON.stringify(next)} type="button" onClick={() => navigateFolder(next)} className="flex w-full items-center gap-3 border-b border-surface2 p-4 text-left active:bg-surface">
+      <span className="rounded-lg bg-surface2 p-3 text-brand"><InterfaceIcon name={next.kind === 'bookmarks' ? 'bookmark' : 'folder'} /></span>
+      <span className="min-w-0 flex-1 truncate font-semibold text-white">{name}</span>
+      <span className="text-sm text-slate-400">{count}</span><InterfaceIcon name="next" />
+    </button>;
+  }
 
   const { data: turnCountMap = {}, isSuccess: countsReady, isError: countsError, refetch: refetchCounts } = useQuery({
     queryKey: sessionCountsKey(user?.id, list.map(session => session.id)),
@@ -132,7 +176,7 @@ export default function SessionsPage() {
   }
 
   function toggleAll() {
-    const ids = list.map((s) => s.id);
+    const ids = visibleList.map((s) => s.id);
     if (selected.size === ids.length) setSelected(new Set());
     else setSelected(new Set(ids));
   }
@@ -150,17 +194,26 @@ export default function SessionsPage() {
 
   function selectByTurnLimit() {
     if (!countsReady || turnLimit === null) return;
-    setSelected(new Set(list.filter(session => turnCountMap[session.id] <= turnLimit).map(session => session.id)));
+    setSelected(new Set(visibleList.filter(session => turnCountMap[session.id] <= turnLimit).map(session => session.id)));
+  }
+
+  async function toggleBookmark(session: SessionRow) {
+    const { data, error } = await supabase.from('sessions').update({ is_archived: !session.is_archived }).eq('id', session.id).select('id');
+    if (error || !data?.length) { showToast('북마크 변경 실패: ' + (error?.message ?? '채팅방을 찾을 수 없습니다.')); return; }
+    await queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
   }
 
   async function confirmArchive() {
-    if (selected.size === 0) return;
+    if (selected.size === 0 || bookmarkBusy) return;
     const ids = [...selected];
-    const newVal = viewTab === 'active';
-    const { error } = await supabase.from('sessions').update({ is_archived: newVal }).in('id', ids);
-    if (error) { showToast('보관 상태 변경 실패: ' + error.message); return; }
-    queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
-    cancelSelect();
+    const newVal = !(viewTab === 'archived' && location.kind === 'bookmarks');
+    setBookmarkBusy(true);
+    try {
+      const { data, error } = await supabase.from('sessions').update({ is_archived: newVal }).in('id', ids).select('id');
+      if (error || data?.length !== ids.length) { showToast('북마크 변경 실패: ' + (error?.message ?? '일부 채팅방을 찾을 수 없습니다.')); return; }
+      await queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
+      cancelSelect();
+    } finally { setBookmarkBusy(false); }
   }
 
   async function confirmDelete() {
@@ -169,6 +222,7 @@ export default function SessionsPage() {
     const { data: deleted, error } = await supabase.from('sessions').delete().in('id', ids).select('id');
     if (error || deleted?.length !== ids.length) { showToast('삭제 실패: ' + (error?.message ?? '일부 채팅방이 삭제되지 않았습니다.')); return; }
     queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
+    void queryClient.invalidateQueries({ queryKey: ['session-folders', user?.id] });
     cancelSelect();
     showToast(`${ids.length}개 채팅방과 연결 데이터를 삭제했습니다.`);
   }
@@ -196,6 +250,7 @@ export default function SessionsPage() {
     const { data: deleted, error } = await supabase.from('sessions').delete().eq('id', deleteTarget.id).select('id');
     if (error || !deleted?.length) { setDeleting(false); showToast('삭제 실패: ' + (error?.message ?? '채팅방이 삭제되지 않았습니다.')); return; }
     await queryClient.invalidateQueries({ queryKey: ['sessions', user?.id] });
+    void queryClient.invalidateQueries({ queryKey: ['session-folders', user?.id] });
     setDeleting(false);
     setDeleteTarget(null);
     showToast('채팅방을 삭제했습니다.');
@@ -216,6 +271,7 @@ export default function SessionsPage() {
         {menuId === target.id && (
           <div className="absolute right-2 top-11 z-20 w-32 overflow-hidden rounded-lg border border-surface2 bg-surface shadow-xl">
             <button type="button" onClick={() => openRename(target)} className="w-full px-4 py-3 text-left text-sm text-slate-200 active:bg-surface2">이름 바꾸기</button>
+            {!target.multichat && <button type="button" onClick={() => { setMenuId(null); const session = list.find(item => item.id === target.id); if (session) void toggleBookmark(session); }} className="w-full px-4 py-3 text-left text-sm text-slate-200 active:bg-surface2">{list.find(item => item.id === target.id)?.is_archived ? '북마크 해제' : '북마크'}</button>}
             {canDelete && <button type="button" onClick={() => { setMenuId(null); if (target.multichat) void deleteMultichat(target); else setDeleteTarget(target); }} className="w-full px-4 py-3 text-left text-sm text-red-400 active:bg-surface2">삭제</button>}
           </div>
         )}
@@ -251,7 +307,7 @@ export default function SessionsPage() {
     );
   }
 
-  const allSelected = list.length > 0 && selected.size === list.length;
+  const allSelected = visibleList.length > 0 && visibleList.every(session => selected.has(session.id));
 
   return (
     <div className="sessions-page flex flex-col h-full">
@@ -259,15 +315,15 @@ export default function SessionsPage() {
       <FriendActivityStrip />
       {/* 상단 탭 + 버튼 영역 */}
       {selectMode === 'none' ? (
-        <div className="sessions-tabs flex items-center border-b border-surface2">
+        <div className="sessions-tabs flex flex-wrap items-center border-b border-surface2">
           <button
-            onClick={() => setViewTab('active')}
+            onClick={() => { setViewTab('active'); cancelSelect(); }}
             className={`flex-1 py-2.5 text-sm ${viewTab === 'active' ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
           >
             활성
           </button>
           <button
-            onClick={() => setViewTab('archived')}
+            onClick={() => { setViewTab('archived'); navigateFolder({ kind: 'root' }); }}
             className={`flex-1 py-2.5 text-sm ${viewTab === 'archived' ? 'border-b-2 border-brand text-white' : 'text-slate-400'}`}
           >
             보관함
@@ -280,17 +336,20 @@ export default function SessionsPage() {
           </button>
           {viewTab !== 'multichat' && <div className="flex gap-2 px-3">
             <button
+              disabled={folderList || isLoading || isError || visibleList.length === 0}
               onClick={() => enterSelectMode('archive')}
-              className="rounded-lg bg-surface px-3 py-1.5 text-xs text-slate-300"
+              className="rounded-lg bg-surface px-3 py-1.5 text-xs text-slate-300 disabled:opacity-40"
             >
-              {viewTab === 'active' ? '보관' : '복원'}
+              {viewTab === 'archived' && location.kind === 'bookmarks' ? '북마크 해제' : '북마크'}
             </button>
             <button
+              disabled={folderList || isLoading || isError || visibleList.length === 0}
               onClick={() => enterSelectMode('delete')}
-              className="rounded-lg bg-surface px-3 py-1.5 text-xs text-red-400"
+              className="rounded-lg bg-surface px-3 py-1.5 text-xs text-red-400 disabled:opacity-40"
             >
               삭제
             </button>
+            <button type="button" aria-label="채팅방 검색" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); setSearch(''); cancelSelect(); }} className="rounded-lg bg-surface px-3 py-1.5 text-slate-300"><InterfaceIcon name="search" /></button>
           </div>}
         </div>
       ) : (
@@ -302,10 +361,10 @@ export default function SessionsPage() {
           {selectMode === 'archive' && (
             <button
               onClick={confirmArchive}
-              disabled={selected.size === 0}
+              disabled={selected.size === 0 || bookmarkBusy}
               className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
             >
-              {viewTab === 'active' ? '보관하기' : '복원하기'}
+              {viewTab === 'archived' && location.kind === 'bookmarks' ? '북마크 해제' : '북마크하기'}
             </button>
           )}
           {selectMode === 'delete' && (
@@ -346,6 +405,21 @@ export default function SessionsPage() {
         </div>
       )}
 
+      {searchOpen && viewTab !== 'multichat' && <div className="flex items-center gap-2 border-b border-surface2 px-4 py-3">
+        <InterfaceIcon name="search" /><input autoFocus type="search" aria-label="채팅방·페르소나 이름 검색" placeholder="채팅방·페르소나 이름 검색" value={search} onChange={event => { setSearch(event.target.value); cancelSelect(); }} className="min-w-0 flex-1 rounded-lg bg-surface px-3 py-2 text-base text-white outline-none focus:ring-1 focus:ring-brand" />
+        <button type="button" aria-label="검색 닫기" onClick={() => { setSearchOpen(false); setSearch(''); cancelSelect(); }} className="p-2 text-slate-400"><InterfaceIcon name="close" /></button>
+      </div>}
+      {viewTab === 'archived' && <div className="flex flex-wrap items-center gap-2 border-b border-surface2 px-4 py-3">
+        <button type="button" onClick={() => navigateFolder({ kind: 'root' })} className="text-sm text-slate-400">보관함</button>
+        {location.kind !== 'root' && <><InterfaceIcon name="next" />
+          {(location.kind === 'work' || location.kind === 'persona') && <><button type="button" onClick={() => navigateFolder({ kind: location.kind === 'work' ? 'works' : 'personas' })} className="text-sm text-slate-400">{location.kind === 'work' ? '작품별 보기' : '페르소나별 보기'}</button><InterfaceIcon name="next" /></>}
+          <span className="min-w-0 truncate text-sm text-white">{'name' in location ? currentFolder?.name ?? location.name : location.kind === 'works' ? '작품별 보기' : location.kind === 'personas' ? '페르소나별 보기' : '북마크'}</span>
+        </>}
+        <div className="ml-auto flex items-center gap-2">
+          {currentFolder && <><button type="button" disabled={isLoading || isError} onClick={() => setFolderDialog(currentFolder)} className="rounded-lg bg-surface px-3 py-2 text-sm text-slate-300 disabled:opacity-40">편집·채팅방 선택</button><button type="button" aria-label="폴더 삭제" onClick={() => void deleteFolder(currentFolder)} className="p-2 text-red-400"><InterfaceIcon name="delete" /></button></>}
+          <button type="button" disabled={isLoading || isError || foldersLoading || foldersError} onClick={() => setFolderDialog('new')} className="flex items-center gap-1 rounded-lg bg-surface px-3 py-2 text-sm text-slate-300 disabled:opacity-40"><InterfaceIcon name="plus" />폴더</button>
+        </div>
+      </div>}
       <div className="flex-1 overflow-y-auto">
         {viewTab === 'multichat' && <div className="p-4">
           <Link to="/multichat/new" className="block rounded-lg bg-brand py-3 text-center text-sm font-semibold text-white">+ 멀티챗 만들기</Link>
@@ -370,13 +444,25 @@ export default function SessionsPage() {
         {isLoading && <p className="p-6 text-slate-400">불러오는 중…</p>}
         {isError && <p role="alert" className="p-6 text-amber-400">채팅방 목록을 불러오지 못했습니다. <button type="button" onClick={() => void refetch()} className="underline">다시 불러오기</button></p>}
         {countsError && list.length > 0 && <p className="px-4 py-2 text-xs text-slate-400">대화 수를 불러오지 못했습니다. <button type="button" onClick={() => void refetchCounts()} className="underline">다시 불러오기</button></p>}
-        {!isLoading && !isError && list.length === 0 && (
+        {!isLoading && !isError && !folderList && visibleList.length === 0 && (
           <p className="p-6 text-slate-400">
-            {viewTab === 'archived' ? '보관된 채팅방이 없습니다.' : '아직 플레이한 채팅방이 없습니다.'}
+            {searching ? '검색 결과가 없습니다.' : viewTab === 'archived' ? '이 폴더에 채팅방이 없습니다.' : '아직 플레이한 채팅방이 없습니다.'}
           </p>
         )}
+        {viewTab === 'archived' && foldersLoading && <p className="p-4 text-sm text-slate-400">폴더를 불러오는 중…</p>}
+        {viewTab === 'archived' && foldersError && <p role="alert" className="p-4 text-sm text-amber-400">폴더를 불러오지 못했습니다. <button type="button" onClick={() => void refetchFolders()} className="underline">다시 불러오기</button></p>}
+        {folderList && !isLoading && !isError && <nav aria-label="보관함 폴더">
+          {location.kind === 'root' && <>
+            {folderRow('작품별 보기', groupLibrarySessions(list, 'works').length, { kind: 'works' })}
+            {folderRow('페르소나별 보기', groupLibrarySessions(list, 'personas').length, { kind: 'personas' })}
+            {folderRow('북마크', list.filter(session => session.is_archived).length, { kind: 'bookmarks' })}
+            {folders.map(folder => folderRow(folder.name, sessionsInLocation(list, { kind: 'custom', id: folder.id, name: folder.name }, folders).length, { kind: 'custom', id: folder.id, name: folder.name }))}
+          </>}
+          {groups.map(group => folderRow(group.name, group.count, { kind: location.kind === 'works' ? 'work' : 'persona', id: group.id, name: group.name }))}
+          {location.kind !== 'root' && groups.length === 0 && <p className="p-6 text-sm text-slate-400">표시할 폴더가 없습니다.</p>}
+        </nav>}
         <ul className="session-list divide-y divide-surface2">
-          {list.map((s) => (
+          {visibleList.map((s) => (
             <li key={s.id} className="flex items-center">
               {selectMode !== 'none' && (
                 <button
@@ -404,7 +490,7 @@ export default function SessionsPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold text-white">
-                    {s.title || s.works?.title || '채팅방'}
+                    {s.is_archived && <span className="mr-1 inline-flex align-middle text-brand" title="북마크"><InterfaceIcon name="bookmark" filled /></span>}{s.title || s.works?.title || '채팅방'}
                   </p>
                   <p className="flex min-w-0 items-center gap-1 text-xs text-slate-500">
                     <span className="shrink-0">{turnCountMap[s.id] ?? (countsError ? '—' : '…')}턴</span>
@@ -421,6 +507,7 @@ export default function SessionsPage() {
         </ul>
         </>}
       </div>
+      {folderDialog && user && <SessionFolderDialog key={folderDialog === 'new' ? 'new' : folderDialog.id} folder={folderDialog === 'new' ? null : folderDialog} sessions={list} onClose={() => setFolderDialog(null)} onSaved={async () => { await queryClient.invalidateQueries({ queryKey: ['session-folders', user.id] }); }} />}
       {dialogs()}
     </div>
   );
