@@ -21,7 +21,7 @@ const description = '  First PC\n{{sync_date::preserve}}  \n';
 const fence = String.fromCharCode(96).repeat(3);
 const status = fence + 'status\nHealth: 0\n~~~\n' + fence;
 const content = '회상\n\n' + status + '\n\n' + fence + '\nAnother block\n' + fence;
-let recorded;
+let recorded, livingContext;
 
 try {
   await db.exec(
@@ -83,16 +83,101 @@ try {
   assert.equal(await rpc('session_persona_death_context', [room]), null);
   await assert.rejects(() => rpc('record_session_persona_death', [room, third, null, ids[9], '', null, null, null]), /채팅방/);
   await assert.rejects(() => rpc('save_admin_settings_with_persona_death', [{}, {}, null, 'Admin rules', 'forged']), /관리자/);
+  await db.exec(`reset role;
+    alter table sessions add column title text default 'Fixture', add column created_at timestamptz default now(),
+      add column updated_at timestamptz default now(), add column is_archived boolean default false,
+      add column total_input_tokens integer, add column total_output_tokens integer, add column total_cost numeric,
+      add column prompt_cache_message_id uuid;
+    alter table messages add column legacy_turn_conflict boolean default false, add column usage_accounted boolean default false,
+      add column generation_context_hash text;
+    create table summary_versions(session_id uuid, content text, summarized_through_turn integer, is_active boolean,
+      input_tokens integer, output_tokens integer, cost numeric, created_at timestamptz,
+      narrative_target_chars integer, narrative_target_enabled boolean, id uuid);
+    create table story_notes(session_id uuid, content text, created_at timestamptz, updated_at timestamptz);
+    create table multichat_rooms(id uuid);
+    grant insert,delete on messages to authenticated;
+  `);
+  await db.exec(migration('20261025012314_atomic_session_branch.sql'));
+  await db.exec(migration('20261104235318_prune_unselected_responses.sql'));
+  await db.exec(migration('20261126000000_persona_archives.sql'));
+  const [fourth, nextUser, nextAnswer, livingId, earlyFork, fullFork, nestedFork, editId, deleteId] =
+    Array.from({ length: 9 }, () => crypto.randomUUID());
+  await query("insert into personas values($1,$2,'Next','Next PC')", [fourth, owner]);
+  await login(owner);
+  const oldArchives = await rpc('session_persona_archive_context', [room]);
+  assert.equal(oldArchives.archives[0].status_turn, 0, 'existing death records inherit their status turn');
+  assert.equal(oldArchives.archives[0].status_block, status, 'existing edited messages do not rewrite the original snapshot');
+  assert.equal(oldArchives.archives[0].is_living, false);
+  assert.equal((await rpc('session_persona_status_turn', [room, 0]))[0].id, message, 'old rooms support direct turn lookup');
+  assert.deepEqual(await rpc('session_persona_status_turn', [room, 1234]), []);
+  const claimContext = await rpc('session_generation_context', [room]);
+  const claim = await rpc('begin_session_response', [room, nextAnswer, nextUser, 'Third persona dialogue', null, null, null,
+    [], '', 0, null, 1, 1, claimContext.contextHash]);
+  assert.equal(claim.userMessage.author_persona_id, third);
+  await query("update messages set generation_status='complete',content=$2 where id=$1", [nextAnswer, content]);
+  await login(outsider);
+  assert.equal(await rpc('session_persona_archive_context', [room]), null);
+  assert.deepEqual(await rpc('session_persona_status_turn', [room, 1]), []);
+  await assert.rejects(() => rpc('branch_session_at_message', [room, nextAnswer, fullFork, 0]), /inaccessible/);
+  const patch = { is_living: true, may_appear: true, image_url: 'https://example.test/portrait.png', note: 'Survives',
+    status_action: 'replace', status_message: nextAnswer, status_version: 0,
+    status_block: fence + '\nAnother block\n' + fence };
+  const create = [room, third, 'create', livingId, null, fourth, patch];
+  await assert.rejects(() => rpc('mutate_session_persona_archive', create), /채팅방/);
+  await login(owner);
+  const created = await rpc('mutate_session_persona_archive', create);
+  assert.equal(created.persona.id, fourth);
+  assert.deepEqual(await rpc('mutate_session_persona_archive', create), created);
+  const current = await rpc('session_generation_context', [room]);
+  assert.equal(current.personaDeaths.deaths.length, 2, 'old clients only get death records');
+  assert.deepEqual(current.personaArchives.archives[2].past_lines, ['Third persona dialogue']);
+  assert.equal(current.personaArchives.archives[2].status_turn, 1);
+  assert.notEqual(current.contextHash, claimContext.contextHash);
+
+  assert.equal(await rpc('branch_session_at_message', [room, message, earlyFork, 0]), earlyFork);
+  const early = await rpc('session_persona_archive_context', [earlyFork]);
+  assert.equal(early.persona.id, third);
+  assert.deepEqual(early.archives.map(a => a.persona_id), [first, second], 'a later archive does not change an earlier scene');
+  assert.equal(await rpc('branch_session_at_message', [room, nextAnswer, fullFork, 0]), fullFork);
+  assert.equal(await rpc('branch_session_at_message', [room, nextAnswer, fullFork, 0]), fullFork);
+  const fork = await rpc('session_persona_archive_context', [fullFork, true]);
+  assert.deepEqual(fork.archives, current.personaArchives.archives, 'the fork retains both kinds of archives, snapshots, image and voice');
+  const [ref] = await query('select status_message_id from session_persona_deaths where session_id=$1 and persona_id=$2', [fullFork, third]);
+  assert.notEqual(ref.status_message_id, nextAnswer);
+  assert.equal(await rpc('branch_session_at_message', [fullFork, ref.status_message_id, nestedFork, 0]), nestedFork);
+  assert.deepEqual((await rpc('session_persona_archive_context', [nestedFork, true])).archives, fork.archives);
+
+  const edit = [fullFork, third, 'edit', editId, livingId, null,
+    { ...patch, is_living: false, note: 'Corrected to deceased', status_action: 'keep' }];
+  const edited = await rpc('mutate_session_persona_archive', edit);
+  assert.equal(edited.archives[2].is_living, false);
+  assert.equal(edited.archives[2].may_appear, false);
+  assert.equal(edited.archives[2].image_url, null);
+  assert.equal(edited.archives[2].status_block, patch.status_block);
+  assert.notEqual((await rpc('session_generation_context', [fullFork])).contextHash, current.contextHash);
+  await assert.rejects(() => rpc('mutate_session_persona_archive', [fullFork, third, 'delete', deleteId, livingId, null, null]), /변경/);
+  const remove = [fullFork, third, 'delete', deleteId, editId, null, null];
+  assert.equal((await rpc('mutate_session_persona_archive', remove)).archives.length, 2);
+  assert.equal((await rpc('mutate_session_persona_archive', remove)).persona.id, fourth);
+  await query('update sessions set persona_id=$1 where id=$2', [third, fullFork]);
+  assert.equal((await rpc('session_persona_archive_context', [room])).archives[2].is_living, true);
+  assert.equal(await rpc('save_admin_settings_with_persona_archives',
+    [{}, { system_prompt: 'updated again' }, null, 'Admin rules', 'Updated death rules', '', 'Custom living rules']), true);
+  assert.equal((await rpc('session_persona_archive_context', [room])).livingPrompt, 'Custom living rules');
+  assert.equal((await rpc('session_persona_archive_context', [room])).deathPrompt, 'Updated death rules');
+  livingContext = current.personaArchives;
 } finally { await db.close(); }
 
 const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
 try {
-  const { applyPersonaDeaths, DEFAULT_PERSONA_DEATH_PROMPT } = await server.ssrLoadModule('/src/lib/personaDeathPrompt.ts');
+  const { applyPersonaArchives, applyPersonaDeaths, DEFAULT_PERSONA_DEATH_PROMPT, statusTurnLabel } = await server.ssrLoadModule('/src/lib/personaDeathPrompt.ts');
   const { deathStatusChoices } = await server.ssrLoadModule('/src/lib/personaDeath.ts');
   const { buildOpenRouterMessages } = await server.ssrLoadModule('/src/lib/llm/promptCache.ts');
   const choices = deathStatusChoices([{ id: message, content, content_version: 4, turn_index: 1 }]);
   assert.equal(choices.length, 2);
   assert.equal(choices[1].raw, status);
+  assert.equal(choices[0].preview, 'Another block', 'the bottommost code block wins');
+  assert.equal(statusTurnLabel(1), '상태창 01턴');
   assert.equal(choices[1].messageVersion, 4);
   assert.equal(deathStatusChoices([{ content, content_version: 0, is_active_variant: false }]).length, 0);
   const base = {
@@ -108,5 +193,11 @@ try {
   assert.equal(wire[0].content, oldWire[0].content + '\n\n' + withDeaths.systemParts.personaDeaths);
   for (const text of [description, status, 'Admin rules', 'Second PC']) assert.ok(wire[0].content.includes(text));
   assert.ok(applyPersonaDeaths(base, { ...recorded, prompt: ' ' }).systemParts.personaDeaths.includes(DEFAULT_PERSONA_DEATH_PROMPT));
-  console.log('Persona deaths: atomic snapshots and handoff, retries, ownership, administrator rules, exact source text and unchanged ordinary payload passed.');
+  const withLiving = applyPersonaArchives(base, livingContext).systemParts.personaDeaths;
+  assert.ok(withLiving.includes('Current의 이미지: ![](https://example.test/portrait.png)'));
+  assert.ok(withLiving.includes('Third persona dialogue'));
+  const mentionsOnly = applyPersonaArchives(base, { ...livingContext, archives: livingContext.archives.map(a => ({...a, may_appear: false})) }).systemParts.personaDeaths;
+  assert.ok(mentionsOnly.includes('직접 등장·대사·행동은 금지'));
+  assert.ok(!mentionsOnly.includes('portrait.png') && !mentionsOnly.includes('Third persona dialogue'));
+  console.log('Persona archives: atomic snapshots and handoff, retries, ownership, administrator rules, exact source text and unchanged ordinary payload passed.');
 } finally { await server.close(); }

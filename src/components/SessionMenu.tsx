@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { loadPersonaDeathContext } from '@/lib/personaDeath';
+import { loadPersonaArchiveContext } from '@/lib/personaDeath';
 import { summaryCompletionWarning } from '@/lib/summaryCompletion';
 import InterfaceIcon from './InterfaceIcon';
 import MultichatApiSettings from './MultichatApiSettings';
@@ -139,20 +139,20 @@ export default function SessionMenu({
   const [personaSaving, setPersonaSaving] = useState(false);
   const personaSavingRef = useRef(false);
   const queryClient = useQueryClient();
-  const deathQueryKey = ['session-persona-deaths', session.id];
-  const canRecordDeath = !multichat && !session.multichat_room_id && user?.id === session.user_id;
-  const deathQuery = useQuery({
-    queryKey: deathQueryKey,
-    queryFn: ({ signal }) => loadPersonaDeathContext(session.id, signal),
-    enabled: canRecordDeath,
+  const archiveQueryKey = ['session-persona-archives', session.id];
+  const canArchivePersona = !multichat && !session.multichat_room_id && user?.id === session.user_id;
+  const archiveQuery = useQuery({
+    queryKey: archiveQueryKey,
+    queryFn: ({ signal }) => loadPersonaArchiveContext(session.id, signal),
+    enabled: canArchivePersona,
     refetchOnMount: 'always',
     gcTime: 0,
   });
-  const deaths = deathQuery.data?.deaths ?? null;
-  const deadPersonaIds = new Set(deaths?.map(death => death.persona_id));
-  const availablePersonas = personas.filter(item => !deadPersonaIds.has(item.id));
+  const archives = archiveQuery.data?.archives ?? null;
+  const archivedPersonaIds = new Set(archives?.map(record => record.persona_id));
+  const availablePersonas = personas.filter(item => !archivedPersonaIds.has(item.id));
   const currentPersona = availablePersonas.find(item => item.id === session.persona_id)
-    ?? (deathQuery.data?.persona?.id === session.persona_id ? deathQuery.data?.persona ?? undefined : undefined);
+    ?? (archiveQuery.data?.persona?.id === session.persona_id ? archiveQuery.data?.persona ?? undefined : undefined);
   const [savedMsg, setSavedMsg] = useState('');
   const [logOpen, setLogOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -246,7 +246,7 @@ export default function SessionMenu({
   }
 
   async function selectPersona(persona: Persona | null) {
-    if (canRecordDeath && !onPersonaSavingChange(true)) return;
+    if (canArchivePersona && !onPersonaSavingChange(true)) return;
     try {
       const pid = persona?.id ?? null;
       const { error } = multichat ? await supabase.rpc('set_multichat_persona', { target_room: session.id, target_persona: pid }) : await supabase.from('sessions').update({ persona_id: pid }).eq('id', session.id);
@@ -254,7 +254,7 @@ export default function SessionMenu({
       if (multichat) await multichat.onRefresh(); else onUpdate({ persona_id: pid });
       onPersonaChange(persona);
     } finally {
-      if (canRecordDeath) onPersonaSavingChange(false);
+      if (canArchivePersona) onPersonaSavingChange(false);
     }
   }
 
@@ -369,14 +369,14 @@ export default function SessionMenu({
   const semiSettings = !multichat && user && onPublishSemiSummary
     ? <SemiSessionSettings key={`semi:${session.id}`} sessionId={session.id} userId={user.id} busy={sending || summaryGenerating} onPublish={onPublishSemiSummary} onSavingChange={onWorkCombinationSavingChange} onActiveChange={handleSemiActiveChange} />
     : null;
-  const deathSettings = canRecordDeath
-    ? <PersonaDeathSettings key={`death:${session.id}`} sessionId={session.id} currentPersona={currentPersona}
-        nextPersonas={availablePersonas} deaths={deaths} readError={deathQuery.isError && !deaths}
-        busy={sending || summaryGenerating || personaSaving} onRetry={() => void deathQuery.refetch()}
+  const archiveSettings = canArchivePersona
+    ? <PersonaDeathSettings key={`archive:${session.id}`} sessionId={session.id} currentPersona={currentPersona}
+        nextPersonas={availablePersonas} archives={archives} readError={archiveQuery.isError && !archives}
+        busy={sending || summaryGenerating || personaSaving} onRetry={() => void archiveQuery.refetch()}
         onSavingChange={onPersonaSavingChange}
         onSaved={context => {
-          void queryClient.cancelQueries({ queryKey: deathQueryKey });
-          queryClient.setQueryData(deathQueryKey, context);
+          void queryClient.cancelQueries({ queryKey: archiveQueryKey });
+          queryClient.setQueryData(archiveQueryKey, context);
           onUpdate({ persona_id: context.persona?.id ?? null });
           onPersonaChange(context.persona);
         }} />
@@ -419,7 +419,7 @@ export default function SessionMenu({
         </section>
         {multichat && <MultichatProgressSettings room={multichat.room} members={multichat.members} slot={multichat.slot} otherPresent={multichat.otherPresent} presenceReady={multichat.presenceReady} onUpdate={multichat.onRoomUpdate} onRefresh={multichat.onRefresh} />}
         {semiActive && semiSettings}
-        {semiActive && deathSettings}
+        {semiActive && archiveSettings}
         {user && <SessionThemeSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         <section className="inu-section">
           <div className="inu-row"><h3><InterfaceIcon name="note" />{multichat ? '내 유저 노트' : '유저 노트'}</h3><span className="inu-help">{note.length.toLocaleString()}자 · 제한 없음</span></div>
@@ -429,7 +429,7 @@ export default function SessionMenu({
         {user && <SessionPluginSettings compact session={session} userId={user.id} busy={sending || summaryGenerating} onUpdate={onUpdate} />}
         {user && <SessionWorkCombinationSettings key={session.id} session={session} userId={user.id} includeUnlisted={isAdmin} busy={sending || summaryGenerating} onUpdate={onUpdate} onSavingChange={onWorkCombinationSavingChange} />}
         {!semiActive && semiSettings}
-        {!semiActive && deathSettings}
+        {!semiActive && archiveSettings}
       </div>
 
       <div className="inu-content" id="session-panel-ai" role="tabpanel" aria-labelledby="session-tab-ai" hidden={activeTab !== 'ai'}>

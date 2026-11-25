@@ -25,7 +25,7 @@ import { PROVIDER_LABELS, type CacheDiagnostic, type ReasoningSelection } from '
 import { defaultReasoningFor } from '@/lib/llm/modelCapabilities';
 import { loadDefaultReasoning, modelsFor, normalizeReasoning, toOpenRouterModel } from '@/lib/modelPreferences';
 import { assemblePrompt } from '@/lib/prompt/assemble';
-import { applyPersonaDeaths, type PersonaDeathContext } from '@/lib/personaDeathPrompt';
+import { applyPersonaArchives, applyPersonaDeaths, type PersonaArchiveContext, type PersonaDeathContext } from '@/lib/personaDeathPrompt';
 import { loadWorkCombination } from '@/lib/workCombinationData';
 import { workThemeScopeKey } from '@/lib/workCombination';
 import { loadWorkThemeCatalog } from '@/lib/workThemeData';
@@ -1037,6 +1037,7 @@ export default function ChatPage() {
     let contextSummary = session.summary;
     let contextSummaryTurn = session.summary_last_turn;
     let contextHash: string | undefined;
+    let personaArchiveContext: PersonaArchiveContext | null = null;
     let personaDeathContext: PersonaDeathContext | null = null;
     if (sessionId) {
       try {
@@ -1046,6 +1047,7 @@ export default function ChatPage() {
         contextSummary = context.summary;
         contextSummaryTurn = context.summaryLastTurn;
         contextHash = context.contextHash;
+        personaArchiveContext = context.personaArchives ?? null;
         personaDeathContext = context.personaDeaths ?? null;
         timing.mark('context');
       } catch (error) {
@@ -1152,7 +1154,8 @@ export default function ChatPage() {
       return;
     }
     const { liveTheme, workCombination, semiContext } = prepared.value;
-    const activePersona = personaDeathContext ? personaDeathContext.persona : persona;
+    const personaContext = personaArchiveContext ?? personaDeathContext;
+    const activePersona = personaContext ? personaContext.persona : persona;
 
     // Rerolls and unanswered-user retries place the original user last. Remove
     // that same row from history so neither its body nor command is sent twice.
@@ -1221,7 +1224,8 @@ export default function ChatPage() {
       themeRequestScopeRef.current={messageId:draft.id,scope:workThemeScopeKey(liveTheme.session)};
       startGenerationTimeout();
       let outgoing = semiContext ? assembled : withoutSyncDateTags(assembled);
-      if (personaDeathContext) outgoing = applyPersonaDeaths(outgoing, personaDeathContext);
+      if (personaArchiveContext) outgoing = applyPersonaArchives(outgoing, personaArchiveContext);
+      else if (personaDeathContext) outgoing = applyPersonaDeaths(outgoing, personaDeathContext);
       const result = await generate(provider, { apiKey, model, sessionId: session.id, reasoning, sampling, systemParts: outgoing.systemParts, messages: outgoing.messages, cacheSystemOnly: promptCache.systemOnly, maxOutputTokens, onChunk, onPhase: phase => { timing.mark(phase); progressAttempt.onPhase(phase); }, signal: controller.signal });
       progressAttempt.advance('saving');
       setStreamingContent(result.text);
