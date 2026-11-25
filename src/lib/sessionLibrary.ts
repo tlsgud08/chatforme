@@ -7,7 +7,7 @@ export type LibrarySession = {
   personas: { name: string } | null;
 };
 
-export type SessionFolder = { id: string; name: string; session_folder_items: { session_id: string }[] };
+export type SessionFolder = { id: string; name: string; parent_id?: string | null; session_folder_items: { session_id: string }[] };
 export type LibraryLocation =
   | { kind: 'root' | 'works' | 'personas' | 'bookmarks' }
   | { kind: 'work' | 'persona' | 'custom'; id: string; name: string };
@@ -42,4 +42,26 @@ export function sessionsInLocation(sessions: LibrarySession[], location: Library
     return sessions.filter(session => ids.has(session.id));
   }
   return [];
+}
+
+export function folderPath(folder: SessionFolder, folders: SessionFolder[]) {
+  const path: SessionFolder[] = [];
+  const seen = new Set<string>();
+  let current: SessionFolder | undefined = folder;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id); path.unshift(current);
+    current = folders.find(item => item.id === current?.parent_id);
+  }
+  return path;
+}
+
+export type SessionSort = 'latest' | 'turns-desc' | 'turns-asc';
+export function sortLibrarySessions(sessions: LibrarySession[], counts: Record<string, number>, order: SessionSort) {
+  if (order === 'latest') return sessions;
+  return [...sessions].sort((a, b) => {
+    const first = counts[a.id], second = counts[b.id];
+    if (first === undefined) return second === undefined ? 0 : 1;
+    if (second === undefined) return -1;
+    return order === 'turns-desc' ? second - first : first - second;
+  });
 }
