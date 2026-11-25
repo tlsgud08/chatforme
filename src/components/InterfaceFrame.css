@@ -96,6 +96,7 @@
 .interface-frame[data-interface='modern'] .settings-page[data-active-settings='cost'] > [data-settings-section='cost'],
 .interface-frame[data-interface='modern'] .settings-page[data-active-settings='api'] > [data-settings-section='api'],
 .interface-frame[data-interface='modern'] .settings-page[data-active-settings='output'] > [data-settings-section='output'],
+.interface-frame[data-interface='modern'] .settings-page[data-active-settings='cache'] > [data-settings-section='cache'],
 .interface-frame[data-interface='modern'] .settings-page[data-active-settings='summary'] > [data-settings-section='summary'],
 .interface-frame[data-interface='modern'] .settings-page[data-active-settings='account'] > [data-settings-section='account'],
 .interface-frame[data-interface='modern'] .settings-page[data-active-settings='admin'] > [data-settings-section='admin'] { display: block; margin-bottom: 28px; }

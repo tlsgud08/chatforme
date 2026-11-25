@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
+import ImageCachePolicySync from './components/ImageCachePolicySync';
 import AppUpdateNotice from './components/AppUpdateNotice';
 import { AuthProvider } from './hooks/useAuth';
 import { applyTheme, loadTheme } from './lib/theme';
@@ -30,6 +31,7 @@ if (/^\/s\/[\da-f-]+\/?$/i.test(window.location.pathname) && document.getElement
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AuthProvider>
+            <ImageCachePolicySync />
             <App />
             <AppUpdateNotice />
           </AuthProvider>

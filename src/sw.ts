@@ -1,12 +1,15 @@
 /// <reference lib="webworker" />
 
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
-import { clientsClaim } from 'workbox-core';
-import { ExpirationPlugin } from 'workbox-expiration';
+import { registerQuotaErrorCallback, clientsClaim } from 'workbox-core';
+import { CacheExpiration, ExpirationPlugin } from 'workbox-expiration';
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
 import { CacheFirst } from 'workbox-strategies';
 import { CHAT_IMAGE_CACHE_PREFIX, WORK_THUMBNAIL_CACHE_PREFIX } from './lib/imageCache';
+
+import { createImageCacheRuntime } from './lib/imageCacheRuntime';
+import { imageExpirationOptions, normalizeImageCachePolicy, IMAGE_CACHE_POLICY_MESSAGE } from './lib/imageCachePolicy';
 
 declare let self: ServiceWorkerGlobalScope;
 
@@ -33,15 +36,25 @@ clientsClaim();
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
+const imageRuntime = createImageCacheRuntime(caches, new URL('/__image-cache-policy', self.location.origin).href,
+  policy => new CacheExpiration(IMAGE_CACHE_NAME, imageExpirationOptions(policy)));
+registerQuotaErrorCallback(() => imageRuntime.clear(() => caches.delete(IMAGE_CACHE_NAME)));
+self.addEventListener('message', event => {
+  if (event.data?.type !== IMAGE_CACHE_POLICY_MESSAGE) return;
+  event.waitUntil(imageRuntime.set(normalizeImageCachePolicy(event.data.policy)).then(
+    () => event.ports[0]?.postMessage({ ok: true }),
+    () => event.ports[0]?.postMessage({ ok: false, error: '캐시 설정을 적용하지 못했습니다.' }),
+  ));
+});
 const externalImageStrategy = new CacheFirst({
   cacheName: IMAGE_CACHE_NAME,
   plugins: [
     new CacheableResponsePlugin({ statuses: [0, 200] }),
-    new ExpirationPlugin({
-      maxEntries: 400,
-      maxAgeSeconds: 60 * 60 * 24 * 30,
-      purgeOnQuotaError: true,
-    }),
+    {
+      cachedResponseWillBeUsed: async ({ request, cachedResponse }: { request: Request; cachedResponse?: Response }) =>
+        imageRuntime.use(request.url, cachedResponse, async () => (await caches.open(IMAGE_CACHE_NAME)).delete(request)),
+      cacheDidUpdate: async ({ request }: { request: Request }) => imageRuntime.updated(request.url),
+    },
   ],
 });
 

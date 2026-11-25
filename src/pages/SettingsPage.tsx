@@ -19,7 +19,7 @@ import { useUsdKrwRate } from '@/lib/exchangeRate';
 import { loadTurnPriceWarning, saveTurnPriceWarning, type TurnPriceWarningCurrency } from '@/lib/turnPriceWarning';
 import Toggle from '@/components/Toggle';
 import { useWorkCredits, saveWorkCredits } from '@/lib/workCredits';
-import { clearImageCaches } from '@/lib/imageCache';
+import ImageCacheSettings from '@/components/ImageCacheSettings';
 
 export default function SettingsPage() {
   const { user, signOut, isAdmin, canManageSettings } = useAuth();
@@ -36,8 +36,6 @@ export default function SettingsPage() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
-  const [clearingImageCache, setClearingImageCache] = useState(false);
-  const [imageCacheMessage, setImageCacheMessage] = useState('');
   const [turnPriceWarning, setTurnPriceWarning] = useState(loadTurnPriceWarning);
   const workCredits = useWorkCredits();
   const exchange = useUsdKrwRate();
@@ -175,20 +173,6 @@ export default function SettingsPage() {
     setTimeout(() => setSavedMsg(''), 2000);
   }
 
-  async function handleClearImageCache() {
-    if (clearingImageCache) return;
-    setClearingImageCache(true);
-    setImageCacheMessage('');
-    try {
-      await clearImageCaches();
-      setImageCacheMessage('이미지 캐시를 삭제했습니다. 이미지는 다음에 볼 때 다시 불러옵니다.');
-    } catch {
-      setImageCacheMessage('이미지 캐시를 삭제하지 못했습니다. 브라우저의 저장소 접근을 확인한 뒤 다시 시도해 주세요.');
-    } finally {
-      setClearingImageCache(false);
-    }
-  }
-
   function updateTurnPriceWarning(next: typeof turnPriceWarning) {
     setTurnPriceWarning(next);
     saveTurnPriceWarning(next);
@@ -207,7 +191,7 @@ export default function SettingsPage() {
       <ModernPageHeading title="설정" description="화면, 모델과 대화 기본값을 관리합니다." />
       {settingsLoadError && <div role="alert" className="rounded-lg bg-surface p-3 text-sm text-amber-400"><p>{settingsLoadError}</p><button type="button" onClick={() => setSettingsLoadAttempt(value => value + 1)} className="mt-2 underline">설정 다시 불러오기</button></div>}
       <nav className="settings-navigation modern-only" aria-label="설정 분류">
-        {([['appearance', '화면 · 테마', 'palette'], ['api', 'API · 모델', 'key'], ['output', '출력 설정', 'output'], ['summary', '요약 설정', 'summary'], ['cost', '크레딧', 'cost'], ['account', '계정', 'my'], ...(canManageSettings ? [['admin', '운영자', 'admin']] : [])] as [string, string, InterfaceIconName][]).map(([id, label, icon]) => <button type="button" key={id} aria-current={activeSection === id ? 'page' : undefined} onClick={() => setActiveSection(id)}><InterfaceIcon name={icon} />{label}</button>)}
+        {([['appearance', '화면 · 테마', 'palette'], ['api', 'API · 모델', 'key'], ['output', '출력 설정', 'output'], ['cache', '캐시 설정', 'imageCache'], ['summary', '요약 설정', 'summary'], ['cost', '크레딧', 'cost'], ['account', '계정', 'my'], ...(canManageSettings ? [['admin', '운영자', 'admin']] : [])] as [string, string, InterfaceIconName][]).map(([id, label, icon]) => <button type="button" key={id} aria-current={activeSection === id ? 'page' : undefined} onClick={() => setActiveSection(id)}><InterfaceIcon name={icon} />{label}</button>)}
       </nav>
       <div data-settings-section="appearance">
         <InterfacePreferences />
@@ -329,20 +313,7 @@ export default function SettingsPage() {
         </section>
       )}
 
-      <section data-settings-section="output" aria-labelledby="image-cache-heading">
-        <h2 id="image-cache-heading" className="mb-3 font-semibold text-white">이미지 캐시</h2>
-        <p className="mb-3 text-xs text-slate-500">이 기기·브라우저에 저장된 채팅 이미지와 작품 썸네일 캐시를 삭제합니다. 채팅 기록, 설정, 업로드한 원본 이미지는 유지됩니다.</p>
-        <button
-          type="button"
-          disabled={clearingImageCache}
-          aria-busy={clearingImageCache}
-          onClick={() => void handleClearImageCache()}
-          className="w-full rounded-lg bg-surface2 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {clearingImageCache ? '이미지 캐시 삭제 중…' : '이미지 캐시 삭제'}
-        </button>
-        <p role="status" className="mt-2 text-xs text-slate-400">{imageCacheMessage}</p>
-      </section>
+      <ImageCacheSettings key={user?.id} active={activeSection === 'cache'} />
 
       {profile && (
         <section data-settings-section="summary">
