@@ -173,10 +173,10 @@ try {
     grant select,update on profiles to authenticated;
   `);
   await query('insert into profiles values($1),($2)', [owner, outsider]);
-  const transitionMigration = readdirSync(new URL('../supabase/migrations/', import.meta.url))
-    .find(filename => filename.endsWith('_persona_turn_transitions.sql'));
-  assert.ok(transitionMigration);
-  await db.exec(migration(transitionMigration));
+  const transitionMigrations = readdirSync(new URL('../supabase/migrations/', import.meta.url))
+    .filter(filename => /_persona_transition_(columns|functions|archives|generation)\.sql$/.test(filename)).sort();
+  assert.equal(transitionMigrations.length, 4);
+  for (const filename of transitionMigrations) await db.exec(migration(filename));
   const [legacyRoom, legacyUser, noticeUser, noticeAnswer, rearchiveId] = Array.from({length: 5}, () => crypto.randomUUID());
   await query('insert into sessions(id,user_id,persona_id) values($1,$2,$3)', [legacyRoom, owner, first]);
   await query("insert into messages(id,session_id,role,content,turn_index) values($1,$2,'user','Legacy user turn',1)", [legacyUser, legacyRoom]);

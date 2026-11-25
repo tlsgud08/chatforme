@@ -1,7 +1,4 @@
-alter table public.profiles add column persona_transition_notice_enabled boolean not null default true;
-alter table public.platform_config add column persona_transition_notice_template text not null default '';
-alter table public.messages add column author_persona_name text;
-
+set local lock_timeout = '3s';
 create or replace function public.guard_session_persona_death() returns trigger
 language plpgsql security invoker set search_path = public, pg_temp as $$
 begin
@@ -116,61 +113,9 @@ begin
   return true;
 end $$;
 
-do $$
-declare definition text; updated text;
-begin
-  select pg_get_functiondef('public.begin_session_response(uuid,uuid,uuid,text,uuid,text,text,jsonb,text,integer,uuid,integer,integer,text)'::regprocedure) into definition;
-  updated := replace(definition, 'command_prompt,author_persona_id)', 'command_prompt,author_persona_id,author_persona_name)');
-  updated := replace(updated, 'user_command_prompt,s.persona_id)', 'user_command_prompt,s.persona_id,
-    coalesce((select p.name from public.personas p where p.id = s.persona_id and p.user_id = s.user_id), ''''))');
-  if updated = definition or position('author_persona_name)' in updated) = 0
-    or position('p.id = s.persona_id and p.user_id = s.user_id' in updated) = 0 then
-    raise exception 'Response claim changed; review persona name attribution.';
-  end if;
-  execute updated;
-
-  select pg_get_functiondef('public.session_generation_context(uuid,integer,integer,boolean)'::regprocedure) into definition;
-  updated := replace(definition, '''contextHash'',public.session_response_context_hash(target_session))',
-    '''contextHash'',public.session_response_context_hash(target_session),''personaTurn'',public.session_persona_turn_context(target_session))');
-  if updated = definition then raise exception 'Generation context changed; review persona transitions.'; end if;
-  execute updated;
-
-  select pg_get_functiondef('private.mutate_session_persona_archive(uuid,uuid,text,uuid,uuid,uuid,jsonb)'::regprocedure) into definition;
-  updated := replace(definition, 'saved.persona_id is not null or room.persona_id is distinct from target_persona',
-    '(saved.persona_id is not null and (not saved.is_living or saved.request_id is distinct from expected_revision))
-      or room.persona_id is distinct from target_persona');
-  updated := replace(updated, 'a.persona_id = next_persona))', 'a.persona_id = next_persona and not a.is_living))');
-  updated := replace(updated, 'if status_action = ''keep'' and operation = ''edit'' then',
-    'if status_action = ''keep'' and saved.persona_id is not null then');
-  updated := replace(updated, 'limit 1)
-    );
-    update public.sessions', 'limit 1)
-    )
-    on conflict (session_id, persona_id) do update set
-      request_id = excluded.request_id, persona_name = excluded.persona_name, persona_description = excluded.persona_description,
-      status_message_id = excluded.status_message_id, status_block = excluded.status_block, status_turn = excluded.status_turn,
-      death_note = excluded.death_note, is_living = excluded.is_living, may_appear = excluded.may_appear,
-      image_url = excluded.image_url, archived_after_message_id = excluded.archived_after_message_id,
-      recorded_at = excluded.recorded_at;
-    update public.sessions');
-  updated := replace(updated, 'else
-    update public.session_persona_deaths a set request_id', 'else
-    if room.persona_id = target_persona and not archive_living then
-      raise exception ''플레이 중인 페르소나는 현재 페르소나 보관에서 사망 처리해 주세요.'' using errcode = ''PT409'';
-    end if;
-    update public.session_persona_deaths a set request_id');
-  if position('not saved.is_living' in updated) = 0 or position('a.persona_id = next_persona and not a.is_living' in updated) = 0
-    or position('on conflict (session_id, persona_id)' in updated) = 0 or position('room.persona_id = target_persona and not archive_living' in updated) = 0
-    or position('if status_action = ''keep'' and saved.persona_id is not null' in updated) = 0 then
-    raise exception 'Archive mutation changed; review living persona reuse.';
-  end if;
-  execute updated;
-end $$;
-
 revoke all on function public.session_persona_turn_context(uuid),
   public.begin_session_response(uuid,uuid,uuid,text,uuid,text,text,jsonb,text,integer,uuid,integer,integer,text,uuid),
   public.save_admin_settings_with_persona_transition(jsonb,jsonb,text,text,text,text,text,text,text) from public, anon;
 grant execute on function public.session_persona_turn_context(uuid),
   public.begin_session_response(uuid,uuid,uuid,text,uuid,text,text,jsonb,text,integer,uuid,integer,integer,text,uuid),
   public.save_admin_settings_with_persona_transition(jsonb,jsonb,text,text,text,text,text,text,text) to authenticated;
-notify pgrst, 'reload schema';
