@@ -149,8 +149,8 @@ export default function SessionMenu({
     gcTime: 0,
   });
   const archives = archiveQuery.data?.archives ?? null;
-  const archivedPersonaIds = new Set(archives?.map(record => record.persona_id));
-  const availablePersonas = personas.filter(item => !archivedPersonaIds.has(item.id));
+  const deceasedPersonaIds = new Set(archives?.filter(record => !record.is_living).map(record => record.persona_id));
+  const availablePersonas = personas.filter(item => !deceasedPersonaIds.has(item.id));
   const currentPersona = availablePersonas.find(item => item.id === session.persona_id)
     ?? (archiveQuery.data?.persona?.id === session.persona_id ? archiveQuery.data?.persona ?? undefined : undefined);
   const [savedMsg, setSavedMsg] = useState('');
@@ -370,7 +370,8 @@ export default function SessionMenu({
     ? <SemiSessionSettings key={`semi:${session.id}`} sessionId={session.id} userId={user.id} busy={sending || summaryGenerating} onPublish={onPublishSemiSummary} onSavingChange={onWorkCombinationSavingChange} onActiveChange={handleSemiActiveChange} />
     : null;
   const archiveSettings = canArchivePersona
-    ? <PersonaDeathSettings key={`archive:${session.id}`} sessionId={session.id} currentPersona={currentPersona}
+    ? <PersonaDeathSettings key={`archive:${session.id}`} sessionId={session.id} userId={session.user_id} currentPersona={currentPersona}
+        onSelectPersona={selected => void selectPersona(selected)}
         nextPersonas={availablePersonas} archives={archives} readError={archiveQuery.isError && !archives}
         busy={sending || summaryGenerating || personaSaving} onRetry={() => void archiveQuery.refetch()}
         onSavingChange={onPersonaSavingChange}

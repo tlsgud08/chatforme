@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import type { Message, Session } from '@/types/db';
 import type { PersonaArchiveContext, PersonaDeathContext } from './personaDeathPrompt';
+import type { PersonaTurnContext } from './personaTransition';
 
 export interface MessagePage { messages: Message[]; hasOlder: boolean; oldestTurn: number | null; totalUserTurns: number; }
 
@@ -24,7 +25,7 @@ export async function fetchMessagePage(sessionId: string, before?: number, signa
   return data as MessagePage;
 }
 
-export async function generationContext(session: Session, keywordTurns: number, reroll: boolean, signal?: AbortSignal): Promise<{ messages: Message[]; summary: string; summaryLastTurn: number; contextHash?: string; personaDeaths?: PersonaDeathContext; personaArchives?: PersonaArchiveContext }> {
+export async function generationContext(session: Session, keywordTurns: number, reroll: boolean, signal?: AbortSignal): Promise<{ messages: Message[]; summary: string; summaryLastTurn: number; contextHash?: string; personaDeaths?: PersonaDeathContext; personaArchives?: PersonaArchiveContext; personaTurn?: PersonaTurnContext }> {
   const request = supabase.rpc('session_generation_context', {
     target_session: session.id, after_summary: session.summary_last_turn,
     keyword_turns: keywordTurns, reroll,
@@ -35,6 +36,7 @@ export async function generationContext(session: Session, keywordTurns: number, 
   return {
     messages: data.messages as Message[], summary: data.summary, summaryLastTurn: data.summaryLastTurn,
     ...(typeof data.contextHash === 'string' ? { contextHash: data.contextHash } : {}),
+    ...(data.personaTurn ? { personaTurn: data.personaTurn as PersonaTurnContext } : {}),
     ...(data.personaArchives ? { personaArchives: data.personaArchives as PersonaArchiveContext } : {}),
     ...(data.personaDeaths ? { personaDeaths: data.personaDeaths as PersonaDeathContext } : {}),
   };

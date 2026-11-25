@@ -52,7 +52,25 @@ const checks = `
   assert.equal(claim.user_text, ''); assert.equal(claim.user_command_name, '행동'); assert(claim.user_message_id);
   assert(!claim.reuse_user_message, 'an explicit selected command takes precedence over Continue');
 
-  env.selectedCommand = null; fresh = answered; counts.length = 0;
+  env.selectedCommand = null;
+  const ordinaryContext = env.generationContext;
+  fresh = unanswered; env.input = ''; counts.length = 0;
+  env.generationContext = async () => ({
+    ...await ordinaryContext(),
+    personaTurn: {persona: {id: 'new-pc', name: '누리', description: 'New playable persona'},
+      notice: {from: '마루', to: '누리', template: '{이전} → {현재}'}},
+  });
+  await send();
+  claim = saved.findLast(row => row[0] === 'begin')[1];
+  assert.equal(claim.user_text, ['*이어서 계속 진행*', '*마루 → 누리*'].join(String.fromCharCode(10, 10)));
+  assert(!claim.reuse_user_message);
+  assert(claim.user_message_id);
+  assert.equal(claim.expected_persona, 'new-pc');
+  assert.equal(bodies.at(-1).messages.at(-1).content, ['original input', claim.user_text].join(String.fromCharCode(10, 10)),
+    'consecutive user turns are joined for the model, and the new editable turn is included unchanged');
+  env.generationContext = ordinaryContext;
+
+  fresh = answered; counts.length = 0;
   const before = bodies.length;
   await Promise.all([send(), send()]);
   assert.equal(bodies.length, before+1, 'same-render double clicks still make exactly one request');

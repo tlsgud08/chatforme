@@ -33,7 +33,8 @@ globalThis.fetch = async (_url, options) => {
   return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: 'NEW ANSWER' } }], usage: { prompt_tokens: 10, completion_tokens: 2, cost: 0 } }) + '\n\ndata: [DONE]\n\n');
 };
 try {
-  const { resolveChatSubmission } = await server.ssrLoadModule('/src/lib/chatSubmission.ts');
+  const { CONTINUE_MESSAGE, resolveChatSubmission } = await server.ssrLoadModule('/src/lib/chatSubmission.ts');
+  const { appendPersonaTransition } = await server.ssrLoadModule('/src/lib/personaTransition.ts');
   const { generate } = await server.ssrLoadModule('/src/lib/llm/index.ts');
   const { createGenerationProgress } = await server.ssrLoadModule('/src/lib/generationProgress.ts');
   const { assemblePrompt } = await server.ssrLoadModule('/src/lib/prompt/assemble.ts');
@@ -49,7 +50,7 @@ try {
   const registry = new Map();
   let semiContext = null;
   const env = {
-    resolveChatSubmission, generationProgress: createGenerationProgress(),
+    CONTINUE_MESSAGE, resolveChatSubmission, appendPersonaTransition, generationProgress: createGenerationProgress(),
     AbortController, DOMException, crypto, performance, setTimeout, clearTimeout,
     GENERATION_TIMEOUT_MS: 60_000, DRAFT_SAVE_INTERVAL_MS: 1000,
     pendingSave: null, user: { id: 'owner' }, sessionId: 'room', session, work: { id: 'work', main_prompt: 'main prompt' },

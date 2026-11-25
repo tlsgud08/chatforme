@@ -34,7 +34,8 @@ import { loadGlobalSummaryPrompt, loadSemiSyncSummaryPrompt, summaryPromptWithPa
 import { summaryNarrativeConfig, summaryAchievementToast } from '@/lib/summaryNarrative';
 import { generateSummaryResponse, isUserSummaryStop, SUMMARY_USER_STOP } from '@/lib/summaryGeneration';
 import { saveSummaryWithFallback } from '@/lib/summaryPersistence';
-import { resolveChatSubmission } from '@/lib/chatSubmission';
+import { CONTINUE_MESSAGE, resolveChatSubmission } from '@/lib/chatSubmission';
+import { appendPersonaTransition, type PersonaTurnContext } from '@/lib/personaTransition';
 import { withoutSyncDateTags } from '@/lib/syncDate';
 import { applySemiContext, loadSemiContext, semiAction, type SemiPreparation } from '@/lib/semiSession';
 import type { Command, KeywordBook, Message, Persona, Profile, Provider, Session, StartConfig, StoryNote, SummaryVersion, Work } from '@/types/db';
@@ -1037,6 +1038,7 @@ export default function ChatPage() {
     let contextSummary = session.summary;
     let contextSummaryTurn = session.summary_last_turn;
     let contextHash: string | undefined;
+    let personaTurn: PersonaTurnContext | undefined;
     let personaArchiveContext: PersonaArchiveContext | null = null;
     let personaDeathContext: PersonaDeathContext | null = null;
     if (sessionId) {
@@ -1047,6 +1049,7 @@ export default function ChatPage() {
         contextSummary = context.summary;
         contextSummaryTurn = context.summaryLastTurn;
         contextHash = context.contextHash;
+        personaTurn = context.personaTurn;
         personaArchiveContext = context.personaArchives ?? null;
         personaDeathContext = context.personaDeaths ?? null;
         timing.mark('context');
@@ -1060,7 +1063,10 @@ export default function ChatPage() {
     }
     const activeMessages = completeMessages.filter((message) => message.is_active_variant !== false);
     const submission = resolveChatSubmission(submittedInput, submittedCommand, activeMessages);
-    const reusedUserMessage = options?.reroll ? null : submission.reusedUser;
+    const transitionNotice = options?.reroll ? null : personaTurn?.notice ?? null;
+    // An unanswered turn belongs to its original player. A continuation after
+    // a switch starts a new editable user turn for the new player.
+    const reusedUserMessage = options?.reroll || transitionNotice ? null : submission.reusedUser;
     const rerollTarget = options?.reroll ? [...activeMessages].reverse().find((message) => message.role === 'assistant' && !message.is_hidden) ?? null : null;
     const baseMessages = rerollTarget ? activeMessages.filter((message) => message.id !== rerollTarget.id) : activeMessages;
     let effectiveSummary = contextSummary;
@@ -1106,7 +1112,8 @@ export default function ChatPage() {
       }
       rerollCommandPrompt = command?.prompt?.trim() ?? '';
     }
-    const text = options?.reroll ? rerollUserMessage?.content ?? '' : submission.text;
+    const text = options?.reroll ? rerollUserMessage?.content ?? ''
+      : appendPersonaTransition(submission.reusedUser && transitionNotice ? CONTINUE_MESSAGE : submission.text, transitionNotice);
     const commandName = sourceUserMessage ? sourceUserMessage.command_name : submittedCommand?.name;
     const commandPrompt = sourceUserMessage ? rerollCommandPrompt : submittedCommand?.prompt.trim() ?? '';
     const promptText = commandPrompt ? `${text}${text ? '\n\n' : ''}[Selected Command /${commandName}]\n${commandPrompt}` : text;
@@ -1154,7 +1161,7 @@ export default function ChatPage() {
       return;
     }
     const { liveTheme, workCombination, semiContext } = prepared.value;
-    const personaContext = personaArchiveContext ?? personaDeathContext;
+    const personaContext = personaTurn ?? personaArchiveContext ?? personaDeathContext;
     const activePersona = personaContext ? personaContext.persona : persona;
 
     // Rerolls and unanswered-user retries place the original user last. Remove
@@ -1200,6 +1207,7 @@ export default function ChatPage() {
         user_text: text, user_command_id: submittedCommand?.id ?? null, user_command_name: submittedCommand?.name ?? null,
         user_command_prompt: submittedCommand?.prompt.trim() ?? null,
         expected_context_hash: contextHash,
+        ...(personaTurn && !reusedUserMessage && { expected_persona: personaTurn.persona?.id ?? null }),
         source_versions: contextHash ? [] : completeMessages.map(message => ({ id: message.id, version: message.content_version ?? 0, active: message.is_active_variant !== false })),
         expected_summary: contextSummary, expected_summary_turn: contextSummaryTurn,
         reroll_message: rerollTarget?.id ?? null, requested_turn: turnIndex, requested_variant: rerollIndex,
