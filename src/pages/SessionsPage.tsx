@@ -419,7 +419,7 @@ export default function SessionsPage() {
         </>}
         <div className="ml-auto flex items-center gap-2">
           {currentFolder && <><button type="button" disabled={isLoading || isError} onClick={() => setFolderDialog(currentFolder)} className="rounded-lg bg-surface px-3 py-2 text-sm text-slate-300 disabled:opacity-40">편집·채팅방 선택</button><button type="button" aria-label="폴더 삭제" onClick={() => void deleteFolder(currentFolder)} className="p-2 text-red-400"><InterfaceIcon name="delete" /></button></>}
-          <button type="button" disabled={isLoading || isError || foldersLoading || foldersError} onClick={() => setFolderDialog('new')} className="flex items-center gap-1 rounded-lg bg-surface px-3 py-2 text-sm text-slate-300 disabled:opacity-40"><InterfaceIcon name="plus" />폴더</button>
+          {location.kind === 'root' && <button type="button" disabled={isLoading || isError || foldersLoading || foldersError} onClick={() => setFolderDialog('new')} className="flex items-center gap-1 rounded-lg bg-surface px-3 py-2 text-sm text-slate-300 disabled:opacity-40"><InterfaceIcon name="plus" />폴더</button>}
         </div>
       </div>}
       <div className="flex-1 overflow-y-auto">
