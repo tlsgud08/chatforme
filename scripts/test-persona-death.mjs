@@ -99,7 +99,7 @@ try {
   `);
   await db.exec(migration('20261025012314_atomic_session_branch.sql'));
   await db.exec(migration('20261104235318_prune_unselected_responses.sql'));
-  await db.exec(migration('20261126000000_persona_archives.sql'));
+  await db.exec(migration('20261125151120_persona_archives.sql'));
   const [fourth, nextUser, nextAnswer, livingId, earlyFork, fullFork, nestedFork, editId, deleteId] =
     Array.from({ length: 9 }, () => crypto.randomUUID());
   await query("insert into personas values($1,$2,'Next','Next PC')", [fourth, owner]);
