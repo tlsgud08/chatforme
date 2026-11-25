@@ -46,6 +46,7 @@ export interface PlatformConfig {
   semi_multichat_prompt?: string;
   semi_sync_summary_prompt?: string;
   persona_death_prompt?: string;
+  persona_living_archive_prompt?: string;
   summary_prompt: string;
   id: number;
   system_prompt: string;

@@ -2,7 +2,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { RootContent } from 'mdast';
 import type { Message } from '@/types/db';
 import { supabase } from './supabase';
-import type { PersonaDeathContext } from './personaDeathPrompt';
+import type { PersonaArchiveContext } from './personaDeathPrompt';
 
 export interface DeathStatusChoice {
   id: string;
@@ -41,27 +41,65 @@ export function deathStatusChoices(messages: Message[]): DeathStatusChoice[] {
   });
 }
 
-export async function loadPersonaDeathContext(sessionId: string, signal: AbortSignal): Promise<PersonaDeathContext> {
-  const { data, error } = await supabase.rpc('session_persona_death_context', { target_session: sessionId }, { get: true }).abortSignal(signal);
+export async function loadPersonaArchiveContext(sessionId: string, signal: AbortSignal): Promise<PersonaArchiveContext> {
+  const { data, error } = await supabase.rpc('session_persona_archive_context', { target_session: sessionId }, { get: true }).abortSignal(signal);
   if (error) throw error;
-  if (!data || !Array.isArray(data.deaths)) throw new Error('페르소나 사망 기록을 불러오지 못했습니다.');
-  return data as PersonaDeathContext;
+  if (!data || !Array.isArray(data.archives)) throw new Error('페르소나 보관 기록을 불러오지 못했습니다.');
+  return data as PersonaArchiveContext;
 }
 
-export async function recordPersonaDeath(
-  sessionId: string, personaId: string, nextPersonaId: string | null,
-  status: DeathStatusChoice | undefined, note: string, requestId: string,
-): Promise<PersonaDeathContext> {
+export async function loadPersonaStatusTurn(sessionId: string, turn: number, signal?: AbortSignal): Promise<DeathStatusChoice | undefined> {
+  const request = supabase.rpc('session_persona_status_turn', { target_session: sessionId, target_turn: turn }, { get: true });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
+  if (!Array.isArray(data)) throw new Error('상태창을 불러오지 못했습니다.');
+  return deathStatusChoices(data as Message[])[0];
+}
+
+export function parsePersonaImageLink(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    if (/^https?:\/\/[^\s<>]+$/i.test(trimmed)) {
+      const url = new URL(trimmed);
+      if (url.href.length <= 2048 && !url.username && !url.password) return url.href;
+    }
+  } catch {
+    // Invalid URL input is handled with the same validation message below.
+  }
+  throw new Error('HTTP 또는 HTTPS 이미지 링크 한 개를 입력해 주세요.');
+}
+
+export type StatusArchiveSelection = { type: 'keep' | 'remove' } | { type: 'replace'; status: DeathStatusChoice };
+
+export interface PersonaArchiveChange {
+  living: boolean;
+  mayAppear: boolean;
+  imageUrl: string | null;
+  note: string;
+  status: StatusArchiveSelection;
+}
+
+export async function mutatePersonaArchive(
+  sessionId: string, personaId: string, operation: 'create' | 'edit' | 'delete', nextPersona: string | null,
+  revision: string | null, requestId: string, change?: PersonaArchiveChange,
+): Promise<PersonaArchiveContext> {
+  const status = change?.status.type === 'replace' ? change.status.status : undefined;
   const args = {
-    target_session: sessionId, expected_persona: personaId, next_persona: nextPersonaId,
-    request_id: requestId, death_note: note, status_block: status?.raw ?? null,
-    status_message: status?.messageId ?? null, status_version: status?.messageVersion ?? null,
+    target_session: sessionId, target_persona: personaId, operation, mutation_id: requestId,
+    expected_revision: revision, next_persona: nextPersona,
+    changes: change ? {
+      is_living: change.living, may_appear: change.mayAppear, image_url: change.imageUrl, note: change.note,
+      status_action: change.status.type, status_block: status?.raw, status_message: status?.messageId,
+      status_version: status?.messageVersion,
+    } : null,
   };
-  let { data, error } = await supabase.rpc('record_session_persona_death', args);
+  const submit = () => supabase.rpc('mutate_session_persona_archive', args);
+  let { data, error } = await submit();
   if (error && /load failed|failed to fetch|networkerror|network request failed/i.test(error.message)) {
-    ({ data, error } = await supabase.rpc('record_session_persona_death', args));
+    ({ data, error } = await submit());
   }
   if (error) throw error;
-  if (!data || !Array.isArray(data.deaths)) throw new Error('사망 처리 결과를 확인하지 못했습니다.');
-  return data as PersonaDeathContext;
+  if (!data || !Array.isArray(data.archives)) throw new Error('보관 기록 저장 결과를 확인하지 못했습니다.');
+  return data as PersonaArchiveContext;
 }

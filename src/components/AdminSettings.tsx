@@ -4,13 +4,13 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { showConfirmDialog } from '@/lib/dialog';
 import { DEFAULT_WORK_COMBINATION_PROMPT } from '@/lib/workCombination';
-import { DEFAULT_PERSONA_DEATH_PROMPT } from '@/lib/personaDeathPrompt';
+import { DEFAULT_PERSONA_DEATH_PROMPT, DEFAULT_PERSONA_LIVING_ARCHIVE_PROMPT } from '@/lib/personaDeathPrompt';
 import { DEFAULT_KNOWLEDGE_CONFIG, type KnowledgeConfig } from '@/lib/knowledge/types';
 import defaultSemi from '@/lib/prompts/semi-multichat.md?raw';
 import defaultSync from '@/lib/prompts/semi-sync-summary.md?raw';
 import ModelSelector from './ModelSelector';
 
-type PromptKey = 'system_prompt' | 'theme_prompt' | 'multichat_system_prompt' | 'summary_prompt' | 'semi_multichat_prompt' | 'semi_sync_summary_prompt' | 'work_combination_prompt' | 'persona_death_prompt';
+type PromptKey = 'system_prompt' | 'theme_prompt' | 'multichat_system_prompt' | 'summary_prompt' | 'semi_multichat_prompt' | 'semi_sync_summary_prompt' | 'work_combination_prompt' | 'persona_death_prompt' | 'persona_living_archive_prompt';
 type AdminDraft = Record<PromptKey, string> & { knowledge_config: Partial<KnowledgeConfig> };
 const editors: { key: PromptKey; title: string; help: string; initial?: string }[] = [
   { key: 'system_prompt', title: '전역 시스템 프롬프트', help: '모든 채팅에 공통으로 적용되는 최상단 지시문입니다.' },
@@ -21,6 +21,7 @@ const editors: { key: PromptKey; title: string; help: string; initial?: string }
   { key: 'semi_sync_summary_prompt', title: '동기화용 요약 프롬프트', help: '상대 세션에게 전달할 요약에만 사용됩니다.', initial: defaultSync },
   { key: 'work_combination_prompt', title: '작품 결합 지침', help: '메인 작품과 추가 작품 프롬프트 묶음 앞에 적용됩니다.', initial: DEFAULT_WORK_COMBINATION_PROMPT },
   { key: 'persona_death_prompt', title: '페르소나 사망 처리 지침', help: '사망 기록이 있는 채팅방에 적용됩니다. 비워 두면 기본 문구를 사용합니다.', initial: DEFAULT_PERSONA_DEATH_PROMPT },
+  { key: 'persona_living_archive_prompt', title: '페르소나 생존 보관 지침', help: '생존 보관 기록이 있는 채팅방에 적용됩니다. 비워 두면 기본 문구를 사용합니다.', initial: DEFAULT_PERSONA_LIVING_ARCHIVE_PROMPT },
 ];
 const columns = [...editors.map(e => e.key), 'knowledge_config'].join(',');
 export default function AdminSettings() {
@@ -56,11 +57,12 @@ export default function AdminSettings() {
     lock.current = true; setSaving(true); setMessage('');
     const desired = { ...draft, knowledge_config: knowledge };
     try {
-      const { persona_death_prompt: previousDeathPrompt, ...previousSettings } = baseline;
-      const { persona_death_prompt: desiredDeathPrompt, ...desiredSettings } = desired;
-      const { data, error } = await supabase.rpc('save_admin_settings_with_persona_death', {
+      const { persona_death_prompt: previousDeathPrompt, persona_living_archive_prompt: previousLivingPrompt, ...previousSettings } = baseline;
+      const { persona_death_prompt: desiredDeathPrompt, persona_living_archive_prompt: desiredLivingPrompt, ...desiredSettings } = desired;
+      const { data, error } = await supabase.rpc('save_admin_settings_with_persona_archives', {
         previous: previousSettings, desired: desiredSettings, new_master_password: password || null,
         previous_death_prompt: previousDeathPrompt, desired_death_prompt: desiredDeathPrompt,
+        previous_living_prompt: previousLivingPrompt, desired_living_prompt: desiredLivingPrompt,
       });
       if (error || data !== true) throw error ?? new Error('저장 결과를 확인하지 못했습니다.');
       setDraft(desired); setBaseline(desired); setPassword(''); setConfirm(''); setMessage('전체 관리자 설정을 저장했습니다. 다음 요청부터 적용됩니다.');
@@ -99,7 +101,7 @@ export default function AdminSettings() {
     <fieldset disabled={!draft || saving} className="flex min-w-0 flex-col gap-6 disabled:opacity-60">
       {editors.map(editor => <section key={editor.key} className="rounded-lg border border-yellow-600/30 bg-yellow-950/20 p-4">
         <h3 className="mb-1 font-semibold text-yellow-400">{editor.title}</h3><p className="mb-3 text-xs text-slate-400">{editor.help}</p>
-        <textarea aria-label={editor.title} value={draft?.[editor.key] ?? ''} placeholder={editor.key === 'persona_death_prompt' ? DEFAULT_PERSONA_DEATH_PROMPT : undefined} rows={editor.key.includes('summary') ? 16 : 8} onChange={event => setDraft(value => value && ({ ...value, [editor.key]: event.target.value }))} className="w-full resize-y rounded-lg bg-surface p-3 font-mono text-xs leading-relaxed outline-none" />
+        <textarea aria-label={editor.title} value={draft?.[editor.key] ?? ''} placeholder={editor.key.startsWith('persona_') ? editor.initial : undefined} rows={editor.key.includes('summary') ? 16 : 8} onChange={event => setDraft(value => value && ({ ...value, [editor.key]: event.target.value }))} className="w-full resize-y rounded-lg bg-surface p-3 font-mono text-xs leading-relaxed outline-none" />
         {editor.initial !== undefined && <button type="button" onClick={() => setDraft(value => value && ({ ...value, [editor.key]: editor.initial! }))} className="mt-2 text-xs underline">기본 문구 불러오기</button>}
       </section>)}
       <section className="rounded-lg border border-brand/30 bg-brand/5 p-4">
