@@ -7,7 +7,7 @@ const compile = path => ts.transpileModule(readFileSync(new URL('../' + path, im
 const libraryUri = uri(compile('src/lib/sessionLibrary.ts'));
 const { groupLibrarySessions, matchesSessionSearch, sessionsInLocation } = await import(libraryUri);
 const sessions = [
-  { id: 'a', title: '밤의 요코하마', work_id: 'one', is_archived: true, works: { title: '작품' }, personas: { name: '히나' } },
+  { id: 'a', title: '밤의 요코하마', work_id: 'one', is_archived: true, works: { title: '작품', thumbnail_url: 'https://example.test/thumbnail.png' }, personas: { name: '히나' } },
   { id: 'b', title: 'Tokyo NIGHT', work_id: 'two', is_archived: false, works: { title: '작품' }, personas: { name: ' 히나 ' } },
   { id: 'c', title: '미분류', work_id: 'one', is_archived: false, works: { title: '작품' }, personas: null },
 ];
@@ -95,6 +95,12 @@ let tree = render();
 assert.equal(nodes(tree, n => n.type === 'li').length, 3, 'bookmarked rooms remain active');
 button(tree, '보관함').props.onClick(); tree = render();
 assert.equal(nodes(tree, n => n.props['aria-label'] === '폴더 삭제').length, 0, 'built-in folders have no delete control');
+assert(nodes(tree, n => n.type === 'button' && label(n).startsWith('작품별 보기'))[0].props.children.some(child => child?.props?.children?.props?.name === 'works'));
+assert(nodes(tree, n => n.type === 'button' && label(n).startsWith('페르소나별 보기'))[0].props.children.some(child => child?.props?.children?.props?.name === 'my'));
+nodes(tree, n => n.type === 'button' && label(n).startsWith('작품별 보기'))[0].props.onClick(); tree = render();
+assert.equal(nodes(tree, n => n.type === 'img' && n.props.src === 'https://example.test/thumbnail.png').length, 1, 'work folder displays its thumbnail');
+assert(nodes(tree, n => n.props?.name === 'folder').length > 0, 'missing thumbnails retain a folder icon');
+button(tree, '보관함').props.onClick(); tree = render();
 nodes(tree, n => n.type === 'button' && label(n).startsWith('페르소나별 보기'))[0].props.onClick(); tree = render();
 assert.equal(nodes(tree, n => n.props['aria-label'] === '폴더 삭제').length, 0);
 nodes(tree, n => n.type === 'button' && label(n).startsWith('히나2'))[0].props.onClick(); tree = render();
