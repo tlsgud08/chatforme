@@ -5,6 +5,8 @@ export type Role = 'user' | 'assistant';
 
 export interface Profile {
   id: string;
+  image_cache_max_entries?: number;
+  image_cache_max_age_days?: number | null;
   display_name: string;
   avatar_url: string | null;
   bio: string | null;
