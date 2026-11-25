@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { fetchSessionConversationCounts, sessionCountsKey } from '@/lib/sessionCounts';
 import { measureOperation } from '@/lib/operationTiming';
 import { useAuth } from '@/hooks/useAuth';
+import SessionSortDropdown from '@/components/SessionSortDropdown';
 import SessionFolderPicker from '@/components/SessionFolderPicker';
 import SessionFolderDialog from '@/components/SessionFolderDialog';
 import { sortLibrarySessions, type SessionSort, folderPath, groupLibrarySessions, matchesSessionSearch, sessionsInLocation, type LibrarySession, type LibraryLocation, type SessionFolder } from '@/lib/sessionLibrary';
@@ -346,10 +347,10 @@ export default function SessionsPage() {
           >
             멀티챗
           </button>
-          {viewTab !== 'multichat' && <div className="flex flex-wrap items-center gap-2 px-3">
-            <label className="relative text-sm text-slate-300"><select aria-label="채팅방 정렬" value={sortOrder} onChange={event => { setSortOrder(event.target.value as SessionSort); cancelSelect(); }} className="appearance-none rounded-lg bg-surface py-1.5 pl-3 pr-8 outline-none focus:ring-1 focus:ring-brand"><option value="latest">최신순</option><option value="turns-desc">턴 수 많은 순</option><option value="turns-asc">턴 수 적은 순</option></select><span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"><InterfaceIcon name="down" /></span></label>
-            <button disabled={folderList || isLoading || isError || visibleList.length === 0} onClick={() => enterSelectMode('select')} className="rounded-lg bg-surface px-3 py-1.5 text-sm text-slate-300 disabled:opacity-40">선택</button>
-            <button type="button" aria-label="채팅방 검색" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); setSearch(''); cancelSelect(); }} className="p-2 text-slate-300"><InterfaceIcon name="search" /></button>
+          {viewTab !== 'multichat' && <div className="session-list-actions ml-auto flex shrink-0 items-center gap-1 px-2">
+            <SessionSortDropdown value={sortOrder} onChange={value => { setSortOrder(value); cancelSelect(); }} />
+            <button disabled={folderList || isLoading || isError || visibleList.length === 0} onClick={() => enterSelectMode('select')} className="rounded-lg bg-surface px-2 py-1 text-xs text-slate-300 disabled:opacity-40">선택</button>
+            <button type="button" aria-label="채팅방 검색" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); setSearch(''); cancelSelect(); }} className="p-1.5 text-slate-300"><InterfaceIcon name="search" /></button>
           </div>}
         </div>
       ) : (

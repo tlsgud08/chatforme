@@ -96,7 +96,7 @@ globalThis.__libraryCounts = { a: 1, b: 5, c: 0 };
 globalThis.__libraryDB = { from(table) { const chain = { update(value) { calls.push({ table, value }); return chain; }, in(key, ids) { calls.at(-1).ids = ids; return chain; }, select: async () => ({ data: calls.at(-1).ids.map(id => ({ id })), error: null }) }; return chain; } };
 globalThis.__libraryInvalidated = invalidated;
 const imports = {
-  react: hooks, '@/components/InterfaceIcon': empty, '@/components/ModernPageHeading': empty, '@/components/Friends': empty, '@/components/ConfirmDialog': empty, '@/components/SessionFolderDialog': empty, '@/components/SessionFolderPicker': empty, '@/lib/sessionLibrary': libraryUri,
+  react: hooks, '@/components/InterfaceIcon': empty, '@/components/ModernPageHeading': empty, '@/components/Friends': empty, '@/components/ConfirmDialog': empty, '@/components/SessionFolderDialog': empty, '@/components/SessionFolderPicker': empty, '@/components/SessionSortDropdown': empty, '@/lib/sessionLibrary': libraryUri,
   '@tanstack/react-query': uri(`export const useQueryClient=()=>({invalidateQueries:async value=>globalThis.__libraryInvalidated.push(value)});export const useQuery=args=>({data:args.queryKey[0]==='sessions'?globalThis.__librarySessions:args.queryKey[0]==='session-folders'?globalThis.__libraryFolders:args.queryKey[0]==='counts'?globalThis.__libraryCounts:[],isSuccess:true,isLoading:false,isError:false});`),
   'react-router-dom': uri(`export const Link=()=>null;export const useSearchParams=()=>[new URLSearchParams()];`),
   '@/lib/supabase': uri('export const supabase=globalThis.__libraryDB;'), '@/lib/sessionCounts': uri("export const fetchSessionConversationCounts=()=>({});export const sessionCountsKey=()=>['counts'];"),
@@ -111,9 +111,9 @@ const label = node => node == null || typeof node === 'boolean' ? '' : typeof no
 const button = (tree, text) => nodes(tree, n => n.type === 'button' && label(n) === text)[0];
 let tree = render();
 assert.equal(nodes(tree, n => n.type === 'li').length, 3, 'bookmarked rooms remain active');
-nodes(tree, n => n.type === 'select' && n.props['aria-label'] === '채팅방 정렬')[0].props.onChange({target:{value:'turns-desc'}}); tree = render();
+nodes(tree, n => n.props.value === 'latest' && typeof n.props.onChange === 'function')[0].props.onChange('turns-desc'); tree = render();
 assert.deepEqual(nodes(tree, n => n.type === 'li').map(item => item.key), ['b','a','c']);
-nodes(tree, n => n.type === 'select')[0].props.onChange({target:{value:'latest'}}); tree = render();
+nodes(tree, n => n.props.value === 'turns-desc' && typeof n.props.onChange === 'function')[0].props.onChange('latest'); tree = render();
 button(tree, '보관함').props.onClick(); tree = render();
 assert.equal(nodes(tree, n => n.props['aria-label'] === '폴더 삭제').length, 0, 'built-in folders have no delete control');
 assert(button(tree, '폴더'), 'folder creation is available at the root');
@@ -186,3 +186,25 @@ nodes(tree, n => n.type === 'form')[0].props.onSubmit({ preventDefault() {} }); 
 assert(saved && closed); assert.deepEqual(calls.at(-1).value, [{ folder_id: 'child', session_id: 'a' }, { folder_id: 'child', session_id: 'b' }]);
 assert.equal(calls.at(-1).options.ignoreDuplicates, true);
 console.log('Name-only folder creation and nested destination picker with bulk idempotent membership passed');
+
+// Exercise the same custom menu behavior as the work sort dropdown.
+const dropdownHooks = uri(`export {useState,useEffect} from ${JSON.stringify(hooks)};export const useRef=value=>({current:value});`);
+const dropdownSource = compile('src/components/SessionSortDropdown.tsx').replace(/from\s+(['"])([^'"]+)\1/g, (_, q, p) => 'from ' + JSON.stringify(p === 'react' ? dropdownHooks : p === './InterfaceIcon' ? empty : import.meta.resolve(p)));
+const Dropdown = (await import(uri(dropdownSource))).default;
+globalThis.__libraryUI = { index: 0, values: [] };
+let chosenSort = 'latest';
+const dropdownProps = () => ({ value: chosenSort, onChange: value => { chosenSort = value; } });
+tree = renderWidget(Dropdown, dropdownProps());
+assert.equal(nodes(tree, n => n.type === 'select').length, 0, 'sorting does not open a system select');
+nodes(tree, n => n.props['aria-label'] === '채팅방 정렬')[0].props.onClick(); tree = renderWidget(Dropdown, dropdownProps());
+const choices = nodes(tree, n => n.props.role === 'menuitemradio');
+assert.deepEqual(choices.map(label), ['최신순', '많은순', '적은순']);
+choices[1].props.onClick(); tree = renderWidget(Dropdown, dropdownProps());
+assert.equal(chosenSort, 'turns-desc');
+assert.equal(nodes(tree, n => n.props.role === 'menu').length, 0, 'choosing a sort closes the menu');
+const trigger = nodes(tree, n => n.props['aria-label'] === '채팅방 정렬')[0];
+trigger.props.onKeyDown({ key: 'ArrowDown', preventDefault() {} }); tree = renderWidget(Dropdown, dropdownProps());
+assert.equal(nodes(tree, n => n.props.role === 'menu').length, 1);
+nodes(tree, n => n.props.role === 'menu')[0].props.onKeyDown({ key: 'Escape', preventDefault() {}, stopPropagation() {} }); tree = renderWidget(Dropdown, dropdownProps());
+assert.equal(nodes(tree, n => n.props.role === 'menu').length, 0);
+console.log('Compact custom session sort menu: three-character labels, ordering, selection close and keyboard open/escape passed');
