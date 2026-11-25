@@ -65,7 +65,7 @@ export async function beginResponse(args: {
   user_text: string; user_command_id: string | null; user_command_name: string | null; user_command_prompt: string | null;
   source_versions: { id: string; version: number; active: boolean }[];
   expected_summary: string; expected_summary_turn: number; reroll_message: string | null;
-  requested_turn: number; requested_variant: number; expected_context_hash?: string;
+  requested_turn: number; requested_variant: number; expected_context_hash?: string; expected_persona?: string | null;
   reuse_user_message?: string;
 }): Promise<{ draft: Message; userMessage: Message | null; replayed: boolean }> {
   const { reuse_user_message, ...ordinary } = args;

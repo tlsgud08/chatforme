@@ -67,7 +67,7 @@ export function statusTurnLabel(turn: number | null): string {
 
 export function applyPersonaArchives(prompt: AssembledPrompt, context: PersonaArchiveContext): AssembledPrompt {
   const deceased = context.archives.filter(record => !record.is_living);
-  const living = context.archives.filter(record => record.is_living);
+  const living = context.archives.filter(record => record.is_living && record.persona_id !== context.persona?.id);
   const render = (record: PersonaArchiveRecord) => [
     snapshot(record.is_living ? '생존 보관된 인물 이름' : '사망한 PC 이름', record.persona_name),
     ...(record.is_living ? [record.may_appear

@@ -9,9 +9,12 @@ import { statusTurnLabel, type PersonaArchiveContext, type PersonaArchiveRecord 
 import { fetchMessagePage } from '@/lib/sessionData';
 import type { Persona } from '@/types/db';
 import InterfaceIcon from './InterfaceIcon';
+import PersonaTransitionToggle from './PersonaTransitionToggle';
 
 interface Props {
   sessionId: string;
+  userId: string;
+  onSelectPersona: (persona: Persona) => void;
   currentPersona: Persona | undefined;
   nextPersonas: Persona[];
   archives: PersonaArchiveRecord[] | null;
@@ -24,12 +27,14 @@ interface Props {
 
 const snapshotClass = 'm-0 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-surface p-3 text-xs [overflow-wrap:anywhere]';
 
-function ArchiveForm({ sessionId, personaId, name, description, record, nextPersonas, busy, onSavingChange, onSaved, onCancel }: {
+function ArchiveForm({ sessionId, personaId, name, description, record, handoff = false, active = false, nextPersonas, busy, onSavingChange, onSaved, onCancel }: {
   sessionId: string;
   personaId: string;
   name: string;
   description: string;
   record?: PersonaArchiveRecord;
+  handoff?: boolean;
+  active?: boolean;
   nextPersonas: Persona[];
   busy: boolean;
   onSavingChange: Props['onSavingChange'];
@@ -102,7 +107,7 @@ function ArchiveForm({ sessionId, personaId, name, description, record, nextPers
       ? { type: 'replace', status }
       : { type: statusId === 'keep' ? 'keep' : 'remove' };
     try {
-      const context = await mutatePersonaArchive(sessionId, personaId, record ? 'edit' : 'create',
+      const context = await mutatePersonaArchive(sessionId, personaId, handoff ? 'create' : 'edit',
         nextPersona || null, record?.revision ?? null, crypto.randomUUID(),
         { living, mayAppear, imageUrl, note, status: selection });
       onSaved(context);
@@ -119,7 +124,7 @@ function ArchiveForm({ sessionId, personaId, name, description, record, nextPers
     <label className="block space-y-1">
       <span className="inu-field-label">보관 상태</span>
       <select value={living ? 'living' : 'dead'} onChange={event => setLiving(event.target.value === 'living')} disabled={disabled}>
-        <option value="dead">사망</option>
+        <option value="dead" disabled={active && !handoff}>사망</option>
         <option value="living">생존</option>
       </select>
     </label>
@@ -170,7 +175,7 @@ function ArchiveForm({ sessionId, personaId, name, description, record, nextPers
         <span>RP 중 등장 가능</span>
       </label>
     </>}
-    {!record && <label className="block space-y-1">
+    {handoff && <label className="block space-y-1">
       <span className="inu-field-label">다음 페르소나</span>
       <select value={nextPersona} onChange={event => setNextPersona(event.target.value)} disabled={disabled}>
         <option value="">나중에 선택</option>
@@ -180,14 +185,14 @@ function ArchiveForm({ sessionId, personaId, name, description, record, nextPers
     {error && <p role="alert" className="text-xs text-red-300">{error}</p>}
     <div className="flex flex-wrap gap-2">
       <button type="submit" className="inu-button inu-primary" disabled={disabled || lookingUp || missingStatus}>
-        {saving ? '저장 중…' : record ? '변경사항 저장' : '보관 처리 저장'}
+        {saving ? '저장 중…' : handoff ? '보관 처리 저장' : '변경사항 저장'}
       </button>
       <button type="button" className="inu-button" disabled={saving} onClick={onCancel}>취소</button>
     </div>
   </form>;
 }
 
-export default function PersonaDeathSettings({ sessionId, currentPersona, nextPersonas, archives, readError, busy, onRetry, onSavingChange, onSaved }: Props) {
+export default function PersonaDeathSettings({ sessionId, userId, onSelectPersona, currentPersona, nextPersonas, archives, readError, busy, onRetry, onSavingChange, onSaved }: Props) {
   const [form, setForm] = useState<{ type: 'create' | 'edit'; personaId: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState('');
@@ -230,33 +235,39 @@ export default function PersonaDeathSettings({ sessionId, currentPersona, nextPe
       <InterfaceIcon name="down" />
     </summary>
     <div className="inu-detail-body space-y-3">
+      <PersonaTransitionToggle userId={userId} />
       {readError ? <p role="alert" className="inu-help">보관 기록을 불러오지 못했습니다. <button type="button" className="inu-text-button" onClick={onRetry}>다시 불러오기</button></p>
         : archives === null ? <p role="status" className="inu-help">보관 기록을 불러오는 중…</p> : <>
-          {archives.map(item => <details key={item.persona_id} className="rounded-lg border border-surface2 p-3">
-            <summary className="cursor-pointer text-sm">
-              {item.persona_name} · {item.is_living ? '생존' : '사망'}{item.status_turn !== null ? ' · ' + statusTurnLabel(item.status_turn) : ''}
-            </summary>
-            <div className="mt-3 space-y-2">
-              {record?.persona_id === item.persona_id
-                ? <ArchiveForm key={item.revision} sessionId={sessionId} personaId={item.persona_id} name={item.persona_name}
-                    description={item.persona_description} record={item} nextPersonas={[]} busy={disabled} onSavingChange={onSavingChange}
-                    onCancel={() => setForm(null)} onSaved={context => saved(context, '보관 기록을 수정했습니다.')} />
-                : <>
-                  <p className="inu-field-label">페르소나 프롬프트</p><pre className={snapshotClass}>{item.persona_description}</pre>
-                  {item.status_block !== null && <><p className="inu-field-label">{statusTurnLabel(item.status_turn)}</p><pre className={snapshotClass}>{item.status_block}</pre></>}
-                  {item.note.trim() && <><p className="inu-field-label">{item.is_living ? '보관 메모' : '사망 메모'}</p><pre className={snapshotClass}>{item.note}</pre></>}
-                  {item.is_living && <p className="inu-help">RP 중 등장 {item.may_appear ? '가능' : '불가'}</p>}
-                  {item.image_url && <><p className="inu-field-label">이미지 링크</p><p className="break-all text-xs">{item.image_url}</p></>}
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" className="inu-button" disabled={disabled} onClick={() => { setMessage(''); setDeleteError(''); setForm({ type: 'edit', personaId: item.persona_id }); }}>편집</button>
-                    <button type="button" className="inu-button" disabled={disabled} onClick={() => void remove(item)}>삭제</button>
-                  </div>
-                </>}
-            </div>
-          </details>)}
+          {archives.map(item => {
+            const selectable = item.is_living ? nextPersonas.find(candidate => candidate.id === item.persona_id) : undefined;
+            const playing = currentPersona?.id === item.persona_id;
+            return <details key={item.persona_id} className="rounded-lg border border-surface2 p-3">
+              <summary className="cursor-pointer text-sm">
+                {item.persona_name} · {item.is_living ? '생존' : '사망'}{playing ? ' · 플레이 중' : ''}{item.status_turn !== null ? ' · ' + statusTurnLabel(item.status_turn) : ''}
+              </summary>
+              <div className="mt-3 space-y-2">
+                {record?.persona_id === item.persona_id
+                  ? <ArchiveForm key={item.revision} sessionId={sessionId} personaId={item.persona_id} name={item.persona_name}
+                      description={item.persona_description} record={item} active={playing} nextPersonas={[]} busy={disabled} onSavingChange={onSavingChange}
+                      onCancel={() => setForm(null)} onSaved={context => saved(context, '보관 기록을 수정했습니다.')} />
+                  : <>
+                    <p className="inu-field-label">페르소나 프롬프트</p><pre className={snapshotClass}>{item.persona_description}</pre>
+                    {item.status_block !== null && <><p className="inu-field-label">{statusTurnLabel(item.status_turn)}</p><pre className={snapshotClass}>{item.status_block}</pre></>}
+                    {item.note.trim() && <><p className="inu-field-label">{item.is_living ? '보관 메모' : '사망 메모'}</p><pre className={snapshotClass}>{item.note}</pre></>}
+                    {item.is_living && !playing && <p className="inu-help">NPC 등장 {item.may_appear ? '가능' : '불가'}</p>}
+                    {item.image_url && <><p className="inu-field-label">이미지 링크</p><p className="break-all text-xs">{item.image_url}</p></>}
+                    <div className="flex flex-wrap gap-2">
+                      {selectable && !playing && <button type="button" className="inu-button" disabled={disabled} onClick={() => onSelectPersona(selectable)}>이 페르소나로 플레이</button>}
+                      <button type="button" className="inu-button" disabled={disabled} onClick={() => { setMessage(''); setDeleteError(''); setForm({ type: 'edit', personaId: item.persona_id }); }}>편집</button>
+                      <button type="button" className="inu-button" disabled={disabled} onClick={() => void remove(item)}>삭제</button>
+                    </div>
+                  </>}
+              </div>
+            </details>;
+          })}
           {persona
-            ? <ArchiveForm key={persona.id} sessionId={sessionId} personaId={persona.id} name={persona.name} description={persona.description}
-                nextPersonas={nextPersonas.filter(next => next.id !== persona.id)} busy={disabled} onSavingChange={onSavingChange}
+            ? <ArchiveForm key={persona.id} sessionId={sessionId} personaId={persona.id} name={persona.name} description={persona.description} handoff
+                record={archives.find(item => item.persona_id === persona.id)} nextPersonas={nextPersonas.filter(next => next.id !== persona.id)} busy={disabled} onSavingChange={onSavingChange}
                 onCancel={() => setForm(null)} onSaved={context => saved(context, persona.name + '의 보관 기록을 저장했습니다.')} />
             : currentPersona
               ? <button type="button" className="inu-button" disabled={disabled} onClick={() => { setMessage(''); setDeleteError(''); setForm({ type: 'create', personaId: currentPersona.id }); }}>현재 페르소나 보관</button>
