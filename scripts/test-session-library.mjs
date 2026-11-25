@@ -12,6 +12,9 @@ const sessions = [
   { id: 'c', title: '미분류', work_id: 'one', is_archived: false, works: { title: '작품' }, personas: null },
 ];
 assert.deepEqual(groupLibrarySessions(sessions, 'personas'), [{ id: '히나', name: '히나', count: 2 }]);
+assert.equal(groupLibrarySessions([sessions[0], sessions[2]], 'personas')[0].count, 1, 'persona folder remains while one room uses it');
+assert.deepEqual(groupLibrarySessions([sessions[2]], 'personas'), [], 'persona folder disappears when no rooms use it');
+assert.deepEqual(groupLibrarySessions(sessions.map(session => ({ ...session, personas: null })), 'personas'), [], 'changing away from the persona removes its empty folder');
 assert.equal(groupLibrarySessions(sessions, 'works').length, 2, 'same-title works are separate by work ID');
 assert(matchesSessionSearch(sessions[0], '히나 요코하마'));
 assert(matchesSessionSearch(sessions[1], 'ＴＯＫＹＯ night'));
@@ -95,6 +98,7 @@ let tree = render();
 assert.equal(nodes(tree, n => n.type === 'li').length, 3, 'bookmarked rooms remain active');
 button(tree, '보관함').props.onClick(); tree = render();
 assert.equal(nodes(tree, n => n.props['aria-label'] === '폴더 삭제').length, 0, 'built-in folders have no delete control');
+assert(button(tree, '폴더'), 'folder creation is available at the root');
 assert(nodes(tree, n => n.type === 'button' && label(n).startsWith('작품별 보기'))[0].props.children.some(child => child?.props?.children?.props?.name === 'works'));
 assert(nodes(tree, n => n.type === 'button' && label(n).startsWith('페르소나별 보기'))[0].props.children.some(child => child?.props?.children?.props?.name === 'my'));
 nodes(tree, n => n.type === 'button' && label(n).startsWith('작품별 보기'))[0].props.onClick(); tree = render();
@@ -103,13 +107,19 @@ assert(nodes(tree, n => n.props?.name === 'folder').length > 0, 'missing thumbna
 button(tree, '보관함').props.onClick(); tree = render();
 nodes(tree, n => n.type === 'button' && label(n).startsWith('페르소나별 보기'))[0].props.onClick(); tree = render();
 assert.equal(nodes(tree, n => n.props['aria-label'] === '폴더 삭제').length, 0);
+assert.equal(button(tree, '폴더'), undefined, 'built-in folders cannot contain custom folders');
 assert(nodes(tree, n => n.type === 'button' && label(n).startsWith('히나2'))[0].props.children.some(child => child?.props?.children?.props?.name === 'my'), 'persona subfolder uses the person icon');
+globalThis.__librarySessions = [sessions[2]]; tree = render();
+assert(!nodes(tree, n => n.type === 'button' && label(n).startsWith('히나')).length, 'empty persona folder disappears from the UI after session refresh');
+globalThis.__librarySessions = sessions; tree = render();
 nodes(tree, n => n.type === 'button' && label(n).startsWith('히나2'))[0].props.onClick(); tree = render();
 assert.equal(nodes(tree, n => n.type === 'li').length, 2);
 assert.equal(nodes(tree, n => n.props['aria-label'] === '폴더 삭제').length, 0, 'automatic subfolders cannot be deleted');
+assert.equal(button(tree, '폴더'), undefined, 'automatic subfolders cannot contain custom folders');
 button(tree, '보관함').props.onClick(); tree = render();
 nodes(tree, n => n.type === 'button' && label(n).startsWith('모험'))[0].props.onClick(); tree = render();
 assert.equal(nodes(tree, n => n.props['aria-label'] === '폴더 삭제').length, 1);
+assert.equal(button(tree, '폴더'), undefined, 'folder creation is only shown at the root');
 assert.equal(nodes(tree, n => n.type === 'li').length, 1);
 button(tree, '보관함').props.onClick(); tree = render();
 nodes(tree, n => n.type === 'button' && label(n).startsWith('북마크1'))[0].props.onClick(); tree = render();
