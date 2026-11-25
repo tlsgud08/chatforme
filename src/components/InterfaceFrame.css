@@ -180,6 +180,8 @@
   .interface-frame[data-interface='modern'] .editor-cover-image { width: 80px; }
 }
 @container interface (max-width: 580px) {
+  .interface-frame[data-interface='modern'] .sessions-tabs { gap: 6px; }
+  .interface-frame[data-interface='modern'] .sessions-tabs > .session-list-actions { padding-inline: 0; }
   .interface-frame[data-interface='modern']:not([data-login]),
   .interface-frame[data-interface='modern'][data-collapsed]:not([data-login]) { grid-template-columns: minmax(0, 1fr); grid-template-rows: 58px minmax(0, 1fr) auto; }
   .interface-frame[data-interface='modern']:not([data-login]) .desktop-sidebar { display: none; }
