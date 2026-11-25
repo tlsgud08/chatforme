@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { createServer } from 'vite';
 
@@ -21,7 +21,7 @@ const description = '  First PC\n{{sync_date::preserve}}  \n';
 const fence = String.fromCharCode(96).repeat(3);
 const status = fence + 'status\nHealth: 0\n~~~\n' + fence;
 const content = '회상\n\n' + status + '\n\n' + fence + '\nAnother block\n' + fence;
-let recorded, livingContext;
+let recorded, livingContext, playingContext;
 
 try {
   await db.exec(
@@ -166,11 +166,73 @@ try {
   assert.equal((await rpc('session_persona_archive_context', [room])).livingPrompt, 'Custom living rules');
   assert.equal((await rpc('session_persona_archive_context', [room])).deathPrompt, 'Updated death rules');
   livingContext = current.personaArchives;
+  await db.exec(`reset role;
+    create table profiles(id uuid primary key);
+    alter table profiles enable row level security;
+    create policy profile_owner on profiles for all to authenticated using (id = auth.uid()) with check (id = auth.uid());
+    grant select,update on profiles to authenticated;
+  `);
+  await query('insert into profiles values($1),($2)', [owner, outsider]);
+  const transitionMigration = readdirSync(new URL('../supabase/migrations/', import.meta.url))
+    .find(filename => filename.endsWith('_persona_turn_transitions.sql'));
+  assert.ok(transitionMigration);
+  await db.exec(migration(transitionMigration));
+  const [legacyRoom, legacyUser, noticeUser, noticeAnswer, rearchiveId] = Array.from({length: 5}, () => crypto.randomUUID());
+  await query('insert into sessions(id,user_id,persona_id) values($1,$2,$3)', [legacyRoom, owner, first]);
+  await query("insert into messages(id,session_id,role,content,turn_index) values($1,$2,'user','Legacy user turn',1)", [legacyUser, legacyRoom]);
+
+  await login(owner);
+  assert.deepEqual((await rpc('session_persona_turn_context', [room])).notice,
+    {from: 'Current', to: 'Next', template: ''});
+  await query('update sessions set persona_id=$1 where id=$2', [third, room]);
+  const returned = await rpc('session_persona_archive_context', [room]);
+  assert.equal(returned.persona.id, third, 'a living archived character is selectable again');
+  assert.equal(returned.archives[2].is_living, true, 'playing preserves living archive');
+  assert.equal((await rpc('session_persona_turn_context', [room])).notice, null, 'back to the previous turn PC does not insert a notice');
+  await assert.rejects(() => query('update sessions set persona_id=$1 where id=$2', [second, room]), /사망 보관/);
+  await assert.rejects(() => rpc('mutate_session_persona_archive', [room, third, 'edit', crypto.randomUUID(), livingId, null,
+    { ...patch, is_living: false, status_action: 'keep' }]), /플레이 중/);
+  assert.equal((await rpc('mutate_session_persona_archive', [room, third, 'create', rearchiveId, livingId, fourth,
+    { ...patch, status_action: 'keep' }])).archives.filter(a => a.persona_id === third).length, 1);
+  const fromFourth = await rpc('mutate_session_persona_archive', [room, fourth, 'create', crypto.randomUUID(), null, third,
+    { ...patch, status_action: 'remove' }]);
+  assert.equal(fromFourth.persona.id, third, 'an archived living character also works in the handoff selector');
+
+  await query('update sessions set persona_id=$1 where id=$2', [second, legacyRoom]);
+  await query('update sessions set persona_id=$1 where id=$2', [fourth, legacyRoom]);
+  const legacyContext = await rpc('session_generation_context', [legacyRoom]);
+  assert.deepEqual(legacyContext.personaTurn.notice, {from: 'Former', to: 'Next', template: ''}, 'one notice from last actual turn to the final selection');
+  assert.equal((await query('select content from messages where id=$1', [legacyUser]))[0].content, 'Legacy user turn');
+  const args = [legacyRoom, noticeAnswer, noticeUser, 'Player text\n\n*Transition text*', null, null, null,
+    [], '', 0, null, 2, 1, legacyContext.contextHash, fourth];
+  await assert.rejects(() => rpc('begin_session_response', [...args.slice(0,-1), second]), /Persona changed/);
+  const noticeClaim = await rpc('begin_session_response', args);
+  assert.equal(noticeClaim.userMessage.content, 'Player text\n\n*Transition text*');
+  assert.equal(noticeClaim.userMessage.author_persona_name, 'Next');
+  assert.equal((await rpc('session_persona_turn_context', [legacyRoom])).notice, null, 'the saved turn consumes the transition');
+  assert.equal((await rpc('begin_session_response', args)).userMessage.id, noticeUser, 'a retry does not attach the message again');
+  await query("update messages set content='Edited ordinary text' where id=$1", [noticeUser]);
+  await query("update messages set generation_status='complete' where id=$1", [noticeAnswer]);
+  assert.equal((await query('select content from messages where id=$1', [noticeUser]))[0].content, 'Edited ordinary text');
+  await query('update sessions set persona_id=$1 where id=$2', [first, legacyRoom]);
+  assert.equal((await rpc('session_persona_turn_context', [legacyRoom])).notice.from, 'Next');
+  await query('update profiles set persona_transition_notice_enabled=false where id=$1', [owner]);
+  assert.equal((await rpc('session_persona_turn_context', [legacyRoom])).notice, null);
+  await query('update profiles set persona_transition_notice_enabled=true where id=$1', [owner]);
+  const adminArgs = [{}, {system_prompt:'transition settings'}, null, 'Updated death rules', 'Updated death rules',
+    'Custom living rules', 'Custom living rules', '', '{이전} → {현재}'];
+  assert.equal(await rpc('save_admin_settings_with_persona_transition', adminArgs), true);
+  assert.equal((await rpc('session_persona_turn_context', [legacyRoom])).notice.template, '{이전} → {현재}');
+  await login(outsider);
+  assert.equal(await rpc('session_persona_turn_context', [legacyRoom]), null);
+  await assert.rejects(() => rpc('save_admin_settings_with_persona_transition', adminArgs), /관리자/);
+  playingContext = returned;
 } finally { await db.close(); }
 
 const server = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
 try {
   const { applyPersonaArchives, applyPersonaDeaths, DEFAULT_PERSONA_DEATH_PROMPT, statusTurnLabel } = await server.ssrLoadModule('/src/lib/personaDeathPrompt.ts');
+  const { appendPersonaTransition } = await server.ssrLoadModule('/src/lib/personaTransition.ts');
   const { deathStatusChoices } = await server.ssrLoadModule('/src/lib/personaDeath.ts');
   const { buildOpenRouterMessages } = await server.ssrLoadModule('/src/lib/llm/promptCache.ts');
   const choices = deathStatusChoices([{ id: message, content, content_version: 4, turn_index: 1 }]);
@@ -193,6 +255,12 @@ try {
   assert.equal(wire[0].content, oldWire[0].content + '\n\n' + withDeaths.systemParts.personaDeaths);
   for (const text of [description, status, 'Admin rules', 'Second PC']) assert.ok(wire[0].content.includes(text));
   assert.ok(applyPersonaDeaths(base, { ...recorded, prompt: ' ' }).systemParts.personaDeaths.includes(DEFAULT_PERSONA_DEATH_PROMPT));
+  assert.equal(appendPersonaTransition('안녕하세요.', {from:'누리',to:'마루',template:''}),
+    '안녕하세요.\n\n*페르소나(플레이어 캐릭터)가 누리에서 마루로 전환되었습니다. 해당 사실을 반영하여 진행해 주세요.*');
+  assert.equal(appendPersonaTransition('', {from:'누리',to:'마루',template:'{이전} → {현재}'}), '*누리 → 마루*');
+  assert.equal(appendPersonaTransition('원문', null), '원문');
+  assert.ok(!applyPersonaArchives(base, playingContext).systemParts.personaDeaths.includes('Living Persona Archives'),
+    'playing an archived character suppresses its archived NPC instructions');
   const withLiving = applyPersonaArchives(base, livingContext).systemParts.personaDeaths;
   assert.ok(withLiving.includes('Current의 이미지: ![](https://example.test/portrait.png)'));
   assert.ok(withLiving.includes('Third persona dialogue'));
