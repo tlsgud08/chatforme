@@ -103,6 +103,7 @@ assert(nodes(tree, n => n.props?.name === 'folder').length > 0, 'missing thumbna
 button(tree, '보관함').props.onClick(); tree = render();
 nodes(tree, n => n.type === 'button' && label(n).startsWith('페르소나별 보기'))[0].props.onClick(); tree = render();
 assert.equal(nodes(tree, n => n.props['aria-label'] === '폴더 삭제').length, 0);
+assert(nodes(tree, n => n.type === 'button' && label(n).startsWith('히나2'))[0].props.children.some(child => child?.props?.children?.props?.name === 'my'), 'persona subfolder uses the person icon');
 nodes(tree, n => n.type === 'button' && label(n).startsWith('히나2'))[0].props.onClick(); tree = render();
 assert.equal(nodes(tree, n => n.type === 'li').length, 2);
 assert.equal(nodes(tree, n => n.props['aria-label'] === '폴더 삭제').length, 0, 'automatic subfolders cannot be deleted');

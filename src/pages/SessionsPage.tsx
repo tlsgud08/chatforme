@@ -114,7 +114,7 @@ export default function SessionsPage() {
 
   function folderRow(name: string, count: number, next: LibraryLocation) {
     const thumbnail = next.kind === 'work' ? list.find(session => session.work_id === next.id)?.works?.thumbnail_url : null;
-    const icon = next.kind === 'works' ? 'works' : next.kind === 'personas' ? 'my' : next.kind === 'bookmarks' ? 'bookmark' : 'folder';
+    const icon = next.kind === 'works' ? 'works' : next.kind === 'personas' || next.kind === 'persona' ? 'my' : next.kind === 'bookmarks' ? 'bookmark' : 'folder';
     return <button key={JSON.stringify(next)} type="button" onClick={() => navigateFolder(next)} className="flex w-full items-center gap-3 border-b border-surface2 p-4 text-left active:bg-surface">
       <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface2 text-brand">{thumbnail ? <img src={thumbnail} alt="" className="h-full w-full object-cover" /> : <InterfaceIcon name={icon} />}</span>
       <span className="min-w-0 flex-1 truncate font-semibold text-white">{name}</span>
