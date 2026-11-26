@@ -106,11 +106,11 @@ const patches = [];
 const room = { id: 'room', user_note: '', total_cost: 0 };
 const menu = vm.runInNewContext(compile(read('src/components/SessionMenu.tsx').replace(/^import .*$/gm, '').replace('export default function', 'function')) + '\nSessionMenu', {
   jsx: createElement, Fragment, ...hooks, ...children, useAuth: () => ({}), getApiKey: () => '',
-  normalizeOutputTokens: value => value ?? null, summaryCompletionWarning: () => null, setTimeout: noop,
+  normalizeOutputTokens: value => value ?? null, formatKrw: () => '', summaryCompletionWarning: () => null, setTimeout: noop,
   supabase: { from: () => ({ update: patch => ({ eq: async () => { patches.push(patch); return {}; } }) }) },
 });
 const render = (account = {}) => { cursor = 0; return menu({
-  session: room, profile: account, storyNotes: [], sessionReasoning: {}, errorLog: [], exchange: {}, sessionTurnCount: 30,
+  session: room, profile: account, storyNotes: [], sessionReasoning: {}, errorLog: [], exchange: { rate: 1400 }, sessionTurnCount: 30,
   onUpdate: patch => Object.assign(room, patch),
 }); };
 let tree = render();
@@ -121,11 +121,13 @@ assert.equal(control('지난 메모리와 이어서 생성').props.checked, fals
 const switches = nodes(tree, node => node.type === 'Toggle');
 assert.equal(switches.findIndex(node => node.props['aria-label'] === '지난 메모리와 이어서 생성'),
   switches.findIndex(node => node.props['aria-label'] === '요약 생략 허용') + 1);
-await control('지난 메모리와 이어서 생성').props.onChange(true);
+control('지난 메모리와 이어서 생성').props.onChange(true);
+await new Promise(resolve => setImmediate(resolve));
 assert.equal(patches.at(-1).summary_source_mode_override, 'incremental');
 tree = render();
 assert.equal(control('지난 메모리와 이어서 생성').props.checked, true);
-await control('지난 메모리와 이어서 생성').props.onChange(false);
+control('지난 메모리와 이어서 생성').props.onChange(false);
+await new Promise(resolve => setImmediate(resolve));
 tree = render({ summary_source_mode: 'incremental' });
 assert.equal(control('지난 메모리와 이어서 생성').props.checked, false);
 room.summary_source_mode_override = null;
