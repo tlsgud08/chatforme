@@ -100,6 +100,10 @@ try {
   await db.exec(migration('20261025012314_atomic_session_branch.sql'));
   await db.exec(migration('20261104235318_prune_unselected_responses.sql'));
   await db.exec(migration('20261125151120_persona_archives.sql'));
+  const recentTurnsMigration = readdirSync(new URL('../supabase/migrations/', import.meta.url))
+    .find(filename => filename.endsWith('_persona_archive_recent_turns.sql'));
+  assert.ok(recentTurnsMigration);
+  await db.exec(migration(recentTurnsMigration));
   const [fourth, nextUser, nextAnswer, livingId, earlyFork, fullFork, nestedFork, editId, deleteId] =
     Array.from({ length: 9 }, () => crypto.randomUUID());
   await query("insert into personas values($1,$2,'Next','Next PC')", [fourth, owner]);
@@ -226,6 +230,25 @@ try {
   await login(outsider);
   assert.equal(await rpc('session_persona_turn_context', [legacyRoom]), null);
   await assert.rejects(() => rpc('save_admin_settings_with_persona_transition', adminArgs), /관리자/);
+  await db.exec('reset role');
+  await query(`insert into messages(id,session_id,role,content,turn_index,author_persona_id)
+    select gen_random_uuid(),$1,'user','Past PC turn ' || n,n,$2
+    from generate_series(2,24) n`, [room, third]);
+  for (const [index, text, speaker] of [
+    [25, '*이어서 계속 진행*', third],
+    [26, '*이어서 계속 진행*\n\n*누리 → 마루*', third],
+    [27, 'Other persona turn', fourth],
+    [28, '*이어서 계속 진행*이라고 말하며 문을 열었다.', third],
+  ]) {
+    await query(`insert into messages(id,session_id,role,content,turn_index,author_persona_id)
+      values(gen_random_uuid(),$1,'user',$2,$3,$4)`, [room, text, index, speaker]);
+  }
+  await login(owner);
+  const history = (await rpc('session_generation_context', [room])).personaArchives.archives.find(a => a.persona_id === third);
+  assert.deepEqual(history.past_lines, [
+    ...Array.from({ length: 19 }, (_, i) => 'Past PC turn ' + (i + 6)),
+    '*이어서 계속 진행*이라고 말하며 문을 열었다.',
+  ], 'recent 20 starts after filtering auto-continue turns, preserves chronology and keeps real text');
   playingContext = returned;
 } finally { await db.close(); }
 
@@ -263,7 +286,7 @@ try {
     'playing an archived character suppresses its archived NPC instructions');
   const withLiving = applyPersonaArchives(base, livingContext).systemParts.personaDeaths;
   assert.ok(withLiving.includes('Current의 이미지: ![](https://example.test/portrait.png)'));
-  assert.ok(withLiving.includes('Third persona dialogue'));
+  assert.ok(withLiving.includes('해당 인물의 과거 발화·행동 (참고하여 진행)\n~~~\nThird persona dialogue\n~~~'));
   const mentionsOnly = applyPersonaArchives(base, { ...livingContext, archives: livingContext.archives.map(a => ({...a, may_appear: false})) }).systemParts.personaDeaths;
   assert.ok(mentionsOnly.includes('직접 등장·대사·행동은 금지'));
   assert.ok(!mentionsOnly.includes('portrait.png') && !mentionsOnly.includes('Third persona dialogue'));

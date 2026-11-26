@@ -328,16 +328,11 @@ export default function SettingsPage() {
               onModelChange={(summary_model) => setProfile({ ...profile, summary_model })}
               onReasoningChange={setSummaryReasoning}
             />
-            <label className="text-xs text-slate-400">요약 입력 범위
-              <select value={profile.summary_source_mode ?? 'full'} onChange={(e) => setProfile({ ...profile, summary_source_mode: e.target.value as 'incremental' | 'full' })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none">
-                <option value="full">이전 요약 제외 + 세션 전체 메시지</option>
-                <option value="incremental">이전 요약 + 이후 메시지</option>
-              </select>
-            </label>
             <label className="text-xs text-slate-400">Summary level (0~10)
               <input type="number" min={0} max={10} value={profile.summary_level ?? 0} onChange={(e) => setProfile({ ...profile, summary_level: Math.max(0, Math.min(10, Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
             </label>
             <label className="flex items-center justify-between text-xs text-slate-300"><span>Allow omission</span><input type="checkbox" checked={profile.summary_allow_omission ?? false} onChange={(e) => setProfile({ ...profile, summary_allow_omission: e.target.checked })} /></label>
+            <label className="flex items-center justify-between text-xs text-slate-300"><span>지난 메모리와 이어서 생성</span><Toggle aria-label="지난 메모리와 이어서 생성" checked={(profile.summary_source_mode ?? 'full') === 'incremental'} onChange={enabled => setProfile({ ...profile, summary_source_mode: enabled ? 'incremental' : 'full' })} /></label>
             <label className="text-xs text-slate-400">[핵심 서사 및 맥락] 목표 글자 수
               <input aria-label="[핵심 서사 및 맥락] 목표 글자 수" type="text" value={profile.summary_narrative_target_chars ?? '10000'} onChange={event => setProfile({ ...profile, summary_narrative_target_chars: event.target.value })} placeholder="10000" className="mt-1 w-full rounded-lg bg-surface2 px-3 py-2 text-sm text-white outline-none" />
               <span className="mt-1 block text-[11px] text-slate-500">핵심 서사 본문의 목표 글자 수예요. 공백 포함·줄바꿈 제외. 숫자나 범위를 입력할 수 있어요.</span>
