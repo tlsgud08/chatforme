@@ -34,6 +34,9 @@ try{
  const fresh='00000000-0000-0000-0000-000000000099';
  await q('insert into auth.users(id,email) values($1,$2)',[fresh,'new-default@test']);
  assert.equal((await q('select summary_source_mode from profiles where id=$1',[fresh]))[0].summary_source_mode,'full','new accounts use full history');
+ const defaults=(await q('select summary_level,summary_allow_omission from profiles where id=$1',[fresh]))[0];
+ assert.equal(defaults.summary_level,0,'new accounts start at summary level zero');
+ assert.equal(defaults.summary_allow_omission,false,'new accounts disable omission');
  assert.equal((await q('select summary_source_mode from profiles where id=$1',[b]))[0].summary_source_mode,'incremental','existing choices survive the default migration');
  await db.exec(readFileSync(new URL('20261109042958_summary_full_source_default.sql',dir),'utf8'));
  assert.equal((await q('select summary_narrative_target_tokens from profiles where id=$1',[fresh]))[0].summary_narrative_target_tokens,'3000','legacy token defaults stay independent');
