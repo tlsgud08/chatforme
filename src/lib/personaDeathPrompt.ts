@@ -77,7 +77,7 @@ export function applyPersonaArchives(prompt: AssembledPrompt, context: PersonaAr
     ...(record.status_block === null ? [] : [snapshot(statusTurnLabel(record.status_turn), record.status_block)]),
     ...(record.note.trim() ? [snapshot(record.is_living ? '보관 메모' : '사망 메모', record.note)] : []),
     ...(record.past_lines?.length && record.is_living && record.may_appear
-      ? [snapshot('해당 인물의 과거 발화·행동', record.past_lines.join('\n\n'))] : []),
+      ? [snapshot('해당 인물의 과거 발화·행동 (참고하여 진행)', record.past_lines.join('\n\n'))] : []),
     ...(record.is_living && record.may_appear && record.image_url
       ? [record.persona_name.replace(/\s+/g, ' ') + '의 이미지: ![](' + record.image_url.replace(/\(/g, '%28').replace(/\)/g, '%29') + ')'] : []),
   ].join('\n');
